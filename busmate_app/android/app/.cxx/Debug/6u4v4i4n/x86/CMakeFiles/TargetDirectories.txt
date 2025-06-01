@@ -1,0 +1,2 @@
+/Users/taral/StudioProjects/busmate/android/app/.cxx/Debug/6u4v4i4n/x86/CMakeFiles/edit_cache.dir
+/Users/taral/StudioProjects/busmate/android/app/.cxx/Debug/6u4v4i4n/x86/CMakeFiles/rebuild_cache.dir

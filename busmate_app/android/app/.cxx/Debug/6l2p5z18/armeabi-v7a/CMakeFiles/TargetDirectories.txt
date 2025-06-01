@@ -1,0 +1,2 @@
+C:/Users/realr/Desktop/busmate_merges/final/busmate_final/busmate/android/app/.cxx/Debug/6l2p5z18/armeabi-v7a/CMakeFiles/edit_cache.dir
+C:/Users/realr/Desktop/busmate_merges/final/busmate_final/busmate/android/app/.cxx/Debug/6l2p5z18/armeabi-v7a/CMakeFiles/rebuild_cache.dir

@@ -1,0 +1,2 @@
+/Users/deskcode/Development/projects/busmate/android/app/.cxx/RelWithDebInfo/4f373c5d/x86/CMakeFiles/edit_cache.dir
+/Users/deskcode/Development/projects/busmate/android/app/.cxx/RelWithDebInfo/4f373c5d/x86/CMakeFiles/rebuild_cache.dir

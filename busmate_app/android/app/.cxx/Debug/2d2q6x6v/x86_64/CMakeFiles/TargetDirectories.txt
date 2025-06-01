@@ -1,0 +1,2 @@
+D:/busmate/android/app/.cxx/Debug/2d2q6x6v/x86_64/CMakeFiles/edit_cache.dir
+D:/busmate/android/app/.cxx/Debug/2d2q6x6v/x86_64/CMakeFiles/rebuild_cache.dir

@@ -1,0 +1,2 @@
+C:/Users/realr/Downloads/busmate 7/busmate 7/android/app/.cxx/RelWithDebInfo/5j3r2g5i/arm64-v8a/CMakeFiles/edit_cache.dir
+C:/Users/realr/Downloads/busmate 7/busmate 7/android/app/.cxx/RelWithDebInfo/5j3r2g5i/arm64-v8a/CMakeFiles/rebuild_cache.dir

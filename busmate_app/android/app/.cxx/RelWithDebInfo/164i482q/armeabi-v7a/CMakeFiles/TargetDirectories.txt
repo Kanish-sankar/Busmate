@@ -1,0 +1,2 @@
+/Users/deskcode/Downloads/busmate/android/app/.cxx/RelWithDebInfo/164i482q/armeabi-v7a/CMakeFiles/edit_cache.dir
+/Users/deskcode/Downloads/busmate/android/app/.cxx/RelWithDebInfo/164i482q/armeabi-v7a/CMakeFiles/rebuild_cache.dir
