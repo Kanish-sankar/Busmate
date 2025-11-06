@@ -6,18 +6,35 @@ import 'driver_controller.dart';
 import 'driver_model.dart';
 
 class DriverManagementScreen extends StatelessWidget {
-  final DriverController controller = Get.put(DriverController());
+  final String? schoolId;
+  late final DriverController controller;
 
-  DriverManagementScreen({super.key});
+  DriverManagementScreen({super.key, this.schoolId}) {
+    // Initialize controller with schoolId passed as parameter OR from Get.arguments
+    final arguments = Get.arguments as Map<String, dynamic>?;
+    final effectiveSchoolId = schoolId ?? arguments?['schoolId'];
+    
+    print('🔍 DriverManagementScreen - schoolId param: $schoolId');
+    print('🔍 DriverManagementScreen - Get.arguments: $arguments');
+    print('🔍 DriverManagementScreen - effectiveSchoolId: $effectiveSchoolId');
+    
+    // Put controller with tag to avoid conflicts between different school instances
+    controller = Get.put(
+      DriverController(),
+      tag: effectiveSchoolId ?? 'default',
+    );
+    
+    // Set the schoolId in controller if provided
+    if (effectiveSchoolId != null) {
+      controller.schoolId = effectiveSchoolId;
+      controller.fetchDrivers();
+    } else {
+      print('❌ DriverManagementScreen - No schoolId provided!');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    // Ensure controller.schoolId is set from arguments
-    final arguments = Get.arguments as Map<String, dynamic>?;
-    if (arguments != null && arguments['schoolId'] != null) {
-      controller.schoolId = arguments['schoolId'];
-      controller.fetchDrivers();
-    }
 
     return Scaffold(
       appBar: AppBar(

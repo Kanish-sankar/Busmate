@@ -1,6 +1,5 @@
 // driver_controller.dart
 import 'package:busmate_web/modules/Authentication/auth_controller.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:get/get.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'driver_model.dart';
@@ -12,29 +11,46 @@ class DriverController extends GetxController {
   FirebaseFirestore firestore = FirebaseFirestore.instance;
   late String schoolId;
 
-  // Use root-level drivers collection
-  CollectionReference get driverCollection => firestore.collection('drivers');
+  // Use subcollection under schooldetails
+  CollectionReference get driverCollection => 
+      firestore.collection('schooldetails').doc(schoolId).collection('drivers');
 
   @override
   void onInit() {
     super.onInit();
-    // Get schoolId from arguments
+    // Get schoolId from arguments (set by screen constructor)
     final arguments = Get.arguments as Map<String, dynamic>?;
-    schoolId = arguments?['schoolId'] ?? FirebaseAuth.instance.currentUser!.uid;
+    if (arguments != null && arguments.containsKey('schoolId')) {
+      schoolId = arguments['schoolId'];
+    }
+    // schoolId should be set by the screen before calling onInit
+    // If not set, throw an error to catch configuration issues
+    if (schoolId.isEmpty) {
+      throw Exception('DriverController initialized without schoolId. Please pass schoolId to DriverManagementScreen.');
+    }
     fetchDrivers();
   }
 
-  void fetchDrivers() {
+  void fetchDrivers() async {
+    print('👨‍✈️ Fetching drivers for schoolId: $schoolId');
     isLoading.value = true;
-    // Query drivers collection filtered by schoolId
-    driverCollection
-        .where('schoolId', isEqualTo: schoolId)
-        .snapshots()
-        .listen((QuerySnapshot snapshot) {
+    try {
+      // ONE-TIME READ instead of real-time listener
+      final snapshot = await driverCollection.get();
+      print('✅ Received ${snapshot.docs.length} drivers');
       drivers.value =
           snapshot.docs.map((doc) => Driver.fromDocument(doc)).toList();
       isLoading.value = false;
-    });
+    } catch (error) {
+      print('❌ Error fetching drivers: $error');
+      isLoading.value = false;
+      Get.snackbar(
+        '❌ Error',
+        'Failed to load drivers: $error',
+        snackPosition: SnackPosition.BOTTOM,
+        duration: const Duration(seconds: 5),
+      );
+    }
   }
 
   Future<void> addDriver(Driver driver) async {

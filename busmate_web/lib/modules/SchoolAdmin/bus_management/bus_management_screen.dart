@@ -5,18 +5,35 @@ import 'package:get/get.dart';
 import 'bus_model.dart';
 
 class BusManagementScreen extends StatelessWidget {
-  final BusController controller = Get.put(BusController());
+  final String? schoolId;
+  late final BusController controller;
 
-  BusManagementScreen({super.key});
+  BusManagementScreen({super.key, this.schoolId}) {
+    // Initialize controller with schoolId passed as parameter OR from Get.arguments
+    final arguments = Get.arguments as Map<String, dynamic>?;
+    final effectiveSchoolId = schoolId ?? arguments?['schoolId'];
+    
+    print('🔍 BusManagementScreen - schoolId param: $schoolId');
+    print('🔍 BusManagementScreen - Get.arguments: $arguments');
+    print('🔍 BusManagementScreen - effectiveSchoolId: $effectiveSchoolId');
+    
+    // Put controller with tag to avoid conflicts
+    controller = Get.put(
+      BusController(),
+      tag: effectiveSchoolId ?? 'default',
+    );
+    
+    // Set the schoolId in controller if provided
+    if (effectiveSchoolId != null && effectiveSchoolId.isNotEmpty) {
+      controller.schoolId = effectiveSchoolId;
+      controller.fetchBuses();
+    } else {
+      print('❌ BusManagementScreen - No schoolId provided!');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    // Ensure controller.schoolId is set from arguments
-    final arguments = Get.arguments as Map<String, dynamic>?;
-    if (arguments != null && arguments['schoolId'] != null) {
-      controller.schoolId = arguments['schoolId'];
-      controller.fetchBuses();
-    }
 
     return Scaffold(
       appBar: AppBar(
@@ -100,7 +117,7 @@ class BusManagementScreen extends StatelessWidget {
                                             content: SizedBox(
                                               width: double.maxFinite,
                                               child: ListView(
-                                                children: bus.students
+                                                children: bus.assignedStudents
                                                     .map((student) => ListTile(
                                                           title: Text(student),
                                                         ))
@@ -117,7 +134,7 @@ class BusManagementScreen extends StatelessWidget {
                                           ));
                                 },
                                 child: Text(
-                                    'Students (${bus.students.length}) View'),
+                                    'Students (${bus.assignedStudents.length}) View'),
                               ),
                             ],
                           ),
@@ -154,7 +171,10 @@ class BusManagementScreen extends StatelessWidget {
       // Add Bus Floating Button
       floatingActionButton: FloatingActionButton(
         onPressed: () {
-          Get.to(() => AddBusScreen());
+          print('➕ Navigating to AddBusScreen with schoolId: ${controller.schoolId}');
+          Get.to(() => AddBusScreen(), arguments: {
+            'schoolId': controller.schoolId,
+          });
         },
         child: const Icon(Icons.add),
       ),

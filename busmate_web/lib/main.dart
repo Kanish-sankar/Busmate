@@ -1,7 +1,6 @@
 import 'package:busmate_web/modules/Authentication/auth_controller.dart';
 import 'package:busmate_web/modules/Routes/app_pages.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'firebase_options.dart'; // Your Firebase configuration file
@@ -11,8 +10,6 @@ void main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
-
-  Get.put(AuthController()); // Inject AuthController globally
 
   // Initialize auth controller as a singleton
   Get.put(AuthController(), permanent: true);

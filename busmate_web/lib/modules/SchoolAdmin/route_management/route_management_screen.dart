@@ -17,11 +17,12 @@ class RouteManagementScreen extends StatelessWidget {
   final RouteController routeController = Get.put(RouteController());
 
   RouteManagementScreen({super.key, required this.selectedBus}) {
-    // Ensure schoolId is passed in arguments
+    // Get schoolId from arguments
     final arguments = Get.arguments as Map<String, dynamic>?;
-    if (arguments != null && arguments['schoolId'] != null) {
-      routeController.init(selectedBus.id);
-    }
+    final schoolId = arguments?['schoolId'];
+    
+    // Initialize controller with busId and schoolId
+    routeController.init(selectedBus.id, schoolId: schoolId);
   }
 
   @override

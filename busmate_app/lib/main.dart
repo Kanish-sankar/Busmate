@@ -1,5 +1,5 @@
-import 'dart:io';
-
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:background_locator_2/background_locator.dart';
 import 'package:busmate/busmate.dart';
 import 'package:busmate/firebase_options.dart';
@@ -45,12 +45,14 @@ void main() async {
 
   await NotificationHelper.initialize();
 
-  if (Platform.isIOS) {
-    Permission.location.request();
-    Permission.locationAlways.request();
+  // Platform-specific permissions and background location
+  if (!kIsWeb) {
+    if (Platform.isIOS) {
+      Permission.location.request();
+      Permission.locationAlways.request();
+    }
+    await BackgroundLocator.initialize();
   }
-
-  await BackgroundLocator.initialize();
 
   FirebaseMessaging.instance.requestPermission(
     alert: true,

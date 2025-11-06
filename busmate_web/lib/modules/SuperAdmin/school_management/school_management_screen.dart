@@ -1,5 +1,5 @@
 // File: lib/modules/SuperAdmin/school_management/school_management_screen.dart
-import 'package:busmate_web/modules/SuperAdmin/school_management/school_add.dart';
+import 'package:busmate_web/modules/SuperAdmin/school_management/add_school_screen.dart';
 import 'package:busmate_web/modules/SuperAdmin/school_management/school_dialogue_widget.dart';
 import 'package:busmate_web/modules/SuperAdmin/school_management/school_management_controller.dart';
 import 'package:flutter/material.dart';
@@ -87,7 +87,7 @@ class SchoolManagementScreen extends StatelessWidget {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    school['school_name'] ?? '',
+                                    school['schoolName'] ?? '',
                                     style: const TextStyle(
                                       fontSize: 18,
                                       fontWeight: FontWeight.bold,
@@ -97,15 +97,13 @@ class SchoolManagementScreen extends StatelessWidget {
                                   ),
                                   const SizedBox(height: 8),
                                   Text("Email: ${school['email'] ?? ''}"),
-                                  Text(
-                                      "Phone: ${school['phone_number'] ?? ''}"),
+                                  Text("Phone: ${school['phone'] ?? ''}"),
                                   Text("Address: ${school['address'] ?? ''}",
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis),
-                                  Text(
-                                      "Package: ${school['package_type'] ?? ''}"),
+                                  Text("Code: ${school['schoolCode'] ?? ''}"),
                                   Text("ID: ${school['school_id'] ?? ''}"),
-                                  Text("Password: ${school['password'] ?? ''}"),
+                                  Text("Buses: ${school['totalBuses'] ?? 0}"),
                                 ],
                               ),
                             ),

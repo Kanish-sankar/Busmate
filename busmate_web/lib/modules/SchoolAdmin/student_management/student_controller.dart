@@ -1,4 +1,3 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:get/get.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'student_model.dart';
@@ -12,33 +11,46 @@ class StudentController extends GetxController {
   FirebaseFirestore firestore = FirebaseFirestore.instance;
   late String schoolId;
 
-  // Update to use root-level students collection
-  CollectionReference get studentCollection => firestore.collection('students');
+  // Use subcollection under schooldetails
+  CollectionReference get studentCollection => 
+      firestore.collection('schooldetails').doc(schoolId).collection('students');
 
   @override
   void onInit() {
     super.onInit();
-    // Get schoolId from arguments
+    // Get schoolId from arguments (set by screen constructor)
     final arguments = Get.arguments as Map<String, dynamic>?;
-    schoolId = arguments?['schoolId'] ?? FirebaseAuth.instance.currentUser!.uid;
+    if (arguments != null && arguments.containsKey('schoolId')) {
+      schoolId = arguments['schoolId'];
+    }
+    // schoolId should be set by the screen before calling onInit
+    // If not set, throw an error to catch configuration issues
     if (schoolId.isEmpty) {
-      throw Exception(
-          'schoolId must not be empty when initializing StudentController');
+      throw Exception('StudentController initialized without schoolId. Please pass schoolId to StudentManagementScreen.');
     }
     fetchStudents();
   }
 
-  void fetchStudents() {
+  void fetchStudents() async {
+    print('👨‍🎓 Fetching students for schoolId: $schoolId');
     isLoading.value = true;
-    // Query students collection and filter by schoolId
-    studentCollection
-        .where('schoolId', isEqualTo: schoolId)
-        .snapshots()
-        .listen((QuerySnapshot snapshot) {
+    try {
+      // ONE-TIME READ instead of real-time listener
+      final snapshot = await studentCollection.get();
+      print('✅ Received ${snapshot.docs.length} students');
       students.value =
           snapshot.docs.map((doc) => Student.fromDocument(doc)).toList();
       isLoading.value = false;
-    });
+    } catch (error) {
+      print('❌ Error fetching students: $error');
+      isLoading.value = false;
+      Get.snackbar(
+        '❌ Error',
+        'Failed to load students: $error',
+        snackPosition: SnackPosition.BOTTOM,
+        duration: const Duration(seconds: 5),
+      );
+    }
   }
 
   Future<void> addStudent(Student student) async {

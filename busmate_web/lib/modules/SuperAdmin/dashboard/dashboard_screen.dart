@@ -3,12 +3,12 @@ import 'package:busmate_web/modules/SchoolAdmin/dashboard/dashboard_controller.d
 import 'package:busmate_web/modules/SchoolAdmin/route_management/select_bus_screen.dart';
 import 'package:busmate_web/modules/SuperAdmin/dashboard/dashboard_controller.dart';
 import 'package:busmate_web/modules/SuperAdmin/notification_management/notification_screen.dart';
-import 'package:busmate_web/modules/SuperAdmin/payment_management/payment_management_screen.dart';
+import 'package:busmate_web/modules/SuperAdmin/payment_management/super_admin_payment_screen.dart';
 import 'package:busmate_web/modules/SuperAdmin/school_management/school_management_screen.dart';
-import 'package:busmate_web/modules/SchoolAdmin/bus_management/bus_management_screen.dart';
+import 'package:busmate_web/modules/SchoolAdmin/bus_management/bus_management_screen_new.dart';
 import 'package:busmate_web/modules/SchoolAdmin/driver_management/driver_management_screen.dart';
 import 'package:busmate_web/modules/SchoolAdmin/student_management/student_management_screen.dart';
-import 'package:busmate_web/modules/SchoolAdmin/payments/payments_screen.dart';
+import 'package:busmate_web/modules/SchoolAdmin/payments/school_admin_payment_screen.dart';
 import 'package:busmate_web/modules/SchoolAdmin/notifications/notifications_screen.dart';
 import 'package:busmate_web/modules/SchoolAdmin/view_bus_status/view_bus_status_screen.dart';
 import 'package:flutter/material.dart';
@@ -52,8 +52,8 @@ class SuperAdminDashboard extends StatelessWidget {
             controller.updateSelectedSchool(schoolId);
             scontroller.schoolId.value = schoolId;
             // Close the dialog before navigating
-            Navigator.of(Get.context!).pop();
-            Get.to(() => BusManagementScreen(),
+            Get.back(); // Use Get.back() instead of Navigator.pop
+            Get.to(() => const BusManagementScreenNew(),
                 arguments: {'schoolId': schoolId});
           },
         ),
@@ -64,7 +64,7 @@ class SuperAdminDashboard extends StatelessWidget {
             controller.updateSelectedSchool(schoolId);
             scontroller.schoolId.value = schoolId;
             // Close the dialog before navigating
-            Navigator.of(Get.context!).pop();
+            Get.back(); // Use Get.back() instead of Navigator.pop
             Get.to(() => DriverManagementScreen(),
                 arguments: {'schoolId': schoolId});
           },
@@ -76,7 +76,7 @@ class SuperAdminDashboard extends StatelessWidget {
             controller.updateSelectedSchool(schoolId);
             scontroller.schoolId.value = schoolId;
             // Close the dialog before navigating
-            Navigator.of(Get.context!).pop();
+            Get.back(); // Use Get.back() instead of Navigator.pop
             await Get.to(() => SelectBusScreen(),
                 arguments: {'schoolId': schoolId});
             controller.updateSelectedSchool('');
@@ -89,7 +89,7 @@ class SuperAdminDashboard extends StatelessWidget {
             controller.updateSelectedSchool(schoolId);
             scontroller.schoolId.value = schoolId;
             // Close the dialog before navigating
-            Navigator.of(Get.context!).pop();
+            Get.back(); // Use Get.back() instead of Navigator.pop
             Get.to(() => StudentManagementScreen(),
                 arguments: {'schoolId': schoolId});
           },
@@ -101,7 +101,7 @@ class SuperAdminDashboard extends StatelessWidget {
             controller.updateSelectedSchool(schoolId);
             scontroller.schoolId.value = schoolId;
             // Close the dialog before navigating
-            Navigator.of(Get.context!).pop();
+            Get.back(); // Use Get.back() instead of Navigator.pop
             Get.to(() => SchoolAdminPaymentScreen(schoolId),
                 arguments: {'schoolId': schoolId});
           },
@@ -113,7 +113,7 @@ class SuperAdminDashboard extends StatelessWidget {
             controller.updateSelectedSchool(schoolId);
             scontroller.schoolId.value = schoolId;
             // Close the dialog before navigating
-            Navigator.of(Get.context!).pop();
+            Get.back(); // Use Get.back() instead of Navigator.pop
             Get.to(() => SchoolNotificationsScreen(schoolId),
                 arguments: {'schoolId': schoolId});
           },
@@ -125,7 +125,7 @@ class SuperAdminDashboard extends StatelessWidget {
             controller.updateSelectedSchool(schoolId);
             scontroller.schoolId.value = schoolId;
             // Close the dialog before navigating
-            Navigator.of(Get.context!).pop();
+            Get.back(); // Use Get.back() instead of Navigator.pop
             Get.to(() => ViewBusStatusScreen(),
                 arguments: {'schoolId': schoolId});
           },
@@ -140,7 +140,7 @@ class SuperAdminDashboard extends StatelessWidget {
     final List<Widget> pages = [
       SuperAdminHomeScreen(), // New advanced dashboard home
       const SchoolManagementScreen(),
-      SuperAdminPaymentScreen(),
+      SuperAdminPaymentManagementScreen(),
       SendNotificationScreen()
     ];
 
@@ -223,24 +223,80 @@ class SuperAdminDashboard extends StatelessWidget {
                 label: 'Manage Schools',
                 onTap: () {
                   sidebarController.selectIndex(3);
+                  print('🏫 Opening Manage Schools dialog');
+                  print('🏫 Schools count: ${controller.schools.length}');
                   showDialog(
                     context: context,
                     builder: (context) {
                       return Dialog(
                         child: Container(
+                          width: 500,
                           padding: const EdgeInsets.all(20),
                           child: Obx(() {
+                            if (controller.schools.isEmpty) {
+                              return Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Text(
+                                    'Manage Schools',
+                                    style: TextStyle(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 20),
+                                  const CircularProgressIndicator(),
+                                  const SizedBox(height: 20),
+                                  const Text('Loading schools...'),
+                                  const SizedBox(height: 20),
+                                  TextButton(
+                                    onPressed: () => Get.back(),
+                                    child: const Text('Close'),
+                                  ),
+                                ],
+                              );
+                            }
+                            
                             return Column(
                               mainAxisSize: MainAxisSize.min,
-                              children: controller.schools.map((school) {
-                                var schoolData =
-                                    school.data() as Map<String, dynamic>?;
-                                String schoolName =
-                                    schoolData?['school_name'] ??
-                                        'Unnamed School';
-                                return _buildSchoolManagementOptions(
-                                    school.id, schoolName);
-                              }).toList(),
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    const Text(
+                                      'Manage Schools',
+                                      style: TextStyle(
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(Icons.close),
+                                      onPressed: () => Get.back(),
+                                    ),
+                                  ],
+                                ),
+                                const Divider(),
+                                const SizedBox(height: 10),
+                                Flexible(
+                                  child: SingleChildScrollView(
+                                    child: Column(
+                                      children: controller.schools.map((school) {
+                                        var schoolData =
+                                            school.data() as Map<String, dynamic>?;
+                                        // Try both field names (schoolName and school_name)
+                                        String schoolName =
+                                            schoolData?['schoolName'] ?? 
+                                            schoolData?['school_name'] ??
+                                            'Unnamed School';
+                                        print('🏫 School: $schoolName (${school.id})');
+                                        return _buildSchoolManagementOptions(
+                                            school.id, schoolName);
+                                      }).toList(),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             );
                           }),
                         ),
@@ -349,82 +405,141 @@ class _SuperAdminHomeScreenState extends State<SuperAdminHomeScreen> {
     required int value,
     Color? color,
     Color? iconColor,
+    int delay = 0,
   }) {
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      child: Container(
-        width: 180,
-        height: 100,
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(14),
-          color: color ?? Colors.white,
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon, size: 30, color: iconColor ?? Colors.blue[700]),
-            const Spacer(),
-            Text(label,
-                style: const TextStyle(fontSize: 14, color: Colors.black54)),
-            Text(
-              value.toString(),
-              style: const TextStyle(
-                  fontSize: 26,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black),
+    return TweenAnimationBuilder(
+      duration: Duration(milliseconds: 1000 + delay),
+      tween: Tween<double>(begin: 0, end: 1),
+      builder: (context, double animValue, child) {
+        return Transform.translate(
+          offset: Offset(-30 * (1 - animValue), 0),
+          child: Opacity(
+            opacity: animValue,
+            child: child,
+          ),
+        );
+      },
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 300),
+          child: Card(
+            elevation: 4,
+            shadowColor: (iconColor ?? Colors.blue[700])?.withOpacity(0.3),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
             ),
-          ],
+            child: Container(
+              constraints: const BoxConstraints(
+                minWidth: 160,
+                maxWidth: 200,
+                minHeight: 110,
+              ),
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    color ?? Colors.white,
+                    (color ?? Colors.white).withOpacity(0.8),
+                  ],
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: (iconColor ?? Colors.blue[700])
+                          ?.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      icon,
+                      size: 28,
+                      color: iconColor ?? Colors.blue[700],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: Colors.black54,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    value.toString(),
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                      color: iconColor ?? Colors.blue[700],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
       ),
     );
   }
 
   Widget _buildSystemHealthCard() {
-    // Dummy status for now
     return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      elevation: 4,
+      shadowColor: Colors.green.withOpacity(0.2),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Container(
-        width: 350,
-        padding: const EdgeInsets.all(16),
+        constraints: const BoxConstraints(maxWidth: 400),
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          gradient: LinearGradient(
+            colors: [
+              Colors.green[50]!,
+              Colors.white,
+            ],
+          ),
+        ),
         child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.health_and_safety, color: Colors.green[700], size: 32),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.green[100],
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                Icons.health_and_safety,
+                color: Colors.green[700],
+                size: 32,
+              ),
+            ),
             const SizedBox(width: 16),
-            Expanded(
+            Flexible(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text("System Health",
-                      style:
-                          TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      Icon(Icons.check_circle, color: Colors.green, size: 18),
-                      const SizedBox(width: 6),
-                      const Text("Firestore: Connected",
-                          style: TextStyle(fontSize: 13)),
-                    ],
+                  const Text(
+                    "System Health",
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
                   ),
-                  Row(
-                    children: [
-                      Icon(Icons.check_circle, color: Colors.green, size: 18),
-                      const SizedBox(width: 6),
-                      const Text("FCM: Operational",
-                          style: TextStyle(fontSize: 13)),
-                    ],
-                  ),
-                  Row(
-                    children: [
-                      Icon(Icons.check_circle, color: Colors.green, size: 18),
-                      const SizedBox(width: 6),
-                      const Text("API: Healthy",
-                          style: TextStyle(fontSize: 13)),
-                    ],
-                  ),
+                  const SizedBox(height: 8),
+                  _buildHealthRow("Firestore: Connected"),
+                  _buildHealthRow("FCM: Operational"),
+                  _buildHealthRow("API: Healthy"),
                 ],
               ),
             ),
@@ -434,24 +549,56 @@ class _SuperAdminHomeScreenState extends State<SuperAdminHomeScreen> {
     );
   }
 
+  Widget _buildHealthRow(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.check_circle, color: Colors.green, size: 16),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              text,
+              style: const TextStyle(fontSize: 13),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildRecentSchools() {
     return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      elevation: 4,
+      shadowColor: Colors.blue.withOpacity(0.2),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Container(
-        width: 350,
-        padding: const EdgeInsets.all(16),
+        constraints: const BoxConstraints(
+          minWidth: 300,
+          maxWidth: 400,
+        ),
+        padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
             Row(
               children: [
-                const Text("Recently Added Schools",
-                    style:
-                        TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                Flexible(
+                  child: const Text(
+                    "Recently Added Schools",
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
                 const Spacer(),
                 TextButton(
-                  onPressed: () {/* TODO: Implement view all */},
+                  onPressed: () {},
                   child: const Text("View All"),
                 ),
               ],
@@ -464,15 +611,38 @@ class _SuperAdminHomeScreenState extends State<SuperAdminHomeScreen> {
                   children: const [
                     Icon(Icons.info_outline, color: Colors.grey),
                     SizedBox(width: 8),
-                    Text("No recent schools found.",
-                        style: TextStyle(color: Colors.grey)),
+                    Expanded(
+                      child: Text(
+                        "No recent schools found.",
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                    ),
                   ],
                 ),
               ),
             ...recentSchools.map((s) => ListTile(
-                  leading: const Icon(Icons.school, color: Colors.blue),
-                  title: Text(s['name'] ?? ''),
-                  subtitle: Text(s['email'] ?? ''),
+                  contentPadding: EdgeInsets.zero,
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.blue[50],
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(
+                      Icons.school,
+                      color: Colors.blue,
+                      size: 20,
+                    ),
+                  ),
+                  title: Text(
+                    s['name'] ?? '',
+                    style: const TextStyle(fontWeight: FontWeight.w500),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text(
+                    s['email'] ?? '',
+                    overflow: TextOverflow.ellipsis,
+                  ),
                   trailing: Text(
                     s['created_at'] is Timestamp
                         ? DateFormat('dd MMM')
@@ -489,22 +659,34 @@ class _SuperAdminHomeScreenState extends State<SuperAdminHomeScreen> {
 
   Widget _buildRecentPayments() {
     return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      elevation: 4,
+      shadowColor: Colors.green.withOpacity(0.2),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Container(
-        width: 350,
-        padding: const EdgeInsets.all(16),
+        constraints: const BoxConstraints(
+          minWidth: 300,
+          maxWidth: 400,
+        ),
+        padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
             Row(
               children: [
-                const Text("Recent Payment Requests",
-                    style:
-                        TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                Flexible(
+                  child: const Text(
+                    "Recent Payment Requests",
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
                 const Spacer(),
                 TextButton(
-                  onPressed: () {/* TODO: Implement view all */},
+                  onPressed: () {},
                   child: const Text("View All"),
                 ),
               ],
@@ -517,8 +699,12 @@ class _SuperAdminHomeScreenState extends State<SuperAdminHomeScreen> {
                   children: const [
                     Icon(Icons.info_outline, color: Colors.grey),
                     SizedBox(width: 8),
-                    Text("No recent payments found.",
-                        style: TextStyle(color: Colors.grey)),
+                    Expanded(
+                      child: Text(
+                        "No recent payments found.",
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -533,10 +719,28 @@ class _SuperAdminHomeScreenState extends State<SuperAdminHomeScreen> {
                   ? (p['amount'] as num).toStringAsFixed(2)
                   : (p['amount']?.toString() ?? '');
               return ListTile(
-                leading: const Icon(Icons.payment, color: Colors.green),
-                title: Text(p['school_name'] ?? ''),
-                subtitle:
-                    Text("Amount: ₹$amount | Status: ${p['status'] ?? 'N/A'}"),
+                contentPadding: EdgeInsets.zero,
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.green[50],
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.payment,
+                    color: Colors.green,
+                    size: 20,
+                  ),
+                ),
+                title: Text(
+                  p['school_name'] ?? '',
+                  style: const TextStyle(fontWeight: FontWeight.w500),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                subtitle: Text(
+                  "₹$amount | ${p['status'] ?? 'N/A'}",
+                  overflow: TextOverflow.ellipsis,
+                ),
                 trailing: Text(
                   dateStr,
                   style: const TextStyle(fontSize: 12, color: Colors.grey),
@@ -551,44 +755,81 @@ class _SuperAdminHomeScreenState extends State<SuperAdminHomeScreen> {
 
   Widget _buildQuickActions(BuildContext context) {
     return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      elevation: 4,
+      shadowColor: Colors.blue.withOpacity(0.2),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Container(
-        width: 350,
-        padding: const EdgeInsets.all(16),
+        constraints: const BoxConstraints(
+          minWidth: 300,
+          maxWidth: 400,
+        ),
+        padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            const Text("Quick Actions",
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-            const SizedBox(height: 10),
+            const Text(
+              "Quick Actions",
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
+            const SizedBox(height: 16),
             Wrap(
               spacing: 10,
               runSpacing: 10,
               children: [
                 ElevatedButton.icon(
-                  icon: const Icon(Icons.school),
+                  icon: const Icon(Icons.school, size: 18),
                   label: const Text("Add School"),
                   onPressed: () => Get.toNamed('/add-school'),
                   style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue[50],
-                      foregroundColor: Colors.blue[900]),
+                    backgroundColor: Colors.blue[50],
+                    foregroundColor: Colors.blue[900],
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
                 ),
                 ElevatedButton.icon(
-                  icon: const Icon(Icons.notifications),
+                  icon: const Icon(Icons.notifications, size: 18),
                   label: const Text("Send Notification"),
                   onPressed: () => Get.toNamed('/send-notification'),
                   style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue[50],
-                      foregroundColor: Colors.blue[900]),
+                    backgroundColor: Colors.blue[50],
+                    foregroundColor: Colors.blue[900],
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
                 ),
                 ElevatedButton.icon(
-                  icon: const Icon(Icons.monetization_on),
+                  icon: const Icon(Icons.monetization_on, size: 18),
                   label: const Text("Generate Bill"),
                   onPressed: () => Get.toNamed('/payment-management'),
                   style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue[50],
-                      foregroundColor: Colors.blue[900]),
+                    backgroundColor: Colors.blue[50],
+                    foregroundColor: Colors.blue[900],
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -605,77 +846,335 @@ class _SuperAdminHomeScreenState extends State<SuperAdminHomeScreen> {
     }
     final now = DateTime.now();
     final dateStr = DateFormat('EEEE, d MMMM y').format(now);
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Greeting and date
-          Row(
+    final screenWidth = MediaQuery.of(context).size.width;
+    
+    return Stack(
+      children: [
+        // Fabric Pattern Background
+        CustomPaint(
+          size: Size.infinite,
+          painter: _FabricBackgroundPainter(),
+        ),
+        // Floating animated circles
+        const _FloatingBackgroundElements(),
+        // Main content
+        SingleChildScrollView(
+          padding: EdgeInsets.symmetric(
+            horizontal: screenWidth > 1200 ? 32 : 16,
+            vertical: 24,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                "Welcome, Super Admin",
-                style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
+              // Animated Greeting and date
+              TweenAnimationBuilder(
+                duration: const Duration(milliseconds: 800),
+                tween: Tween<double>(begin: 0, end: 1),
+                builder: (context, double value, child) {
+                  return Transform.translate(
+                    offset: Offset(0, 20 * (1 - value)),
+                    child: Opacity(
+                      opacity: value,
+                      child: child,
+                    ),
+                  );
+                },
+                child: Wrap(
+                  spacing: 16,
+                  runSpacing: 8,
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          "Welcome, Super Admin",
+                          style: TextStyle(
+                            fontSize: screenWidth > 600 ? 26 : 20,
+                            fontWeight: FontWeight.bold,
+                            color: const Color(0xFF1565C0),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          "Overview of your bus tracking system at a glance.",
+                          style: TextStyle(
+                            fontSize: screenWidth > 600 ? 15 : 13,
+                            color: Colors.black54,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            const Color(0xFF1565C0).withOpacity(0.1),
+                            const Color(0xFF1E88E5).withOpacity(0.1),
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: const Color(0xFF1565C0).withOpacity(0.2),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.calendar_today,
+                            size: 16,
+                            color: const Color(0xFF1565C0),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            dateStr,
+                            style: TextStyle(
+                              fontSize: screenWidth > 600 ? 14 : 12,
+                              color: const Color(0xFF1565C0),
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              const Spacer(),
-              Text(
-                dateStr,
-                style: const TextStyle(fontSize: 16, color: Colors.black54),
+              const SizedBox(height: 24),
+              
+              // Animated Metrics Row
+              TweenAnimationBuilder(
+                duration: const Duration(milliseconds: 1000),
+                tween: Tween<double>(begin: 0, end: 1),
+                builder: (context, double value, child) {
+                  return Transform.translate(
+                    offset: Offset(0, 30 * (1 - value)),
+                    child: Opacity(
+                      opacity: value,
+                      child: child,
+                    ),
+                  );
+                },
+                child: Wrap(
+                  spacing: 16,
+                  runSpacing: 16,
+                  children: [
+                    _buildMetricCard(
+                      icon: Icons.school,
+                      label: "Schools",
+                      value: schools,
+                      delay: 0,
+                    ),
+                    _buildMetricCard(
+                      icon: Icons.directions_bus,
+                      label: "Buses",
+                      value: buses,
+                      delay: 100,
+                    ),
+                    _buildMetricCard(
+                      icon: Icons.person,
+                      label: "Drivers",
+                      value: drivers,
+                      delay: 200,
+                    ),
+                    _buildMetricCard(
+                      icon: Icons.child_care,
+                      label: "Students",
+                      value: students,
+                      delay: 300,
+                    ),
+                    _buildMetricCard(
+                      icon: Icons.directions_bus_filled,
+                      label: "Active Buses",
+                      value: activeBuses,
+                      color: Colors.green[50],
+                      iconColor: Colors.green[700],
+                      delay: 400,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 28),
+              
+              // Animated System Health
+              TweenAnimationBuilder(
+                duration: const Duration(milliseconds: 1200),
+                tween: Tween<double>(begin: 0, end: 1),
+                builder: (context, double value, child) {
+                  return Transform.scale(
+                    scale: 0.9 + (0.1 * value),
+                    child: Opacity(
+                      opacity: value,
+                      child: child,
+                    ),
+                  );
+                },
+                child: _buildSystemHealthCard(),
+              ),
+              const SizedBox(height: 28),
+              
+              // Animated Recent Activity and Quick Actions
+              TweenAnimationBuilder(
+                duration: const Duration(milliseconds: 1400),
+                tween: Tween<double>(begin: 0, end: 1),
+                builder: (context, double value, child) {
+                  return Opacity(
+                    opacity: value,
+                    child: child,
+                  );
+                },
+                child: Wrap(
+                  spacing: 24,
+                  runSpacing: 24,
+                  children: [
+                    _buildRecentSchools(),
+                    _buildRecentPayments(),
+                    _buildQuickActions(context),
+                  ],
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          const Text(
-            "Overview of your bus tracking system at a glance.",
-            style: TextStyle(fontSize: 15, color: Colors.black54),
-          ),
-          const SizedBox(height: 24),
-          // Metrics Row
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                _buildMetricCard(
-                    icon: Icons.school, label: "Schools", value: schools),
-                const SizedBox(width: 16),
-                _buildMetricCard(
-                    icon: Icons.directions_bus, label: "Buses", value: buses),
-                const SizedBox(width: 16),
-                _buildMetricCard(
-                    icon: Icons.person, label: "Drivers", value: drivers),
-                const SizedBox(width: 16),
-                _buildMetricCard(
-                    icon: Icons.child_care, label: "Students", value: students),
-                const SizedBox(width: 16),
-                _buildMetricCard(
-                    icon: Icons.directions_bus_filled,
-                    label: "Active Buses",
-                    value: activeBuses,
-                    color: Colors.green[50],
-                    iconColor: Colors.green[700]),
-              ],
-            ),
-          ),
-          const SizedBox(height: 28),
-          // System Health
-          _buildSystemHealthCard(),
-          const SizedBox(height: 28),
-          // Recent Activity and Quick Actions
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildRecentSchools(),
-                const SizedBox(width: 24),
-                _buildRecentPayments(),
-                const SizedBox(width: 24),
-                _buildQuickActions(context),
-              ],
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
+    );
+  }
+}
+
+// Fabric pattern background painter
+class _FabricBackgroundPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = const Color(0xFFF5F7FA)
+      ..style = PaintingStyle.fill;
+
+    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), paint);
+
+    // Draw subtle diagonal lines for fabric texture
+    final linePaint = Paint()
+      ..color = Colors.blue.withOpacity(0.03)
+      ..strokeWidth = 1
+      ..style = PaintingStyle.stroke;
+
+    for (double i = -size.height; i < size.width + size.height; i += 40) {
+      canvas.drawLine(
+        Offset(i, 0),
+        Offset(i + size.height, size.height),
+        linePaint,
+      );
+    }
+
+    for (double i = -size.height; i < size.width + size.height; i += 40) {
+      canvas.drawLine(
+        Offset(i, 0),
+        Offset(i - size.height, size.height),
+        linePaint,
+      );
+    }
+
+    // Draw subtle dots for texture
+    final dotPaint = Paint()
+      ..color = Colors.blue.withOpacity(0.02)
+      ..style = PaintingStyle.fill;
+
+    for (double x = 0; x < size.width; x += 20) {
+      for (double y = 0; y < size.height; y += 20) {
+        canvas.drawCircle(Offset(x, y), 1.5, dotPaint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+// Floating animated background elements
+class _FloatingBackgroundElements extends StatefulWidget {
+  const _FloatingBackgroundElements();
+
+  @override
+  State<_FloatingBackgroundElements> createState() =>
+      _FloatingBackgroundElementsState();
+}
+
+class _FloatingBackgroundElementsState
+    extends State<_FloatingBackgroundElements> with TickerProviderStateMixin {
+  late List<AnimationController> _controllers;
+  late List<Animation<Offset>> _animations;
+
+  @override
+  void initState() {
+    super.initState();
+    _controllers = List.generate(
+      8,
+      (index) => AnimationController(
+        duration: Duration(milliseconds: 4000 + (index * 600)),
+        vsync: this,
+      )..repeat(reverse: true),
+    );
+
+    _animations = _controllers.asMap().entries.map((entry) {
+      return Tween<Offset>(
+        begin: Offset(
+          (entry.key % 4) * 0.25,
+          (entry.key % 3) * 0.33,
+        ),
+        end: Offset(
+          (entry.key % 4) * 0.25 + 0.15,
+          (entry.key % 3) * 0.33 + 0.25,
+        ),
+      ).animate(CurvedAnimation(
+        parent: entry.value,
+        curve: Curves.easeInOut,
+      ));
+    }).toList();
+  }
+
+  @override
+  void dispose() {
+    for (var controller in _controllers) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+    return Stack(
+      children: List.generate(8, (index) {
+        return AnimatedBuilder(
+          animation: _animations[index],
+          builder: (context, child) {
+            return Positioned(
+              left: size.width * _animations[index].value.dx,
+              top: size.height * _animations[index].value.dy,
+              child: Container(
+                width: 100 + (index * 30).toDouble(),
+                height: 100 + (index * 30).toDouble(),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [
+                      index % 2 == 0
+                          ? const Color(0xFF1565C0).withOpacity(0.05)
+                          : const Color(0xFF1E88E5).withOpacity(0.05),
+                      Colors.transparent,
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      }),
     );
   }
 }

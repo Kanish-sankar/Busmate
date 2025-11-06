@@ -517,8 +517,9 @@ class DashboardController extends GetxController {
 
         // Update the map if bus is active
         if (busStatus.value?.currentStatus == 'Active') {
-          final lat = busStatus.value?.latitude ?? 0.0;
-          final lng = busStatus.value?.longitude ?? 0.0;
+          // Coordinates available if needed:
+          // final lat = busStatus.value?.latitude ?? 0.0;
+          // final lng = busStatus.value?.longitude ?? 0.0;
           // Removed automatic map centering
           // mapController.move(LatLng(lat, lng), mapController.camera.zoom);
         }

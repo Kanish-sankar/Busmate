@@ -17,7 +17,7 @@ class SchoolManagementController extends GetxController {
   void fetchSchools() async {
     try {
       isLoading.value = true;
-      QuerySnapshot snapshot = await firestore.collection('schools').get();
+      QuerySnapshot snapshot = await firestore.collection('schooldetails').get();
       allSchools = snapshot.docs.map((doc) {
         final data = doc.data() as Map<String, dynamic>;
         data['school_id'] = doc.id;
@@ -36,7 +36,7 @@ class SchoolManagementController extends GetxController {
       schools.assignAll(allSchools);
     } else {
       final filtered = allSchools.where((school) {
-        final name = school['school_name']?.toLowerCase() ?? '';
+        final name = school['schoolName']?.toLowerCase() ?? '';
         return name.contains(query.toLowerCase());
       }).toList();
       schools.assignAll(filtered);

@@ -5,9 +5,73 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import '../routes/app_pages.dart';
+import '../Routes/app_pages.dart';
+import '../utils/web_error_handler.dart';
 
-enum UserRole { superAdmin, schoolAdmin }
+enum UserRole { superior, schoolAdmin }
+
+// Admin Permissions Model
+class AdminPermissions {
+  final bool studentManagement;
+  final bool driverManagement;
+  final bool busManagement;
+  final bool routeManagement;
+  final bool paymentManagement;
+  final bool notifications;
+  final bool viewingBusStatus;
+  final bool adminManagement;
+
+  AdminPermissions({
+    this.studentManagement = false,
+    this.driverManagement = false,
+    this.busManagement = false,
+    this.routeManagement = false,
+    this.paymentManagement = false,
+    this.notifications = false,
+    this.viewingBusStatus = false,
+    this.adminManagement = false,
+  });
+
+  factory AdminPermissions.fromMap(Map<String, dynamic>? map) {
+    if (map == null) return AdminPermissions.allGranted();
+    return AdminPermissions(
+      studentManagement: map['studentManagement'] ?? false,
+      driverManagement: map['driverManagement'] ?? false,
+      busManagement: map['busManagement'] ?? false,
+      routeManagement: map['routeManagement'] ?? false,
+      paymentManagement: map['paymentManagement'] ?? false,
+      notifications: map['notifications'] ?? false,
+      viewingBusStatus: map['viewingBusStatus'] ?? false,
+      adminManagement: map['adminManagement'] ?? false,
+    );
+  }
+
+  factory AdminPermissions.allGranted() {
+    return AdminPermissions(
+      studentManagement: true,
+      driverManagement: true,
+      busManagement: true,
+      routeManagement: true,
+      paymentManagement: true,
+      notifications: true,
+      viewingBusStatus: true,
+      adminManagement: true,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'studentManagement': studentManagement,
+      'driverManagement': driverManagement,
+      'busManagement': busManagement,
+      'routeManagement': routeManagement,
+      'paymentManagement': paymentManagement,
+      'notifications': notifications,
+      'viewingBusStatus': viewingBusStatus,
+      'adminManagement': adminManagement,
+    };
+  }
+}
 
 class AuthController extends GetxController {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -15,11 +79,13 @@ class AuthController extends GetxController {
 
   Rx<User?> user = Rx<User?>(null);
   Rx<UserRole?> userRole = Rx<UserRole?>(null);
+  Rx<AdminPermissions> permissions = AdminPermissions().obs;
+  RxString schoolId = ''.obs;
+  RxString adminEmail = ''.obs;
   RxBool isLoading = false.obs;
   RxBool isOtpSent = false.obs;
   RxBool isVerifyingOtp = false.obs;
-  String? _adminPassword; // Private variable to store the admin password.
-  // String? _otpEmail; // Store the email for which OTP was sent
+  String? _adminPassword;
 
   @override
   void onInit() {
@@ -32,6 +98,8 @@ class AuthController extends GetxController {
         await _fetchUserRole();
       } else {
         userRole.value = null;
+        permissions.value = AdminPermissions();
+        schoolId.value = '';
         WidgetsBinding.instance.addPostFrameCallback((_) {
           Get.offAllNamed(Routes.LOGIN);
         });
@@ -41,106 +109,100 @@ class AuthController extends GetxController {
 
   Future<void> _fetchUserRole() async {
     try {
-      if (user.value != null) {
-        // First, try to fetch from the adminusers collection.
-        DocumentSnapshot adminDoc = await _firestore
-            .collection("adminusers")
-            .doc(user.value!.uid)
-            .get();
+      if (user.value == null) return;
 
-        if (adminDoc.exists) {
-          String role = adminDoc['role'];
-          String? schoolId;
-          if (adminDoc.data() != null &&
-              (adminDoc.data() as Map<String, dynamic>)
-                  .containsKey('schoolId')) {
-            schoolId = adminDoc['schoolId'];
-          }
+      print('🔍 Fetching user role for UID: ${user.value!.uid}');
+      
+      // Fetch from NEW 'admins' collection
+      DocumentSnapshot adminDoc = await _firestore
+          .collection("admins")
+          .doc(user.value!.uid)
+          .get();
 
-          // Branch based on the role stored in adminusers.
-          if (role == 'superAdmin') {
-            userRole.value = UserRole.superAdmin;
-            Get.offAllNamed(Routes.SUPER_ADMIN_DASHBOARD);
-          } else if (role == 'schoolAdmin') {
-            userRole.value = UserRole.schoolAdmin;
-            if (schoolId != null) {
-              Get.offAllNamed(Routes.SCHOOL_ADMIN_DASHBOARD, arguments: {
-                'schoolId': schoolId,
-              });
-            } else {
-              QuerySnapshot schoolSnapshot = await _firestore
-                  .collection("schools")
-                  .where("uid", isEqualTo: user.value!.uid)
-                  .get();
-              if (schoolSnapshot.docs.isNotEmpty) {
-                Get.offAllNamed(Routes.SCHOOL_ADMIN_DASHBOARD, arguments: {
-                  'schoolId': schoolSnapshot.docs.first.id,
-                });
-              } else {
-                Get.snackbar('Error', 'School ID is missing for this admin.');
-              }
-            }
-          } else if (role == 'schoolSuperAdmin' || role == 'regionalAdmin') {
-            userRole.value = UserRole.schoolAdmin;
-            if (schoolId != null) {
-              Get.offAllNamed(Routes.SCHOOL_ADMIN_DASHBOARD, arguments: {
-                'schoolId': schoolId,
-                'role': role,
-              });
-            } else {
-              QuerySnapshot schoolSnapshot = await _firestore
-                  .collection("schools")
-                  .where("adminsEmails", arrayContains: user.value!.email)
-                  .get();
-              if (schoolSnapshot.docs.isNotEmpty) {
-                Get.offAllNamed(Routes.SCHOOL_ADMIN_DASHBOARD, arguments: {
-                  'schoolId': schoolSnapshot.docs.first.id,
-                  'role': role,
-                });
-              } else {
-                Get.snackbar('Error', 'School ID is missing for this admin.');
-              }
-            }
-          } else {
-            Get.snackbar('Error', 'Undefined role: $role');
-            await logout();
-            Get.offAllNamed(Routes.LOGIN);
-          }
-        } else {
-          // Fallback: If no document is found in adminusers,
-          // perform a collection group query on the "admins" subcollections.
-          QuerySnapshot adminManagerSnapshot = await _firestore
-              .collectionGroup("admins")
-              .where("email", isEqualTo: user.value!.email)
-              .get();
-
-          if (adminManagerSnapshot.docs.isNotEmpty) {
-            // For a found admin manager document, extract role and schoolId.
-            DocumentSnapshot managerDoc = adminManagerSnapshot.docs.first;
-            String managerRole = managerDoc['role'];
-            // The parent of this document is the "admins" subcollection,
-            // so the parent's parent is the school document.
-            String schoolId = managerDoc.reference.parent.parent!.id;
-
-            // Check if the role is one of the manager roles.
-            if (managerRole == 'schoolSuperAdmin' ||
-                managerRole == 'regionalAdmin') {
-              userRole.value = UserRole.schoolAdmin;
-              Get.offAllNamed(Routes.SCHOOL_ADMIN_DASHBOARD, arguments: {
-                'schoolId': schoolId,
-                'role': managerRole,
-              });
-            } else {
-              Get.snackbar('Error', 'Admin manager role not valid.');
-            }
-          } else {
-            // If still no record found, display an error message.
-            Get.snackbar('Error', 'No admin record found for this user.');
-          }
-        }
+      if (!adminDoc.exists || adminDoc.data() == null) {
+        print('❌ No admin record found in admins collection');
+        await _auth.signOut();
+        Get.snackbar('Access Denied', 'No admin privileges found for this account');
+        Get.offAllNamed(Routes.LOGIN);
+        return;
       }
+
+      Map<String, dynamic> adminData = adminDoc.data() as Map<String, dynamic>;
+      String role = adminData['role'] ?? 'unknown';
+      adminEmail.value = adminData['email'] ?? user.value!.email ?? '';
+      
+      print('✅ Found admin - Role: $role, Email: ${adminEmail.value}');
+
+      if (role == 'superior') {
+        // Superior Admin - Full Access
+        userRole.value = UserRole.superior;
+        permissions.value = AdminPermissions.allGranted();
+        schoolId.value = '';
+        
+        print('🚀 Superior Admin logged in - Redirecting to Super Admin Dashboard');
+        Get.offAllNamed(Routes.SUPER_ADMIN_DASHBOARD);
+        
+      } else if (role == 'schoolAdmin' || role == 'school_admin') {
+        // School Admin - Permission-based Access
+        userRole.value = UserRole.schoolAdmin;
+        schoolId.value = adminData['schoolId'] ?? '';
+        permissions.value = AdminPermissions.fromMap(adminData['permissions']);
+        
+        if (schoolId.value.isEmpty) {
+          print('❌ School Admin missing schoolId');
+          await _auth.signOut();
+          Get.snackbar('Error', 'Invalid admin configuration - missing school ID');
+          Get.offAllNamed(Routes.LOGIN);
+          return;
+        }
+        
+        print('🏫 School Admin logged in - School ID: ${schoolId.value}');
+        print('📋 Permissions: ${permissions.value.toMap()}');
+        
+        Get.offAllNamed(Routes.SCHOOL_ADMIN_DASHBOARD, arguments: {
+          'schoolId': schoolId.value,
+          'role': role,
+          'permissions': permissions.value.toMap(),
+        });
+        
+      } else {
+        print('❌ Unknown role: $role');
+        await _auth.signOut();
+        Get.snackbar('Access Denied', 'Invalid admin role');
+        Get.offAllNamed(Routes.LOGIN);
+      }
+      
     } catch (e) {
-      Get.snackbar('Error', 'Failed to fetch user role: ${e.toString()}');
+      print('❌ Error in _fetchUserRole: $e');
+      Get.snackbar('Error', 'Failed to fetch admin data: ${e.toString()}');
+      await _auth.signOut();
+      Get.offAllNamed(Routes.LOGIN);
+    }
+  }
+
+  // Check if user has specific permission
+  bool hasPermission(String permissionName) {
+    if (userRole.value == UserRole.superior) return true; // Superior has all permissions
+    
+    switch (permissionName) {
+      case 'studentManagement':
+        return permissions.value.studentManagement;
+      case 'driverManagement':
+        return permissions.value.driverManagement;
+      case 'busManagement':
+        return permissions.value.busManagement;
+      case 'routeManagement':
+        return permissions.value.routeManagement;
+      case 'paymentManagement':
+        return permissions.value.paymentManagement;
+      case 'notifications':
+        return permissions.value.notifications;
+      case 'viewingBusStatus':
+        return permissions.value.viewingBusStatus;
+      case 'adminManagement':
+        return permissions.value.adminManagement;
+      default:
+        return false;
     }
   }
 
@@ -149,12 +211,32 @@ class AuthController extends GetxController {
       isLoading.value = true;
       await _auth.signInWithEmailAndPassword(email: email, password: password);
       _adminPassword = password; // Store the password after successful login.
+      WebErrorHandler.showSuccess('Login successful!');
     } on FirebaseAuthException catch (e) {
-      Get.snackbar('Login Failed', '${e.code}: ${e.message}');
+      WebErrorHandler.handleError(e, 
+        context: 'Login', 
+        customMessage: _getFirebaseAuthErrorMessage(e.code));
     } catch (e) {
-      Get.snackbar('Error', e.toString());
+      WebErrorHandler.handleError(e, context: 'Login');
     } finally {
       isLoading.value = false;
+    }
+  }
+  
+  String _getFirebaseAuthErrorMessage(String code) {
+    switch (code) {
+      case 'user-not-found':
+        return 'No account found with this email address.';
+      case 'wrong-password':
+        return 'Incorrect password. Please try again.';
+      case 'invalid-email':
+        return 'Please enter a valid email address.';
+      case 'user-disabled':
+        return 'This account has been disabled.';
+      case 'too-many-requests':
+        return 'Too many failed attempts. Please try again later.';
+      default:
+        return 'Login failed. Please try again.';
     }
   }
 
@@ -166,11 +248,7 @@ class AuthController extends GetxController {
     try {
       isLoading.value = true;
       await _auth.sendPasswordResetEmail(email: email);
-      Get.snackbar(
-        'Success',
-        'Password reset email sent to $email',
-        snackPosition: SnackPosition.BOTTOM,
-      );
+      WebErrorHandler.showSuccess('Password reset email sent to $email');
       Get.back(); // Return to login screen
     } on FirebaseAuthException catch (e) {
       String errorMessage = 'Failed to send password reset email';
@@ -185,9 +263,10 @@ class AuthController extends GetxController {
     }
   }
 
-  Future<void> register(String email, String password, String role) async {
+  Future<void> register(String email, String password, String role, {String? schoolId, Map<String, bool>? permissionsMap}) async {
     try {
       isLoading.value = true;
+      
       // Create user in Firebase Auth
       UserCredential userCredential =
           await _auth.createUserWithEmailAndPassword(
@@ -195,46 +274,76 @@ class AuthController extends GetxController {
         password: password,
       );
 
-      await _firestore
-          .collection("adminusers")
-          .doc(userCredential.user!.uid)
-          .set({
+      // Prepare admin document for NEW 'admins' collection
+      Map<String, dynamic> adminData = {
         'email': email,
-        'role': role, // Should be 'superAdmin' or 'schoolAdmin'
+        'role': role, // 'superior' or 'schoolAdmin' or 'school_admin'
         'createdAt': FieldValue.serverTimestamp(),
-      });
+      };
 
-      // Update local role and navigate based on selected role
-      if (role == 'superAdmin') {
-        userRole.value = UserRole.superAdmin;
+      // Add school-specific data for school admins
+      if (role == 'schoolAdmin' || role == 'school_admin') {
+        if (schoolId == null || schoolId.isEmpty) {
+          throw Exception('School ID is required for school admins');
+        }
+        adminData['schoolId'] = schoolId;
+        adminData['permissions'] = permissionsMap ?? AdminPermissions.allGranted().toMap();
+      }
+
+      // Store in NEW 'admins' collection
+      await _firestore
+          .collection("admins")
+          .doc(userCredential.user!.uid)
+          .set(adminData);
+
+      print('✅ Admin registered successfully: $email as $role');
+      
+      WebErrorHandler.showSuccess('Admin registered successfully!');
+      
+      // Navigate based on role
+      if (role == 'superior') {
+        userRole.value = UserRole.superior;
+        permissions.value = AdminPermissions.allGranted();
         Get.offAllNamed(Routes.SUPER_ADMIN_DASHBOARD);
-      } else if (role == 'schoolAdmin') {
+      } else if (role == 'schoolAdmin' || role == 'school_admin') {
         userRole.value = UserRole.schoolAdmin;
-        Get.offAllNamed(Routes.SCHOOL_ADMIN_DASHBOARD);
+        this.schoolId.value = schoolId!;
+        permissions.value = AdminPermissions.fromMap(permissionsMap);
+        Get.offAllNamed(Routes.SCHOOL_ADMIN_DASHBOARD, arguments: {
+          'schoolId': schoolId,
+          'role': role,
+        });
       }
     } on FirebaseAuthException catch (e) {
       String errorMessage = 'Registration failed';
       if (e.code == 'email-already-in-use') {
         errorMessage = 'This email is already in use';
+      } else if (e.code == 'weak-password') {
+        errorMessage = 'Password is too weak';
+      } else if (e.code == 'invalid-email') {
+        errorMessage = 'Invalid email address';
       }
       Get.snackbar('Error', errorMessage);
     } catch (e) {
-      Get.snackbar('Error', 'An error occurred: ${e.toString()}');
+      Get.snackbar('Error', 'Registration error: ${e.toString()}');
     } finally {
       isLoading.value = false;
     }
   }
 
+  bool isSuperior() {
+    return userRole.value == UserRole.superior;
+  }
+
   Future<void> logout() async {
     try {
       await _auth.signOut();
+      userRole.value = null;
+      permissions.value = AdminPermissions();
+      schoolId.value = '';
     } catch (e) {
       Get.snackbar('Error', 'Failed to logout: ${e.toString()}');
     }
-  }
-
-  bool isSuperAdmin() {
-    return userRole.value == UserRole.superAdmin;
   }
 
   bool isSchoolAdmin() {

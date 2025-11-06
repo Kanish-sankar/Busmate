@@ -33,7 +33,7 @@ class AppPages {
       name: Routes.SUPER_ADMIN_DASHBOARD,
       page: () => SuperAdminDashboard(),
       middlewares: [
-        AuthMiddleware(requiredRole: UserRole.superAdmin),
+        AuthMiddleware(requiredRole: UserRole.superior),
       ],
     ),
     GetPage(

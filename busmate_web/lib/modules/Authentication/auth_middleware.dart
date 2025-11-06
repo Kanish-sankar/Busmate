@@ -18,7 +18,7 @@ class AuthMiddleware extends GetMiddleware {
 
     if (authController.userRole.value != requiredRole) {
       // Redirect to appropriate dashboard based on role
-      if (authController.userRole.value == UserRole.superAdmin) {
+      if (authController.userRole.value == UserRole.superior) {
         return const RouteSettings(name: Routes.SUPER_ADMIN_DASHBOARD);
       } else if (authController.userRole.value == UserRole.schoolAdmin) {
         return const RouteSettings(

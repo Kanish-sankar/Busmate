@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 // ignore: depend_on_referenced_packages
 import 'package:http/http.dart' as http;
 
@@ -49,11 +48,20 @@ class RouteController extends GetxController {
   // Store the last fetched OSRM route distance (in meters)
   var osrmRouteDistance = 0.0.obs;
 
-  // Initialize with the bus ID.
-  void init(String busId) {
+  // Initialize with the bus ID and schoolId
+  void init(String busId, {String? schoolId}) {
     _busId = busId;
-    final arguments = Get.arguments as Map<String, dynamic>?;
-    _uid = arguments?['schoolId'] ?? FirebaseAuth.instance.currentUser!.uid;
+    
+    // Get schoolId from parameter, arguments, or throw error
+    if (schoolId != null && schoolId.isNotEmpty) {
+      _uid = schoolId;
+    } else {
+      final arguments = Get.arguments as Map<String, dynamic>?;
+      _uid = arguments?['schoolId'] ?? '';
+      if (_uid.isEmpty) {
+        throw Exception('RouteController initialized without schoolId. Please pass schoolId.');
+      }
+    }
 
     // Log the schoolId for debugging purposes.
     if (kDebugMode) {
@@ -66,10 +74,10 @@ class RouteController extends GetxController {
   void _loadStops() {
     // Log the Firestore path for debugging.
     if (kDebugMode) {
-      print('Fetching stops from: schools/$_uid/buses/$_busId');
+      print('Fetching stops from: schooldetails/$_uid/buses/$_busId');
     }
     _firestore
-        .collection('schools')
+        .collection('schooldetails')
         .doc(_uid)
         .collection('buses')
         .doc(_busId)
@@ -94,7 +102,7 @@ class RouteController extends GetxController {
     // <-- made public
     try {
       await _firestore
-          .collection('schools')
+          .collection('schooldetails')
           .doc(_uid)
           .collection('buses')
           .doc(_busId)

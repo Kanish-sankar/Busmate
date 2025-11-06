@@ -1,11 +1,13 @@
+import 'package:busmate/meta/nav/pages.dart';
 import 'package:busmate/meta/utils/constant/app_colors.dart';
 import 'package:busmate/meta/utils/constant/app_images.dart';
 import 'package:busmate/presentation/parents_module/dashboard/controller/dashboard.controller.dart';
 import 'package:busmate/presentation/parents_module/dashboard/widgets/student_details.dart';
-import 'package:busmate/presentation/parents_module/sigin/controller/signin_controller.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
+import 'package:get_storage/get_storage.dart';
 
 class HomeScreen extends GetView<DashboardController> {
   const HomeScreen({super.key});
@@ -39,8 +41,11 @@ class HomeScreen extends GetView<DashboardController> {
                             Icons.logout_rounded,
                             size: 20.sp,
                           ),
-                          onPressed: () {
-                            SigInController().logout();
+                          onPressed: () async {
+                            // Direct logout without using Get.find
+                            await FirebaseAuth.instance.signOut();
+                            GetStorage().erase();
+                            Get.offAllNamed(Routes.sigIn);
                           },
                         ),
                       ],

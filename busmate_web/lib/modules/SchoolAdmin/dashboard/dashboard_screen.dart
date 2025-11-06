@@ -8,7 +8,7 @@ import 'package:busmate_web/modules/SchoolAdmin/driver_management/driver_managem
 import 'package:busmate_web/modules/SchoolAdmin/route_management/select_bus_screen.dart';
 import 'package:busmate_web/modules/SchoolAdmin/view_bus_status/view_bus_status_screen.dart';
 import 'package:busmate_web/modules/SchoolAdmin/student_management/student_management_screen.dart';
-import 'package:busmate_web/modules/SchoolAdmin/payments/payments_screen.dart';
+import 'package:busmate_web/modules/SchoolAdmin/payments/school_admin_payment_screen.dart';
 import 'package:busmate_web/modules/SchoolAdmin/notifications/notifications_screen.dart';
 import 'package:busmate_web/modules/SchoolAdmin/admin_management/admin_management_screen.dart';
 
@@ -27,19 +27,19 @@ class SchoolAdminDashboard extends StatelessWidget {
       {
         'icon': Icons.bus_alert,
         'label': 'Bus Management',
-        'screen': BusManagementScreen(),
+        'screen': BusManagementScreen(schoolId: controller.schoolId.value),
         'permissionKey': 'busManagement',
       },
       {
         'icon': Icons.person_2_sharp,
         'label': 'Driver Management',
-        'screen': DriverManagementScreen(),
+        'screen': DriverManagementScreen(schoolId: controller.schoolId.value),
         'permissionKey': 'driverManagement',
       },
       {
         'icon': Icons.route,
         'label': 'Route Management',
-        'screen': SelectBusScreen(),
+        'screen': SelectBusScreen(schoolId: controller.schoolId.value),
         'permissionKey': 'routeManagement',
       },
       {
@@ -51,7 +51,7 @@ class SchoolAdminDashboard extends StatelessWidget {
       {
         'icon': Icons.child_care,
         'label': 'Student Management',
-        'screen': StudentManagementScreen(),
+        'screen': StudentManagementScreen(schoolId: controller.schoolId.value),
         'permissionKey': 'studentManagement',
       },
       {

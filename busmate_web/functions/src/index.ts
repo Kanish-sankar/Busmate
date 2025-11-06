@@ -9,8 +9,8 @@ import { Request, Response } from 'express';
 // Initialize CORS middleware to allow cross-origin requests
 const cors = corsLib({ origin: true });
 
-// API key constant - you can also use functions config
-const API_KEY = "AIzaSyC6nOzZg5KtgsY1xEsorgSIn7gqSbjkE5I";
+// Secure API key management using Firebase Functions config
+const API_KEY = functions.config().google?.maps_api_key || process.env.GOOGLE_MAPS_API_KEY;
 
 /**
  * Proxy for Google Places Autocomplete

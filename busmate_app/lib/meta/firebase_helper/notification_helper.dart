@@ -1,4 +1,5 @@
-import 'dart:io';
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -60,7 +61,7 @@ class NotificationHelper {
     await androidPlugin?.createNotificationChannel(soundChannel);
     await androidPlugin?.createNotificationChannel(silentChannel);
 
-    // Initialize settings
+
     const AndroidInitializationSettings initializationSettingsAndroid =
         AndroidInitializationSettings('@mipmap/ic_launcher');
 
@@ -111,7 +112,7 @@ class NotificationHelper {
 
     // Foreground notification handling
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      if (Platform.isAndroid) {
+      if (!kIsWeb && Platform.isAndroid) {
         if (message.data['type'] == 'bus_arrival') {
           showCustomNotification(message);
         } else {

@@ -5,18 +5,35 @@ import 'student_model.dart';
 import 'add_student_screen.dart';
 
 class StudentManagementScreen extends StatelessWidget {
-  final StudentController controller = Get.put(StudentController());
+  final String? schoolId;
+  late final StudentController controller;
 
-  StudentManagementScreen({super.key});
-
+  StudentManagementScreen({super.key, this.schoolId}) {
+    // Initialize controller with schoolId passed as parameter OR from Get.arguments
+    final arguments = Get.arguments as Map<String, dynamic>?;
+    final effectiveSchoolId = schoolId ?? arguments?['schoolId'];
+    
+    print('🔍 StudentManagementScreen - schoolId param: $schoolId');
+    print('🔍 StudentManagementScreen - Get.arguments: $arguments');
+    print('🔍 StudentManagementScreen - effectiveSchoolId: $effectiveSchoolId');
+    
+    // Put controller with tag to avoid conflicts between different school instances
+    controller = Get.put(
+      StudentController(),
+      tag: effectiveSchoolId ?? 'default',
+    );
+    
+    // Set the schoolId in controller if provided
+    if (effectiveSchoolId != null) {
+      controller.schoolId = effectiveSchoolId;
+      controller.fetchStudents();
+    } else {
+      print('❌ StudentManagementScreen - No schoolId provided!');
+    }
+  }
+  
   @override
   Widget build(BuildContext context) {
-    // Ensure controller.schoolId is set from arguments
-    final arguments = Get.arguments as Map<String, dynamic>?;
-    if (arguments != null && arguments['schoolId'] != null) {
-      controller.schoolId = arguments['schoolId'];
-      controller.fetchStudents();
-    }
     return Scaffold(
       appBar: AppBar(
         title: const Text('Student Management'),

@@ -39,65 +39,124 @@ class SchoolAdminDashboardController extends GetxController {
   Future<void> fetchSchoolData() async {
     if (schoolId.value.isNotEmpty) {
       try {
-        // Fetch basic school data from the schools collection.
+        if (kDebugMode) {
+          print('🔍 Fetching school data for ID: ${schoolId.value}');
+        }
+        
+        // Try fetching from schooldetails collection first (NEW structure)
         DocumentSnapshot schoolDoc =
-            await _firestore.collection('schools').doc(schoolId.value).get();
+            await _firestore.collection('schooldetails').doc(schoolId.value).get();
+        
+        // If not found, try the old 'schools' collection (LEGACY support)
+        if (!schoolDoc.exists) {
+          if (kDebugMode) {
+            print('⚠️ School not found in schooldetails, trying schools collection...');
+          }
+          schoolDoc = await _firestore.collection('schools').doc(schoolId.value).get();
+        }
+        
+        if (kDebugMode) {
+          print('📄 School document exists: ${schoolDoc.exists}');
+          if (!schoolDoc.exists) {
+            print('❌ Document not found in schooldetails/${schoolId.value} OR schools/${schoolId.value}');
+            print('❌ School data is missing for this admin!');
+          }
+        }
+        
         if (schoolDoc.exists) {
-          schoolData.value = schoolDoc.data() as Map<String, dynamic>;
+          final data = schoolDoc.data() as Map<String, dynamic>;
+          
+          // Normalize field names (handle both old and new formats)
+          schoolData.value = {
+            'schoolId': data['schoolId'] ?? data['school_id'] ?? schoolId.value,
+            'schoolName': data['schoolName'] ?? data['school_name'] ?? 'Unknown School',
+            'schoolCode': data['schoolCode'] ?? data['school_code'] ?? 'N/A',
+            'email': data['email'] ?? '',
+            'phone': data['phone'] ?? data['phone_number'] ?? '',
+            'address': data['address'] ?? '',
+            'totalBuses': data['totalBuses'] ?? data['total_buses'] ?? 0,
+            'totalStudents': data['totalStudents'] ?? data['total_students'] ?? 0,
+            'totalDrivers': data['totalDrivers'] ?? data['total_drivers'] ?? 0,
+            'totalRoutes': data['totalRoutes'] ?? data['total_routes'] ?? 0,
+            'status': data['status'] ?? 'active',
+          };
+          
+          if (kDebugMode) {
+            print('✅ School data loaded: ${schoolData['schoolName']}');
+          }
+        } else {
+          // School doesn't exist - Show error and logout
+          if (kDebugMode) {
+            print('❌ School data not found! Admin account is not properly linked to a school.');
+          }
+          
+          Get.snackbar(
+            '❌ Error',
+            'Your account is not properly linked to a school. Please contact Super Admin.',
+            snackPosition: SnackPosition.TOP,
+            backgroundColor: Colors.red,
+            colorText: Colors.white,
+            duration: const Duration(seconds: 5),
+          );
+          
+          // Logout after a delay
+          Future.delayed(const Duration(seconds: 3), () {
+            authController.logout();
+          });
+          
+          return; // Exit early
+        }
 
-          // For manager roles (regionalAdmin or schoolSuperAdmin),
-          // fetch permissions from the adminusers collection.
-          if (role.value == 'regionalAdmin' ||
-              role.value == 'schoolSuperAdmin') {
-            String adminUid = authController.user.value?.uid ?? "";
-            if (adminUid.isNotEmpty) {
-              DocumentSnapshot adminDoc =
-                  await _firestore.collection('adminusers').doc(adminUid).get();
-              if (adminDoc.exists && adminDoc.data() != null) {
-                schoolData['permissions'] = adminDoc.get('permissions') ??
-                    {
-                      'busManagement': false,
-                      'driverManagement': false,
-                      'routeManagement': false,
-                      'viewingBusStatus': false, // Ensure this key exists
-                      'studentManagement': false,
-                      'paymentManagement': false,
-                      'notifications': true,
-                      'adminManagement': false,
-                    };
-              } else {
-                // Set fallback defaults for manager roles.
+          // Fetch permissions from NEW 'admins' collection
+          String adminUid = authController.user.value?.uid ?? "";
+          if (adminUid.isNotEmpty) {
+            DocumentSnapshot adminDoc =
+                await _firestore.collection('admins').doc(adminUid).get();
+            if (adminDoc.exists && adminDoc.data() != null) {
+              Map<String, dynamic> adminData = adminDoc.data() as Map<String, dynamic>;
+              
+              // Super admins get all permissions
+              if (adminData['role'] == 'super_admin' || adminData['role'] == 'superior') {
                 schoolData['permissions'] = {
-                  'busManagement': false,
-                  'driverManagement': false,
-                  'routeManagement': false,
-                  'viewingBusStatus': false, // Ensure this key exists
-                  'studentManagement': false,
-                  'paymentManagement': false,
+                  'busManagement': true,
+                  'driverManagement': true,
+                  'routeManagement': true,
+                  'viewingBusStatus': true,
+                  'studentManagement': true,
+                  'paymentManagement': true,
                   'notifications': true,
-                  'adminManagement': false,
+                  'adminManagement': true,
+                };
+              } else {
+                // School admins get their assigned permissions (default to all true for now)
+                schoolData['permissions'] = adminData['permissions'] ?? {
+                  'busManagement': true,
+                  'driverManagement': true,
+                  'routeManagement': true,
+                  'viewingBusStatus': true,
+                  'studentManagement': true,
+                  'paymentManagement': true,
+                  'notifications': true,
+                  'adminManagement': true,
                 };
               }
             } else {
-              Get.snackbar(
-                  'Error', 'Unable to identify the current admin user.');
+              // Set fallback defaults (give all permissions)
+              schoolData['permissions'] = {
+                'busManagement': true,
+                'driverManagement': true,
+                'routeManagement': true,
+                'viewingBusStatus': true,
+                'studentManagement': true,
+                'paymentManagement': true,
+                'notifications': true,
+                'adminManagement': true,
+              };
             }
           } else {
-            // For non-manager roles, assume full access.
-            schoolData['permissions'] = {
-              'busManagement': true,
-              'driverManagement': true,
-              'routeManagement': true,
-              'viewingBusStatus': true, // Ensure this key exists
-              'studentManagement': true,
-              'paymentManagement': true,
-              'notifications': true,
-              'adminManagement': true,
-            };
+            Get.snackbar(
+                'Error', 'Unable to identify the current admin user.');
           }
-        } else {
-          Get.snackbar('Error', 'School data not found for the given ID.');
-        }
       } catch (e) {
         if (kDebugMode) print("Error fetching school data: $e");
         Get.snackbar('Error', 'Failed to fetch school data: $e');

@@ -278,7 +278,7 @@ class DriverController extends GetxController {
         routeType = determineRouteType(
           busDetail.value!.stoppings,
           LatLng(position.latitude, position.longitude),
-        ) as String;
+        );
         print('🛣️ [StartTrip] Route type determined: $routeType');
 
         // Set 'notified' to false for all students assigned to this bus
@@ -411,8 +411,9 @@ class DriverController extends GetxController {
           final busLocation = LatLng(position.latitude, position.longitude);
 
           // Check proximity to remaining stops and remove those within threshold
-          bool stopsRemoved = false;
-          List<StopWithETA> stopsToRemove = [];
+          // Variables for future implementation:
+          // bool stopsRemoved = false;
+          // List<StopWithETA> stopsToRemove = [];
 
           // Only remove stops in the correct order based on route type
           String routeType = status.busRouteType ?? "pickup";

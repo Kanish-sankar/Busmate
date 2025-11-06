@@ -4,104 +4,211 @@ const admin = require("firebase-admin");
 const fetch = require("node-fetch");
 const nodemailer = require('nodemailer');
 
-
 admin.initializeApp();
 
-exports.sendBusArrivalNotifications = onSchedule("every 1 minutes", async (event) => {
-  const db = admin.firestore();
+// Optimized batch notification processing
+exports.sendBusArrivalNotifications = onSchedule(
+  {
+    schedule: "every 2 minutes", // Reduced frequency for cost optimization
+    timeZone: "Asia/Kolkata",
+    memory: "512MB", // Increased memory for batch processing
+    timeoutSeconds: 540, // Increased timeout for large batches
+  },
+  async (event) => {
+    const db = admin.firestore();
+    const startTime = Date.now();
+    console.log(`🚀 Starting notification batch job at ${new Date()}`);
 
-  try {
-    const studentsSnapshot = await db.collection("students").get();
+    try {
+      // Optimized query with compound index
+      const studentsSnapshot = await db
+        .collection("students")
+        .where("notified", "==", false)
+        .where("fcmToken", "!=", null)
+        .limit(100) // Process in batches to avoid timeout
+        .get();
 
-    for (const studentDoc of studentsSnapshot.docs) {
-      const student = studentDoc.data();
-      const studentId = studentDoc.id;
-
-      if (!student.stopLocation || !student.notificationPreferenceByTime || !student.fcmToken || student.notified) {
-        continue;
+      if (studentsSnapshot.empty) {
+        console.log("📭 No students to process for notifications");
+        return;
       }
 
-      // Fetch Bus Current Data
-      const busStatus = await db.collection("bus_status").doc(student.assignedBusId).get();
-      const busStatusData = busStatus.data();
+      console.log(`📋 Processing ${studentsSnapshot.size} students for notifications`);
 
-      if (!busStatusData) continue;
+      // Group students by bus ID to minimize bus_status queries
+      const studentsByBus = new Map();
+      studentsSnapshot.docs.forEach(doc => {
+        const student = doc.data();
+        const studentId = doc.id;
+        
+        if (!student.assignedBusId || 
+            !student.stopLocation || 
+            !student.notificationPreferenceByTime) {
+          return;
+        }
 
-      const eta = getETAInMinutes(busStatusData, student.stopping);
-      if (eta !== null) {
-        console.log(`Student: ${student.name}, Stop: ${student.stopping}, ETA: ${eta} min`);
-      }
+        if (!studentsByBus.has(student.assignedBusId)) {
+          studentsByBus.set(student.assignedBusId, []);
+        }
+        studentsByBus.get(student.assignedBusId).push({ studentId, ...student });
+      });
 
-      if (eta <= student.notificationPreferenceByTime) {
-        console.log(`🚍 Sending notification to ${student.name}`);
+      // Process each bus batch
+      const notifications = [];
+      const updates = [];
+      
+      for (const [busId, students] of studentsByBus) {
+        try {
+          // Single query per bus instead of per student
+          const busStatus = await db.collection("bus_status").doc(busId).get();
+          const busStatusData = busStatus.data();
 
-        const isVoiceNotification = (student.notificationType || "").toLowerCase() === "voice notification";
+          if (!busStatusData || !busStatusData.isActive) {
+            console.log(`⚠️ Bus ${busId} is not active, skipping students`);
+            continue;
+          }
 
-        const payload = {
-          notification: {
-            title: "Bus Approaching!",
-            body: `Bus will arrive in approximately ${eta.toFixed(0)} minutes.`,
-          },
-          android: {
-            priority: "high",
-            ttl: 1 * 60 * 1000,
-            notification: {
-              channelId: "busmate",
-              sound: isVoiceNotification ? getSoundName(student.languagePreference) : "default",
-              visibility: "public",
-              clickAction: "FLUTTER_NOTIFICATION_CLICK",
-              defaultVibrateTimings: true,
-              defaultLightSettings: true,
-            },
-          },
-          apns: {
-            headers: {
-              "apns-priority": "10",
-              "apns-expiration": "60000",
-            },
-            payload: {
-              aps: {
-                alert: {
+          // Process all students for this bus
+          for (const student of students) {
+            const eta = getETAInMinutes(busStatusData, student.stopping);
+            
+            if (eta !== null && eta <= student.notificationPreferenceByTime) {
+              console.log(`🚍 Queuing notification for ${student.name} (ETA: ${eta}min)`);
+
+              const isVoiceNotification = (student.notificationType || "").toLowerCase() === "voice notification";
+
+              // Create notification payload
+              const payload = {
+                notification: {
                   title: "Bus Approaching!",
                   body: `Bus will arrive in approximately ${eta.toFixed(0)} minutes.`,
                 },
-                sound: isVoiceNotification ? `${getSoundName(student.languagePreference)}.wav` : "default",
-                badge: 1,
-                contentAvailable: true,
-                mutableContent: true,
-              },
-            },
-          },
-          data: {
-            type: "bus_arrival",
-            title: "Bus Approaching!",
-            body: `Bus will arrive in approximately ${eta.toFixed(0)} minutes.`,
-            studentId: studentId,
-            notificationType: isVoiceNotification ? "Voice Notification" : "Text Notification",
-            selectedLanguage: student.languagePreference || "english",
-          },
-          token: student.fcmToken,
-        };
+                android: {
+                  priority: "high",
+                  ttl: 2 * 60 * 1000, // 2 minutes TTL
+                  notification: {
+                    channelId: "busmate",
+                    sound: isVoiceNotification ? getSoundName(student.languagePreference) : "default",
+                    visibility: "public",
+                    clickAction: "FLUTTER_NOTIFICATION_CLICK",
+                    defaultVibrateTimings: true,
+                    defaultLightSettings: true,
+                  },
+                },
+                apns: {
+                  headers: {
+                    "apns-priority": "10",
+                    "apns-expiration": "120000", // 2 minutes
+                  },
+                  payload: {
+                    aps: {
+                      alert: {
+                        title: "Bus Approaching!",
+                        body: `Bus will arrive in approximately ${eta.toFixed(0)} minutes.`,
+                      },
+                      sound: isVoiceNotification ? `${getSoundName(student.languagePreference)}.wav` : "default",
+                      badge: 1,
+                      contentAvailable: true,
+                      mutableContent: true,
+                    },
+                  },
+                },
+                data: {
+                  type: "bus_arrival",
+                  title: "Bus Approaching!",
+                  body: `Bus will arrive in approximately ${eta.toFixed(0)} minutes.`,
+                  studentId: student.studentId,
+                  notificationType: isVoiceNotification ? "Voice Notification" : "Text Notification",
+                  selectedLanguage: student.languagePreference || "english",
+                  eta: eta.toString(),
+                  busId: busId,
+                },
+                token: student.fcmToken,
+              };
 
-        await admin.messaging().send(payload);
-
-        // Mark as notified
-        await db.collection("students").doc(studentId).update({
-          notified: true,
-        });
-
-        // Start 1 minute timer (simulate using Firestore document)
-        await db.collection("notificationTimers").doc(studentId).set({
-          notifiedAt: admin.firestore.FieldValue.serverTimestamp(),
-          parentPhone: student.parentContact,
-          smsSent: false,
-        });
+              notifications.push(payload);
+              
+              // Queue database update
+              updates.push({
+                collection: 'students',
+                doc: student.studentId,
+                data: { notified: true }
+              });
+              
+              // Queue timer creation
+              updates.push({
+                collection: 'notificationTimers',
+                doc: student.studentId,
+                data: {
+                  notifiedAt: admin.firestore.FieldValue.serverTimestamp(),
+                  parentPhone: student.parentContact,
+                  smsSent: false,
+                  busId: busId,
+                  eta: eta
+                }
+              });
+            }
+          }
+        } catch (busError) {
+          console.error(`❌ Error processing bus ${busId}:`, busError);
+        }
       }
+
+      // Batch send notifications
+      if (notifications.length > 0) {
+        console.log(`📤 Sending ${notifications.length} notifications in batch`);
+        
+        try {
+          // Send notifications in parallel batches of 10
+          const batchSize = 10;
+          for (let i = 0; i < notifications.length; i += batchSize) {
+            const batch = notifications.slice(i, i + batchSize);
+            await Promise.all(batch.map(async (payload) => {
+              try {
+                await admin.messaging().send(payload);
+              } catch (msgError) {
+                console.error(`❌ Failed to send notification:`, msgError);
+              }
+            }));
+          }
+          
+          console.log(`✅ Successfully sent ${notifications.length} notifications`);
+        } catch (error) {
+          console.error(`❌ Error sending notifications:`, error);
+        }
+      }
+
+      // Batch update database
+      if (updates.length > 0) {
+        console.log(`💾 Performing ${updates.length} database updates in batch`);
+        
+        const batch = db.batch();
+        updates.forEach(update => {
+          const ref = db.collection(update.collection).doc(update.doc);
+          if (update.collection === 'notificationTimers') {
+            batch.set(ref, update.data);
+          } else {
+            batch.update(ref, update.data);
+          }
+        });
+        
+        try {
+          await batch.commit();
+          console.log(`✅ Successfully updated ${updates.length} documents`);
+        } catch (error) {
+          console.error(`❌ Error updating database:`, error);
+        }
+      }
+
+      const endTime = Date.now();
+      const duration = endTime - startTime;
+      console.log(`⏱️ Notification job completed in ${duration}ms`);
+      
+    } catch (error) {
+      console.error("❌ Error in sendBusArrivalNotifications:", error);
     }
-  } catch (error) {
-    console.error("Error in sendBusArrivalNotifications:", error);
   }
-});
+);
 
 exports.checkNotificationTimers = onSchedule("every 1 minutes", async (event) => {
   const db = admin.firestore();

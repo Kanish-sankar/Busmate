@@ -1,117 +1,264 @@
 import 'package:busmate/meta/firebase_helper/auth_login.dart';
-import 'package:busmate/meta/nav/pages.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
-import 'package:get_storage/get_storage.dart';
 
-class SigInController extends GetxController {
-  final AuthLogin getLogin = Get.put(AuthLogin());
+class SignInController extends GetxController with GetTickerProviderStateMixin {
 
-  // boolean to control visibility of password
-  RxBool isShowPass = false.obs;
-  // boolean to control visibility of remember me
-  RxBool isRemeber = false.obs;
-
-  RxBool isLoading = false.obs;
-
-  //text field controller
-  TextEditingController txtId = TextEditingController();
-  TextEditingController txtPassword = TextEditingController();
-
-  // global key for form
+  // Form key for validation
   final formKey = GlobalKey<FormState>();
-
-  // local storage instance
-  GetStorage storage = GetStorage();
-
-  // Password validation function
-  String? validatePassword(String? value) {
-    if (value == null || value.isEmpty) {
-      return 'passVal1'.tr;
-    } else if (value.length < 8) {
-      return 'passVal2'.tr;
-    } else if (!RegExp(r'[A-Z]').hasMatch(value)) {
-      return 'passVal3'.tr;
-    } else if (!RegExp(r'[a-z]').hasMatch(value)) {
-      return 'passVal4'.tr;
-    } else if (!RegExp(r'[0-9]').hasMatch(value)) {
-      return 'passVal5'.tr;
-    }
-    return null;
-  }
-
-  String? validateUserId(String? value) {
-    if (value == null || value.isEmpty) {
-      return 'userVal1'.tr;
-    }
-    return null;
-  }
-
-  // Method to handle form submission
-  // login button
-  void submitForm() {
-    isLoading.value = true;
-    getLogin.isStudentLogin(txtId.text.trim(), txtPassword.text.trim());
-    isLoading.value = false;
-    // validate form fields
-    // if (formKey.currentState?.validate() ?? false) {
-    //   // save data on local storage
-    //   if (isRemeber.value) {
-    //     storage.write('isRemeber', isRemeber.value);
-    //     // storage.write('studentId', txtId.text);
-    //     // storage.write('password', txtPassword.text);
-    //   }
-    //   // navigate to stopping location
-    //   Get.offAllNamed(Routes.stopLocation);
-    // }
-    // clear form fields
+  
+  // Authentication helper
+  final AuthLogin authLogin = Get.put(AuthLogin());
+  
+  void logout() {
+    // Clear the text controllers
     txtId.clear();
     txtPassword.clear();
+    // Reset the state
+    isRemeber.value = false;
+    
+    Get.offAllNamed('/login');
   }
 
-  // logout  button
-  void logout() async {
-    // await getLogin.logout();
-    FirebaseAuth.instance.signOut();
-    // clear local storage
-    storage.erase();
-    // navigate to sign in screen
-    Get.offAllNamed(Routes.sigIn);
+  final txtId = TextEditingController();
+  final txtPassword = TextEditingController();
+  
+  final isShowPass = false.obs;
+  final isRemeber = false.obs;
+  final isLoading = false.obs;
+  final isHovering = false.obs;
+  
+  // Animation controllers
+  late AnimationController slideController;
+  late AnimationController fadeController;
+  late AnimationController pulseController;
+  
+  // Animations
+  late Animation<Offset> slideAnimation;
+  late Animation<double> fadeAnimation;
+  late Animation<double> pulseAnimation;
+
+  @override
+  void onInit() {
+    super.onInit();
+    
+    // Initialize animations
+    slideController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    );
+    
+    fadeController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    );
+    
+    pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..repeat(reverse: true);
+    
+    slideAnimation = Tween<Offset>(
+      begin: const Offset(0, 0.3),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: slideController,
+      curve: Curves.easeOutCubic,
+    ));
+    
+    fadeAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: fadeController,
+      curve: Curves.easeInOut,
+    ));
+    
+    pulseAnimation = Tween<double>(
+      begin: 0.95,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: pulseController,
+      curve: Curves.easeInOut,
+    ));
+    
+    // Start animations
+    slideController.forward();
+    fadeController.forward();
   }
 
-  // forgot password button
-  void forgotPassword() {
-    // Navigate to forgot password screen
-    // Get.toNamed(Routes.forgotPassword);
+  // Validation methods
+  String? validateUserId(String? value) {
+    if (value == null || value.isEmpty) {
+      return 'Please enter your Student ID';
+    }
+    if (value.length < 3) {
+      return 'Student ID must be at least 3 characters';
+    }
+    return null;
+  }
+  
+  final txtEmail = TextEditingController();
+
+  void resetPassword() {
+    if (txtEmail.text.isEmpty) {
+      Get.snackbar('Error', 'Enter your email first to reset password');
+      return;
+    }
+    authLogin.resetPassword(txtEmail.text.trim());
   }
 
+  String? validatePassword(String? value) {
+    if (value == null || value.isEmpty) {
+      return 'Please enter your password';
+    }
+    if (value.length < 6) {
+      return 'Password must be at least 6 characters';
+    }
+    return null;
+  }
+
+  // Form submission
+  Future<void> submitForm() async {
+    if (!formKey.currentState!.validate()) {
+      return;
+    }
+    
+    isLoading.value = true;
+    
+    try {
+      // Use Firebase authentication
+      await authLogin.isStudentLogin(txtEmail.text.trim(), txtPassword.text.trim());
+      
+      // If we reach here, login was successful and navigation is handled by authLogin
+      // No need for additional navigation here as authLogin.isStudentLogin handles it
+      
+    } catch (e) {
+      // Show error message
+      Get.snackbar(
+        'Login Failed',
+        e.toString().replaceAll('Exception: ', ''),
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+        snackPosition: SnackPosition.BOTTOM,
+        margin: const EdgeInsets.all(20),
+        borderRadius: 12,
+        duration: const Duration(seconds: 4),
+      );
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  // Forgot password dialog
   void showEmailDialog() {
-    final TextEditingController emailController = TextEditingController();
-    Get.defaultDialog(
-      title: "Enter Email",
-      content: Column(
-        children: [
-          TextField(
-            controller: emailController,
-            decoration: const InputDecoration(
-              labelText: "Email",
-              border: OutlineInputBorder(),
-            ),
-            keyboardType: TextInputType.emailAddress,
+    final emailController = TextEditingController();
+    
+    Get.dialog(
+      Dialog(
+        backgroundColor: Colors.transparent,
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                blurRadius: 32,
+                color: Colors.black.withOpacity(0.2),
+              ),
+            ],
           ),
-          SizedBox(height: 10.h),
-          ElevatedButton(
-            onPressed: () {
-              String email = emailController.text.trim();
-              getLogin.resetPassword(email);
-              Get.back(); // Close the dialog
-            },
-            child: const Text("Submit"),
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.lock_reset_rounded, color: Colors.blue.shade600),
+                  const SizedBox(width: 12),
+                  Text(
+                    'Reset Password',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.grey.shade800,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'Enter your email to receive a password reset link',
+                style: TextStyle(
+                  color: Colors.grey.shade600,
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(height: 20),
+              TextFormField(
+                controller: emailController,
+                decoration: InputDecoration(
+                  labelText: 'Email Address',
+                  prefixIcon: Icon(Icons.email_rounded),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Get.back(),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: Text('Cancel'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Get.back();
+                        Get.snackbar(
+                          'Email Sent',
+                          'Check your inbox for reset instructions',
+                          backgroundColor: Colors.green,
+                          colorText: Colors.white,
+                        );
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue.shade600,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: Text('Send Link'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
+  }
+
+  @override
+  void onClose() {
+    slideController.dispose();
+    fadeController.dispose();
+    pulseController.dispose();
+    txtId.dispose();
+    txtPassword.dispose();
+    super.onClose();
   }
 }

@@ -18,15 +18,30 @@ class SuperAdminDashboardController extends GetxController {
 
   Future<void> fetchSchools() async {
     try {
-      // Set up a real-time listener for schools
-      _firestore.collection('schools').snapshots().listen((snapshot) {
+      print('🏫 Starting to fetch schools from Firestore...');
+      // Try schooldetails collection first (primary collection)
+      _firestore.collection('schooldetails').snapshots().listen((snapshot) {
+        print('🏫 ✅ Received ${snapshot.docs.length} schools from schooldetails collection');
         schools.value = snapshot.docs;
-      }, onError: (error) {
-        if (kDebugMode) {
-          print("Error fetching schools: $error");
+        for (var doc in snapshot.docs) {
+          var data = doc.data();
+          print('   - ${data['school_name'] ?? data['schoolName'] ?? 'Unnamed'} (${doc.id})');
         }
+      }, onError: (error) {
+        print('🏫 ❌ Error fetching schools: $error');
+        // If schooldetails fails, try schools collection as fallback
+        _firestore.collection('schools').snapshots().listen((snapshot) {
+          print('🏫 ✅ Fallback: Received ${snapshot.docs.length} schools from schools collection');
+          schools.value = snapshot.docs;
+        }, onError: (fallbackError) {
+          print('🏫 ❌ Fallback also failed: $fallbackError');
+          if (kDebugMode) {
+            print("Error fetching schools from both collections: $fallbackError");
+          }
+        });
       });
     } catch (e) {
+      print('🏫 ❌ Error setting up schools listener: $e');
       if (kDebugMode) {
         print("Error setting up schools listener: $e");
       }

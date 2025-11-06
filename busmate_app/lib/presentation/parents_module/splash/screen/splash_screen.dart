@@ -31,30 +31,40 @@ class SplashScreen extends GetView<SplashController> {
                   ),
                 ),
               ),
-              Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(20.r),
-                      child: Image.asset(
-                        AppImages.jupentaLogo,
-                        height: 180.w,
-                        width: 180.w,
-                        fit: BoxFit.contain,
+              SafeArea(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 20.w),
+                  child: Center(
+                    child: SingleChildScrollView(
+                      physics: const BouncingScrollPhysics(),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(20.r),
+                            child: Image.asset(
+                              AppImages.jupentaLogo,
+                              height: 150.w,
+                              width: 150.w,
+                              fit: BoxFit.contain,
+                            ),
+                          ),
+                          SizedBox(height: 20.h),
+                          Icon(
+                            Icons.location_on,
+                            size: 40.sp,
+                          ),
+                          SizedBox(height: 20.h),
+                          FittedBox(
+                            child: appText(
+                              text: 'tagLine'.tr,
+                              textStyle: size20TextStyle(),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    SizedBox(height: 20.h),
-                    Icon(
-                      Icons.location_on,
-                      size: 47.sp,
-                    ),
-                    SizedBox(height: 20.h),
-                    appText(
-                      text: 'tagLine'.tr,
-                      textStyle: size20TextStyle(),
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ],

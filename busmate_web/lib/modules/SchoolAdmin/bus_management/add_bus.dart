@@ -23,15 +23,12 @@ class AddBusScreen extends StatelessWidget {
       // Create a new Bus instance without driver info.
       final newBus = Bus(
         id: '', // Controller will generate a new ID
+        schoolId: controller.schoolId,
         busNo: busNoController.text.trim(),
         busVehicleNo: busVehicleNoController.text.trim(),
-        // Remove driverName and driverId fields from the creation process.
-        driverName: '',
-        driverId: '',
-        routeName: routeNameController.text.trim(),
-        stoppings: [], // You can add stoppings later.
-        students: [], // You can assign students later.
         gpsType: gpsType,
+        routeName: routeNameController.text.trim().isEmpty ? null : routeNameController.text.trim(),
+        createdAt: DateTime.now(),
       );
       controller.addBus(newBus);
       Get.back();
@@ -43,7 +40,7 @@ class AddBusScreen extends StatelessWidget {
     if (isEdit && bus != null) {
       busNoController.text = bus!.busNo;
       busVehicleNoController.text = bus!.busVehicleNo;
-      routeNameController.text = bus!.routeName;
+      routeNameController.text = bus!.routeName ?? '';
       gpsType = bus!.gpsType;
     }
 
@@ -121,14 +118,19 @@ class AddBusScreen extends StatelessWidget {
                   if (isEdit && bus != null) {
                     final updatedBus = Bus(
                       id: bus!.id,
+                      schoolId: bus!.schoolId,
                       busNo: busNoController.text.trim(),
                       busVehicleNo: busVehicleNoController.text.trim(),
-                      driverName: bus!.driverName,
-                      driverId: bus!.driverId,
-                      routeName: routeNameController.text.trim(),
-                      stoppings: bus!.stoppings,
-                      students: bus!.students,
                       gpsType: gpsType,
+                      driverId: bus!.driverId,
+                      driverName: bus!.driverName,
+                      driverPhone: bus!.driverPhone,
+                      routeId: bus!.routeId,
+                      routeName: routeNameController.text.trim().isEmpty ? null : routeNameController.text.trim(),
+                      stoppings: bus!.stoppings,
+                      assignedStudents: bus!.assignedStudents,
+                      status: bus!.status,
+                      createdAt: bus!.createdAt,
                     );
                     controller.updateBus(bus!.id, updatedBus);
                   } else {

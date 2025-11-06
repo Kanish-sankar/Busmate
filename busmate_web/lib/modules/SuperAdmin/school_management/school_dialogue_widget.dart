@@ -1,5 +1,5 @@
 // import 'package:busmate_web/modules/SuperAdmin/payment_management/payment_management_controller.dart';
-import 'package:busmate_web/modules/SuperAdmin/payment_management/payment_management_screen.dart';
+import 'package:busmate_web/modules/SuperAdmin/payment_management/super_admin_payment_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
@@ -26,17 +26,11 @@ class SchoolDetailsDialog extends StatelessWidget {
       ),
       actions: [
         TextButton(
-          onPressed: () => Get.to(() => PaymentHistoryScreen(
-                schoolId: school['school_id'],
-                schoolName: school['school_name'],
-                schoolEmail: school['email'],
-              )),
-          // _paymentController.selectedSchoolId.value = value;
-          // _paymentController.fetchPaymentRequests(school['school_id']);
-          // Open the payment details dialog
-          // Get.dialog(PaymentDialog(schoolId: school['school_id']));
-
-          child: const Text("Payment History"),
+          onPressed: () {
+            Get.back(); // Close dialog first
+            Get.to(() => const SuperAdminPaymentManagementScreen());
+          },
+          child: const Text("View All Payments"),
         ),
         TextButton(
           onPressed: () => Get.back(),

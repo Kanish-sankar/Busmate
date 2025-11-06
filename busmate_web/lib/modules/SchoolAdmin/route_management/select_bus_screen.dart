@@ -5,21 +5,29 @@ import 'package:get/get.dart';
 import '../bus_management/bus_model.dart';
 
 class SelectBusScreen extends StatelessWidget {
-  final BusController controller = Get.put(
-    BusController(),
-    tag: null,
-  );
+  final String? schoolId;
+  late final BusController controller;
 
-  SelectBusScreen({super.key});
+  SelectBusScreen({super.key, this.schoolId}) {
+    // Initialize controller with schoolId passed as parameter OR from Get.arguments
+    final arguments = Get.arguments as Map<String, dynamic>?;
+    final effectiveSchoolId = schoolId ?? arguments?['schoolId'];
+    
+    // Put controller with tag to avoid conflicts
+    controller = Get.put(
+      BusController(),
+      tag: effectiveSchoolId ?? 'default',
+    );
+    
+    // Set the schoolId in controller if provided
+    if (effectiveSchoolId != null && effectiveSchoolId.isNotEmpty) {
+      controller.schoolId = effectiveSchoolId;
+      controller.fetchBuses();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    // Ensure controller.schoolId is set from arguments
-    final arguments = Get.arguments as Map<String, dynamic>?;
-    if (arguments != null && arguments['schoolId'] != null) {
-      controller.schoolId = arguments['schoolId'];
-      controller.fetchBuses();
-    }
     return Scaffold(
       appBar: AppBar(
         title: const Text('Select Bus to Manage Route'),
@@ -39,7 +47,7 @@ class SelectBusScreen extends StatelessWidget {
               margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
               child: ListTile(
                 title: Text('Bus No: ${bus.busNo}'),
-                subtitle: Text(bus.routeName),
+                subtitle: Text(bus.routeName ?? 'No route assigned'),
                 onTap: () {
                   // Pass the schoolId when navigating to RouteManagementScreen.
                   Get.to(

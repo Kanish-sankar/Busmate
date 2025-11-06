@@ -1,0 +1,186 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 🔥 TEMPORARY DEVELOPMENT RULES - REMOVE IN PRODUCTION 🔥
+    // These rules allow easier testing and development
+    
+    // Allow all authenticated users full access during development
+    match /{document=**} {
+      allow read, write, create, update, delete: if request.auth != null;
+    }
+    
+    // Allow unauthenticated access to basic collections for testing
+    match /basicDetails/{document} {
+      allow read: if true;
+    }
+    
+    // Note: Replace these with secure production rules before deployment
+    
+    // Students collection - global collection with school-based access control
+    match /students/{studentId} {
+      // Students can read/write their own data
+      allow read, write: if isOwner(studentId);
+      
+      // School admins can read/write students from their school only
+      allow read, write: if isSchoolAdmin() && 
+        resource.data.schoolId != null && 
+        belongsToSchool(resource.data.schoolId);
+      
+      // Super admins can read all students
+      allow read: if isSuperAdmin();
+      
+      // Only admins can create students with valid data
+      allow create: if isSchoolAdmin() && isValidStudentData() &&
+        belongsToSchool(request.resource.data.schoolId);
+        
+      // Drivers can read students assigned to their bus
+      allow read: if isDriver() && 
+        resource.data.assignedBusId != null &&
+        exists(/databases/$(database)/documents/drivers/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/drivers/$(request.auth.uid)).data.assignedBusId == resource.data.assignedBusId;
+    }
+    
+    // Schools collection - temporarily relaxed for testing
+    match /schools/{schoolId} {
+      allow read: if canAccessSchoolData(schoolId);
+      allow write: if isSuperAdmin() || belongsToSchool(schoolId);
+      allow create: if isSuperAdmin();
+      
+      // Temporary: Allow authenticated users to read schools (needed for login flow)
+      allow read: if request.auth != null;
+      
+      // Sub-collections within schools
+      match /buses/{busId} {
+        allow read: if canAccessSchoolData(schoolId);
+        allow write: if (isSchoolAdmin() && belongsToSchool(schoolId)) || isSuperAdmin();
+        allow create: if (isSchoolAdmin() && belongsToSchool(schoolId)) || isSuperAdmin();
+        
+        // Drivers can update their own bus status
+        allow write: if isDriver() && 
+          exists(/databases/$(database)/documents/drivers/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/drivers/$(request.auth.uid)).data.assignedBusId == busId;
+      }
+      
+      match /drivers/{driverId} {
+        allow read: if canAccessSchoolData(schoolId);
+        allow write: if (isSchoolAdmin() && belongsToSchool(schoolId)) || isSuperAdmin();
+        allow create: if (isSchoolAdmin() && belongsToSchool(schoolId)) || isSuperAdmin();
+      }
+      
+      match /admins/{adminId} {
+        allow read: if (isSchoolAdmin() && belongsToSchool(schoolId)) || isSuperAdmin();
+        allow write: if isSuperAdmin() || (belongsToSchool(schoolId) && isOwner(adminId));
+        allow create: if isSuperAdmin();
+      }
+      
+      // Payments as subcollection under schools
+      match /payments/{paymentId} {
+        allow read: if canAccessSchoolData(schoolId) || 
+          (isStudent() && resource.data.studentId == request.auth.uid);
+        allow write: if (isSchoolAdmin() && belongsToSchool(schoolId)) || isSuperAdmin();
+        allow create: if (isSchoolAdmin() && belongsToSchool(schoolId)) || isSuperAdmin();
+      }
+    }
+    
+    // Drivers collection - global collection with role-based access
+    match /drivers/{driverId} {
+      // Drivers can read/write their own data
+      allow read, write: if isOwner(driverId);
+      
+      // School admins can manage drivers from their school
+      allow read, write: if isSchoolAdmin() && 
+        resource.data.schoolId != null && 
+        belongsToSchool(resource.data.schoolId);
+      
+      // Super admins can read/write all drivers
+      allow read, write: if isSuperAdmin();
+      
+      // Students can read driver info for their assigned bus
+      allow read: if isStudent() && 
+        exists(/databases/$(database)/documents/students/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/students/$(request.auth.uid)).data.assignedDriverId == driverId;
+        
+      // Creation only by admins
+      allow create: if isSchoolAdmin() || isSuperAdmin();
+    }
+    
+    // Bus status - real-time location and status data
+    match /bus_status/{busId} {
+      // All authenticated users can read bus status
+      allow read: if isAuthenticated();
+      
+      // Drivers can update their own bus status
+      allow write: if isDriver() && 
+        exists(/databases/$(database)/documents/drivers/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/drivers/$(request.auth.uid)).data.assignedBusId == busId;
+      
+      // Admins can write bus status
+      allow write: if isSchoolAdmin() || isSuperAdmin();
+      
+      // Creation by admins and drivers
+      allow create: if isSchoolAdmin() || isSuperAdmin() || isDriver();
+    }
+    
+    // Admin users collection - temporarily relaxed for testing
+    match /adminusers/{userId} {
+      allow read: if isOwner(userId) || isSuperAdmin();
+      allow write: if isSuperAdmin();
+      allow create: if request.auth != null; // Allow any authenticated user to create admin records
+      
+      // School admins can read other admins from the same school
+      allow read: if isSchoolAdmin() && 
+        resource.data.schoolId != null && 
+        belongsToSchool(resource.data.schoolId);
+        
+      // Temporary: Allow authenticated users to read their own admin record
+      allow read: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Notifications - global notifications collection
+    match /notifications/{notificationId} {
+      // Users can read notifications intended for them
+      allow read: if isAuthenticated() && (
+        resource.data.recipientId == request.auth.uid ||
+        resource.data.schoolIds != null && 
+        exists(/databases/$(database)/documents/students/$(request.auth.uid)) &&
+        resource.data.schoolIds.hasAny([get(/databases/$(database)/documents/students/$(request.auth.uid)).data.schoolId]) ||
+        isSchoolAdmin()
+      );
+      
+      // Only admins can write notifications
+      allow write: if isSchoolAdmin() || isSuperAdmin();
+      allow create: if isSchoolAdmin() || isSuperAdmin();
+    }
+    
+    // Global payments collection (legacy support)
+    match /payment/{paymentId} {
+      // Students can read their own payment data
+      allow read: if isAuthenticated() && 
+        resource.data.studentId == request.auth.uid;
+      
+      // Admins can read payments from their school
+      allow read: if isSchoolAdmin() && 
+        resource.data.schoolId != null && 
+        belongsToSchool(resource.data.schoolId);
+      
+      // Super admins can read all payments
+      allow read: if isSuperAdmin();
+      
+      // Only admins can write payment data
+      allow write: if isSchoolAdmin() || isSuperAdmin();
+      allow create: if isSchoolAdmin() || isSuperAdmin();
+    }
+    
+    // Routes - read-only for authenticated users
+    match /routes/{routeId} {
+      allow read: if isAuthenticated();
+      allow write: if isSchoolAdmin();
+    }
+    
+    // Notification timers - internal use only
+    match /notificationTimers/{timerId} {
+      allow read, write: if false; // Only Cloud Functions can access
+    }
+  }
+}

@@ -6,23 +6,58 @@ class BusController extends GetxController {
   var buses = <Bus>[].obs;
   var isLoading = false.obs;
   var searchText = ''.obs;
+  var selectedFilter = 'all'.obs; // Filter state
   var busStatuses = <String, BusStatusModel>{}.obs; // Map to store bus statuses
   FirebaseFirestore firestore = FirebaseFirestore.instance;
   late String schoolId;
 
-  // Update to use buses as a subcollection under schools
+  // Update to use buses as a subcollection under schooldetails
   CollectionReference get busCollection =>
-      firestore.collection('schools').doc(schoolId).collection('buses');
+      firestore.collection('schooldetails').doc(schoolId).collection('buses');
 
   CollectionReference get busStatusCollection =>
       firestore.collection('bus_status');
+  
+  // Filtered buses based on search and filter
+  List<Bus> get filteredBuses {
+    var filtered = buses.where((bus) {
+      // Search filter
+      final matchesSearch = searchText.value.isEmpty ||
+          bus.busNo.toLowerCase().contains(searchText.value.toLowerCase()) ||
+          bus.busVehicleNo.toLowerCase().contains(searchText.value.toLowerCase());
+      
+      if (!matchesSearch) return false;
+      
+      // Status filter
+      switch (selectedFilter.value) {
+        case 'active':
+          return bus.status == 'active';
+        case 'needs_setup':
+          return !bus.hasDriver || !bus.hasRoute;
+        case 'maintenance':
+          return bus.status == 'maintenance';
+        case 'all':
+        default:
+          return true;
+      }
+    }).toList();
+    
+    return filtered;
+  }
 
   @override
   void onInit() {
     super.onInit();
-    // Get schoolId from arguments only
+    // Get schoolId from arguments (set by screen constructor)
     final arguments = Get.arguments as Map<String, dynamic>?;
-    schoolId = arguments?['schoolId'] ?? '';
+    if (arguments != null && arguments.containsKey('schoolId')) {
+      schoolId = arguments['schoolId'];
+    }
+    // schoolId should be set by the screen before calling onInit
+    // If not set, throw an error to catch configuration issues
+    if (schoolId.isEmpty) {
+      throw Exception('BusController initialized without schoolId. Please pass schoolId to BusManagementScreen.');
+    }
     fetchBuses();
   }
 
@@ -40,12 +75,25 @@ class BusController extends GetxController {
     }
   }
 
-  void fetchBuses() {
+  void fetchBuses() async {
+    print('🚌 Fetching buses for schoolId: $schoolId');
     isLoading.value = true;
-    busCollection.snapshots().listen((QuerySnapshot snapshot) {
+    try {
+      // ONE-TIME READ instead of real-time listener
+      final snapshot = await busCollection.get();
+      print('✅ Received ${snapshot.docs.length} buses');
       buses.value = snapshot.docs.map((doc) => Bus.fromDocument(doc)).toList();
       isLoading.value = false;
-    });
+    } catch (error) {
+      print('❌ Error fetching buses: $error');
+      isLoading.value = false;
+      Get.snackbar(
+        '❌ Error',
+        'Failed to load buses: $error',
+        snackPosition: SnackPosition.BOTTOM,
+        duration: const Duration(seconds: 5),
+      );
+    }
   }
 
   void fetchBusStatus(String busId) {
@@ -116,11 +164,5 @@ class BusController extends GetxController {
     } catch (e) {
       Get.snackbar('Error', 'Failed to update bus status: $e');
     }
-  }
-
-  // Filter buses based on search text.
-  List<Bus> get filteredBuses {
-    if (searchText.value.isEmpty) return buses;
-    return buses.where((bus) => bus.busNo.contains(searchText.value)).toList();
   }
 }
