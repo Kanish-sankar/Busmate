@@ -10,6 +10,9 @@ class SignInController extends GetxController with GetTickerProviderStateMixin {
   // Authentication helper
   final AuthLogin authLogin = Get.put(AuthLogin());
   
+  // Role from arguments (student or driver)
+  String? userRole;
+  
   void logout() {
     // Clear the text controllers
     txtId.clear();
@@ -41,6 +44,13 @@ class SignInController extends GetxController with GetTickerProviderStateMixin {
   @override
   void onInit() {
     super.onInit();
+    
+    // Get role from arguments
+    final arguments = Get.arguments;
+    if (arguments != null && arguments is Map) {
+      userRole = arguments['role'] as String?;
+      print("DEBUG: SignInController initialized with role: $userRole");
+    }
     
     // Initialize animations
     slideController = AnimationController(
@@ -127,24 +137,19 @@ class SignInController extends GetxController with GetTickerProviderStateMixin {
     isLoading.value = true;
     
     try {
-      // Use Firebase authentication
-      await authLogin.isStudentLogin(txtEmail.text.trim(), txtPassword.text.trim());
+      // Use simple login (no Firebase Auth, just adminusers with hashed password)
+      print("DEBUG: Using simpleLogin");
+      await authLogin.simpleLogin(
+        txtEmail.text.trim(), 
+        txtPassword.text.trim()
+      );
       
       // If we reach here, login was successful and navigation is handled by authLogin
-      // No need for additional navigation here as authLogin.isStudentLogin handles it
+      // No need for additional navigation here as authLogin handles it
       
     } catch (e) {
-      // Show error message
-      Get.snackbar(
-        'Login Failed',
-        e.toString().replaceAll('Exception: ', ''),
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-        snackPosition: SnackPosition.BOTTOM,
-        margin: const EdgeInsets.all(20),
-        borderRadius: 12,
-        duration: const Duration(seconds: 4),
-      );
+      // Error already shown in simpleLogin method
+      print("DEBUG: Login failed: $e");
     } finally {
       isLoading.value = false;
     }
@@ -200,7 +205,7 @@ class SignInController extends GetxController with GetTickerProviderStateMixin {
                 controller: emailController,
                 decoration: InputDecoration(
                   labelText: 'Email Address',
-                  prefixIcon: Icon(Icons.email_rounded),
+                  prefixIcon: const Icon(Icons.email_rounded),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -218,7 +223,7 @@ class SignInController extends GetxController with GetTickerProviderStateMixin {
                           borderRadius: BorderRadius.circular(12),
                         ),
                       ),
-                      child: Text('Cancel'),
+                      child: const Text('Cancel'),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -240,7 +245,7 @@ class SignInController extends GetxController with GetTickerProviderStateMixin {
                           borderRadius: BorderRadius.circular(12),
                         ),
                       ),
-                      child: Text('Send Link'),
+                      child: const Text('Send Link'),
                     ),
                   ),
                 ],

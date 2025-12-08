@@ -56,4 +56,36 @@ class DriverModel {
       'schoolId': schoolId,
     };
   }
+
+  // Convert to JSON for caching
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'assignedBusId': assignedBusId,
+      'available': available,
+      'contactInfo': contactInfo,
+      'email': email,
+      'licenseNumber': licenseNumber,
+      'name': name,
+      'password': password,
+      'profileImageUrl': profileImageUrl,
+      'schoolId': schoolId,
+    };
+  }
+
+  // Create from JSON (for cache retrieval)
+  factory DriverModel.fromJson(Map<String, dynamic> json) {
+    return DriverModel(
+      id: json['id'] ?? '',
+      assignedBusId: json['assignedBusId'] ?? '',
+      available: json['available'] ?? false,
+      contactInfo: json['contactInfo'] ?? '',
+      email: json['email'] ?? '',
+      licenseNumber: json['licenseNumber'] ?? '',
+      name: json['name'] ?? '',
+      password: json['password'] ?? '',
+      profileImageUrl: json['profileImageUrl'] ?? '',
+      schoolId: json['schoolId'] ?? '',
+    );
+  }
 }

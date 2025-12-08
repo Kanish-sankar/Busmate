@@ -82,21 +82,42 @@ class StopLocation extends GetView<StoplocationController> {
                                         style: size12TextStyle()),
                                   ),
                                 ),
-                                onChanged: (int? value) {
+                                onChanged: (int? value) async {
                                   if (value != null) {
-                                    FirebaseFirestore.instance
-                                        .collection('students')
-                                        .doc(GetStorage().read('studentId'))
-                                        .update({
-                                      'stopping': controller.busDetail.value!
-                                          .stoppings[value].name,
-                                      'stopLocation': {
-                                        'latitude': controller.busDetail.value!
-                                            .stoppings[value].latitude,
-                                        'longitude': controller.busDetail.value!
-                                            .stoppings[value].longitude,
+                                    final studentId = GetStorage().read('studentId');
+                                    final schoolId = GetStorage().read('studentSchoolId');
+                                    
+                                    if (studentId != null && schoolId != null) {
+                                      // Check which collection has the student
+                                      DocumentSnapshot schoolsDoc = await FirebaseFirestore.instance
+                                          .collection('schools')
+                                          .doc(schoolId)
+                                          .collection('students')
+                                          .doc(studentId)
+                                          .get();
+                                      
+                                      final updateData = {
+                                        'stopping': controller.busDetail.value!
+                                            .stoppings[value].name,
+                                        'stopLocation': {
+                                          'latitude': controller.busDetail.value!
+                                              .stoppings[value].latitude,
+                                          'longitude': controller.busDetail.value!
+                                              .stoppings[value].longitude,
+                                        }
+                                      };
+                                      
+                                      if (schoolsDoc.exists) {
+                                        await schoolsDoc.reference.update(updateData);
+                                      } else {
+                                        await FirebaseFirestore.instance
+                                            .collection('schooldetails')
+                                            .doc(schoolId)
+                                            .collection('students')
+                                            .doc(studentId)
+                                            .update(updateData);
                                       }
-                                    });
+                                    }
                                   }
                                 },
                               ),

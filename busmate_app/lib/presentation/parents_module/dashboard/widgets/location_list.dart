@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
+import 'package:get_storage/get_storage.dart';
 
 Widget locationList(String id, List<Stoppings> data) => AnimatedContainer(
       margin: EdgeInsets.all(10.w),
@@ -55,18 +56,38 @@ Widget locationList(String id, List<Stoppings> data) => AnimatedContainer(
                   style: TextStyle(
                     fontSize: 14.sp,
                   )),
-              onTap: () {
-                FirebaseFirestore.instance
-                    .collection('students')
-                    .doc(id)
-                    .update({
-                  'stopping': data[index].name,
-                  'stopLocation': {
-                    'latitude': data[index].latitude,
-                    'longitude': data[index].longitude,
+              onTap: () async {
+                final schoolId = GetStorage().read('studentSchoolId');
+                if (schoolId != null) {
+                  // Try schooldetails first
+                  DocumentReference docRef = FirebaseFirestore.instance
+                      .collection('schooldetails')
+                      .doc(schoolId)
+                      .collection('students')
+                      .doc(id);
+                  
+                  DocumentSnapshot doc = await docRef.get();
+                  if (!doc.exists) {
+                    // Try schools collection
+                    docRef = FirebaseFirestore.instance
+                        .collection('schools')
+                        .doc(schoolId)
+                        .collection('students')
+                        .doc(id);
                   }
-                });
-                Get.back();
+                  
+                  await docRef.update({
+                    'stopping': data[index].name,
+                    'stopLocation': {
+                      'latitude': data[index].latitude,
+                      'longitude': data[index].longitude,
+                    }
+                  });
+                  Get.back();
+                  Get.snackbar("Success", "Stop location updated");
+                } else {
+                  Get.snackbar("Error", "School ID not found");
+                }
               },
               // textColor: GetStorage().read('selectedLangIndex') == index
               //     ? Colors.blue

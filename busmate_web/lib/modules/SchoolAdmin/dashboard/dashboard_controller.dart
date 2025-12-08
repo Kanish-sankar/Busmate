@@ -18,20 +18,29 @@ class SchoolAdminDashboardController extends GetxController {
   @override
   void onInit() {
     super.onInit();
+    print('🚀 SchoolAdminDashboardController onInit called');
+    print('📦 Get.arguments: ${Get.arguments}');
     initializeData();
   }
 
   void initializeData() {
+    print('🔧 initializeData called');
     if (Get.arguments != null && Get.arguments['schoolId'] != null) {
       schoolId.value = Get.arguments['schoolId'];
       role.value = Get.arguments['role'] ?? '';
+      print('✅ SchoolId set to: ${schoolId.value}');
+      print('✅ Role set to: ${role.value}');
       fetchSchoolData();
     } else {
+      print('❌ No schoolId in Get.arguments!');
+      print('❌ Get.arguments: ${Get.arguments}');
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        // Get.snackbar(
-        //   'Error',
-        //   'School ID is missing. Unable to fetch school data.',
-        // );
+        Get.snackbar(
+          'Error',
+          'School ID is missing. Unable to load school dashboard.',
+          backgroundColor: Colors.red,
+          colorText: Colors.white,
+        );
       });
     }
   }
@@ -129,7 +138,11 @@ class SchoolAdminDashboardController extends GetxController {
                 };
               } else {
                 // School admins get their assigned permissions (default to all true for now)
-                schoolData['permissions'] = adminData['permissions'] ?? {
+                final dbPermissions = adminData['permissions'];
+                print('📊 Raw DB Permissions for School Admin: $dbPermissions');
+                
+                // Get permissions from database or use defaults for School Admins
+                final defaultPermissionsForSchoolAdmin = {
                   'busManagement': true,
                   'driverManagement': true,
                   'routeManagement': true,
@@ -139,6 +152,24 @@ class SchoolAdminDashboardController extends GetxController {
                   'notifications': true,
                   'adminManagement': true,
                 };
+                
+                // Check if this is a Regional Admin (limited permissions)
+                final isRegionalAdmin = adminData['role'] == 'regionalAdmin';
+                
+                if (dbPermissions != null && dbPermissions is Map) {
+                  if (isRegionalAdmin) {
+                    // Regional Admin: Use ONLY the permissions from database
+                    schoolData['permissions'] = Map<String, dynamic>.from(dbPermissions);
+                  } else {
+                    // School Admin: Use default full permissions (backward compatibility)
+                    schoolData['permissions'] = defaultPermissionsForSchoolAdmin;
+                  }
+                } else {
+                  // No permissions in DB: Give full access to School Admin, empty for Regional Admin
+                  schoolData['permissions'] = isRegionalAdmin ? {} : defaultPermissionsForSchoolAdmin;
+                }
+                
+                print('✅ Final Permissions Loaded: ${schoolData['permissions']}');
               }
             } else {
               // Set fallback defaults (give all permissions)

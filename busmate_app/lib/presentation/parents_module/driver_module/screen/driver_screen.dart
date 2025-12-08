@@ -1,9 +1,7 @@
-import 'package:busmate/meta/nav/pages.dart';
 import 'package:busmate/meta/utils/constant/app_colors.dart';
 import 'package:busmate/meta/utils/constant/app_images.dart';
 import 'package:busmate/presentation/parents_module/driver_module/controller/driver.controller.dart';
 import 'package:busmate/presentation/parents_module/driver_module/widget/driver_info.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
@@ -157,13 +155,8 @@ class DriverScreen extends GetView<DriverController> {
                     // Logout Button
                     Center(
                       child: ElevatedButton(
-                        onPressed: () {
-                          // await getLogin.logout();
-                          FirebaseAuth.instance.signOut();
-                          // clear local storage
-                          GetStorage().erase();
-                          // navigate to sign in screen
-                          Get.offAllNamed(Routes.sigIn);
+                        onPressed: () async {
+                          await controller.handleDriverLogout();
                         },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.lightblue,

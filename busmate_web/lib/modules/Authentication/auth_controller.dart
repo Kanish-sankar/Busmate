@@ -142,21 +142,21 @@ class AuthController extends GetxController {
         print('🚀 Superior Admin logged in - Redirecting to Super Admin Dashboard');
         Get.offAllNamed(Routes.SUPER_ADMIN_DASHBOARD);
         
-      } else if (role == 'schoolAdmin' || role == 'school_admin') {
-        // School Admin - Permission-based Access
+      } else if (role == 'schoolAdmin' || role == 'school_admin' || role == 'regionalAdmin') {
+        // School Admin & Regional Admin - Permission-based Access
         userRole.value = UserRole.schoolAdmin;
         schoolId.value = adminData['schoolId'] ?? '';
         permissions.value = AdminPermissions.fromMap(adminData['permissions']);
         
         if (schoolId.value.isEmpty) {
-          print('❌ School Admin missing schoolId');
+          print('❌ $role missing schoolId');
           await _auth.signOut();
           Get.snackbar('Error', 'Invalid admin configuration - missing school ID');
           Get.offAllNamed(Routes.LOGIN);
           return;
         }
         
-        print('🏫 School Admin logged in - School ID: ${schoolId.value}');
+        print('🏫 ${role == 'regionalAdmin' ? 'Regional Admin' : 'School Admin'} logged in - School ID: ${schoolId.value}');
         print('📋 Permissions: ${permissions.value.toMap()}');
         
         Get.offAllNamed(Routes.SCHOOL_ADMIN_DASHBOARD, arguments: {
@@ -205,6 +205,12 @@ class AuthController extends GetxController {
         return false;
     }
   }
+
+  // Check if current user is Superior Admin
+  bool get isSuperiorAdmin => userRole.value == UserRole.superior;
+  
+  // Check if current user is School Admin
+  bool get isSchoolAdmin => userRole.value == UserRole.schoolAdmin;
 
   Future<void> login(String email, String password) async {
     try {
@@ -344,10 +350,6 @@ class AuthController extends GetxController {
     } catch (e) {
       Get.snackbar('Error', 'Failed to logout: ${e.toString()}');
     }
-  }
-
-  bool isSchoolAdmin() {
-    return userRole.value == UserRole.schoolAdmin;
   }
 
   bool isLoggedIn() {

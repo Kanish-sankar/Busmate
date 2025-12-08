@@ -70,13 +70,13 @@ class DatabaseQueryHelper {
       };
       
       // Cache the result for 5 minutes
-      await CacheManager.setCached(cacheKey, result, ttl: Duration(minutes: 5));
+      await CacheManager.setCached(cacheKey, result, ttl: const Duration(minutes: 5));
       
       return result;
       
     } catch (e) {
       print('Error getting paginated students: $e');
-      throw e;
+      rethrow;
     }
   }
   
@@ -129,13 +129,13 @@ class DatabaseQueryHelper {
         'lastDocument': documents.isNotEmpty ? documents.last : null,
       };
       
-      await CacheManager.setCached(cacheKey, result, ttl: Duration(minutes: 3));
+      await CacheManager.setCached(cacheKey, result, ttl: const Duration(minutes: 3));
       
       return result;
       
     } catch (e) {
       print('Error getting paginated bus status: $e');
-      throw e;
+      rethrow;
     }
   }
   
@@ -191,13 +191,13 @@ class DatabaseQueryHelper {
         'lastDocument': documents.isNotEmpty ? documents.last : null,
       };
       
-      await CacheManager.setCached(cacheKey, result, ttl: Duration(minutes: 2));
+      await CacheManager.setCached(cacheKey, result, ttl: const Duration(minutes: 2));
       
       return result;
       
     } catch (e) {
       print('Error getting paginated notifications: $e');
-      throw e;
+      rethrow;
     }
   }
   
@@ -265,13 +265,13 @@ class DatabaseQueryHelper {
         'lastDocument': documents.isNotEmpty ? documents.last : null,
       };
       
-      await CacheManager.setCached(cacheKey, result, ttl: Duration(minutes: 10));
+      await CacheManager.setCached(cacheKey, result, ttl: const Duration(minutes: 10));
       
       return result;
       
     } catch (e) {
       print('Error getting paginated payments: $e');
-      throw e;
+      rethrow;
     }
   }
   
@@ -325,7 +325,7 @@ class DatabaseQueryHelper {
       
     } catch (e) {
       print('Error searching students: $e');
-      throw e;
+      rethrow;
     }
   }
   
@@ -350,7 +350,7 @@ class DatabaseQueryHelper {
       
     } catch (e) {
       print('Error in batch update students: $e');
-      throw e;
+      rethrow;
     }
   }
   
@@ -386,13 +386,13 @@ class DatabaseQueryHelper {
       };
       
       // Cache for 5 minutes
-      await CacheManager.setCached(cacheKey, stats, ttl: Duration(minutes: 5));
+      await CacheManager.setCached(cacheKey, stats, ttl: const Duration(minutes: 5));
       
       return stats;
       
     } catch (e) {
       print('Error getting dashboard stats: $e');
-      throw e;
+      rethrow;
     }
   }
   
@@ -407,7 +407,7 @@ class DatabaseQueryHelper {
   // Cleanup old data
   static Future<void> cleanupOldData() async {
     try {
-      DateTime cutoffDate = DateTime.now().subtract(Duration(days: 90));
+      DateTime cutoffDate = DateTime.now().subtract(const Duration(days: 90));
       
       // Delete old notifications
       QuerySnapshot oldNotifications = await _firestore

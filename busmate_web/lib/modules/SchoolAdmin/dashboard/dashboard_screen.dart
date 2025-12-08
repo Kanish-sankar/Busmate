@@ -3,81 +3,145 @@ import 'package:get/get.dart';
 import 'package:sidebarx/sidebarx.dart';
 import 'package:busmate_web/modules/Authentication/auth_controller.dart';
 import 'package:busmate_web/modules/SchoolAdmin/dashboard/dashboard_controller.dart';
-import 'package:busmate_web/modules/SchoolAdmin/bus_management/bus_management_screen.dart';
-import 'package:busmate_web/modules/SchoolAdmin/driver_management/driver_management_screen.dart';
-import 'package:busmate_web/modules/SchoolAdmin/route_management/select_bus_screen.dart';
+import 'package:busmate_web/modules/SchoolAdmin/bus_management/bus_management_screen_upgraded.dart';
+import 'package:busmate_web/modules/SchoolAdmin/driver_management/driver_management_screen_upgraded.dart';
+import 'package:busmate_web/modules/SchoolAdmin/route_management/routes_list_screen.dart';
+import 'package:busmate_web/modules/SchoolAdmin/time_control/time_control_screen.dart';
 import 'package:busmate_web/modules/SchoolAdmin/view_bus_status/view_bus_status_screen.dart';
-import 'package:busmate_web/modules/SchoolAdmin/student_management/student_management_screen.dart';
+import 'package:busmate_web/modules/SchoolAdmin/view_bus_status/bus_simulator_screen.dart';
+import 'package:busmate_web/modules/SchoolAdmin/student_management/student_management_screen_upgraded.dart';
 import 'package:busmate_web/modules/SchoolAdmin/payments/school_admin_payment_screen.dart';
 import 'package:busmate_web/modules/SchoolAdmin/notifications/notifications_screen.dart';
-import 'package:busmate_web/modules/SchoolAdmin/admin_management/admin_management_screen.dart';
+import 'package:busmate_web/modules/SchoolAdmin/admin_management/admin_management_screen_upgraded.dart';
 
-class SchoolAdminDashboard extends StatelessWidget {
-  final SchoolAdminDashboardController controller =
-      Get.put(SchoolAdminDashboardController());
-  final AuthController authController = Get.find<AuthController>();
-  final SidebarXController sidebarController =
-      SidebarXController(selectedIndex: 0);
-
-  SchoolAdminDashboard({super.key});
+class SchoolAdminDashboard extends StatefulWidget {
+  const SchoolAdminDashboard({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final List<Map<String, dynamic>> menuItems = [
+  State<SchoolAdminDashboard> createState() => _SchoolAdminDashboardState();
+}
+
+class _SchoolAdminDashboardState extends State<SchoolAdminDashboard> {
+  late final SchoolAdminDashboardController controller;
+  late final AuthController authController;
+  late final SidebarXController sidebarController;
+  
+  // Menu items list - initialized once to prevent GlobalKey conflicts
+  late final List<Map<String, dynamic>> menuItems;
+
+  @override
+  void initState() {
+    super.initState();
+    
+    // Get the arguments to retrieve schoolId if coming from SuperAdmin
+    final arguments = Get.arguments as Map<String, dynamic>?;
+    final schoolId = arguments?['schoolId'];
+    final fromSuperAdmin = arguments?['fromSuperAdmin'] ?? false;
+    
+    // Use tag to avoid conflicts when multiple dashboards might exist
+    controller = Get.put(
+      SchoolAdminDashboardController(), 
+      tag: schoolId ?? 'default',
+    );
+    
+    // Set schoolId if provided
+    if (schoolId != null) {
+      controller.schoolId.value = schoolId;
+    }
+    
+    authController = Get.find<AuthController>();
+    sidebarController = SidebarXController(selectedIndex: 0);
+    
+    // Initialize menuItems once with screen builders instead of screen instances
+    menuItems = [
       {
         'icon': Icons.bus_alert,
         'label': 'Bus Management',
-        'screen': BusManagementScreen(schoolId: controller.schoolId.value),
+        'builder': () => BusManagementScreenUpgraded(
+          schoolId: controller.schoolId.value,
+          fromSuperAdmin: fromSuperAdmin,
+        ),
         'permissionKey': 'busManagement',
       },
       {
         'icon': Icons.person_2_sharp,
         'label': 'Driver Management',
-        'screen': DriverManagementScreen(schoolId: controller.schoolId.value),
+        'builder': () => DriverManagementScreenUpgraded(
+          schoolId: controller.schoolId.value,
+          fromSuperAdmin: fromSuperAdmin,
+        ),
         'permissionKey': 'driverManagement',
       },
       {
         'icon': Icons.route,
         'label': 'Route Management',
-        'screen': SelectBusScreen(schoolId: controller.schoolId.value),
+        'builder': () => RoutesListScreen(schoolId: controller.schoolId.value),
         'permissionKey': 'routeManagement',
+      },
+      {
+        'icon': Icons.access_time,
+        'label': 'Time Control',
+        'builder': () => TimeControlScreen(schoolId: controller.schoolId.value),
+        'permissionKey': 'routeManagement', // Same permission as route management
       },
       {
         'icon': Icons.lan_rounded,
         'label': 'View Bus Status',
-        'screen': ViewBusStatusScreen(),
+        'builder': () => ViewBusStatusScreen(schoolId: controller.schoolId.value),
         'permissionKey': 'viewingBusStatus',
       },
       {
         'icon': Icons.child_care,
         'label': 'Student Management',
-        'screen': StudentManagementScreen(schoolId: controller.schoolId.value),
+        'builder': () => StudentManagementScreenUpgraded(
+          schoolId: controller.schoolId.value,
+          fromSuperAdmin: fromSuperAdmin,
+        ),
         'permissionKey': 'studentManagement',
       },
       {
         'icon': Icons.payment,
         'label': 'Payment Management',
-        'screen': SchoolAdminPaymentScreen(controller.schoolId.value),
+        'builder': () => SchoolAdminPaymentScreen(controller.schoolId.value),
         'permissionKey': 'paymentManagement',
       },
       {
         'icon': Icons.notifications_active,
         'label': 'Notification Management',
-        'screen': SchoolNotificationsScreen(controller.schoolId.value),
+        'builder': () => SchoolNotificationsScreen(controller.schoolId.value),
         'permissionKey': 'notifications',
       },
       {
         'icon': Icons.add_moderator_outlined,
         'label': 'Admin Management',
-        'screen': SchoolAdminManagementScreen(controller.schoolId.value),
+        'builder': () => SchoolAdminManagementScreenUpgraded(
+          schoolId: controller.schoolId.value,
+          fromSuperAdmin: fromSuperAdmin,
+        ),
         'permissionKey': 'adminManagement',
       },
+      {
+        'icon': Icons.settings_remote,
+        'label': 'Bus Simulator',
+        'builder': () => BusSimulatorScreen(schoolId: controller.schoolId.value),
+        'permissionKey': 'viewingBusStatus', // Same permission as View Bus Status
+      },
     ];
+  }
 
+  @override
+  void dispose() {
+    final arguments = Get.arguments as Map<String, dynamic>?;
+    final schoolId = arguments?['schoolId'];
+    // Clean up controller when widget is disposed
+    Get.delete<SchoolAdminDashboardController>(tag: schoolId ?? 'default');
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Obx(() => Text(
-            "Dashboard - ${controller.schoolData['school_name'] ?? 'School'}")),
         backgroundColor: Colors.blue[50],
         shadowColor: Colors.black,
         elevation: 0.6,
@@ -96,13 +160,30 @@ class SchoolAdminDashboard extends StatelessWidget {
 
         // Debug: Log permissions to verify the issue
         final permissions = controller.schoolData['permissions'] ?? {};
+        
+        print('🔑 School Admin Permissions: $permissions');
+        
+        // Check if Superior Admin is accessing (they should see all menu items)
+        final arguments = Get.arguments as Map<String, dynamic>?;
+        final fromSuperAdmin = arguments?['fromSuperAdmin'] ?? false;
+        final isSuperiorAdmin = authController.isSuperiorAdmin;
 
-        // Filter menu items based on permissions
+        // Filter menu items based on permissions (Superior Admin bypasses permission check)
         final filteredMenuItems = menuItems.where((item) {
+          // If Superior Admin, show all items
+          if (isSuperiorAdmin || fromSuperAdmin) {
+            print('📋 ${item['label']}: SUPERIOR ADMIN - Full Access ✅');
+            return true;
+          }
+          
+          // Otherwise, check permissions
           final hasPermission = permissions[item['permissionKey']] ?? false;
+          print('📋 ${item['label']}: ${item['permissionKey']} = $hasPermission');
 
           return hasPermission;
         }).toList();
+        
+        print('✅ Filtered Menu Items Count: ${filteredMenuItems.length}');
 
         return Row(
           children: [
@@ -141,12 +222,22 @@ class SchoolAdminDashboard extends StatelessWidget {
               }).toList(),
             ),
             Expanded(
-              child: filteredMenuItems.isNotEmpty
-                  ? filteredMenuItems[controller.currentPageIndex.value]
-                      ['screen']
-                  : const Center(
-                      child: Text("No accessible pages available."),
-                    ),
+              child: Obx(() {
+                final currentIndex = controller.currentPageIndex.value;
+                if (filteredMenuItems.isEmpty) {
+                  return const Center(
+                    child: Text("No accessible pages available."),
+                  );
+                }
+                
+                if (currentIndex >= filteredMenuItems.length) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                
+                // Call the builder function to create the screen widget fresh
+                final builder = filteredMenuItems[currentIndex]['builder'] as Widget Function();
+                return builder();
+              }),
             ),
           ],
         );

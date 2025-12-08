@@ -1,0 +1,13 @@
+{
+  "rules": {
+    "bus_locations": {
+      "$schoolId": {
+        ".read": true,
+        "$busId": {
+          ".write": "auth != null",
+          ".indexOn": ["timestamp", "currentStatus"]
+        }
+      }
+    }
+  }
+}

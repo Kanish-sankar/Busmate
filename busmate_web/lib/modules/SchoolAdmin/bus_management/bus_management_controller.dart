@@ -30,12 +30,8 @@ class BusController extends GetxController {
       
       // Status filter
       switch (selectedFilter.value) {
-        case 'active':
-          return bus.status == 'active';
         case 'needs_setup':
           return !bus.hasDriver || !bus.hasRoute;
-        case 'maintenance':
-          return bus.status == 'maintenance';
         case 'all':
         default:
           return true;
@@ -150,10 +146,21 @@ class BusController extends GetxController {
     try {
       final busDoc = busCollection.doc(busId);
       await busDoc.update({
-        'students': FieldValue.arrayUnion([studentId]),
+        'assignedStudents': FieldValue.arrayUnion([studentId]),
       });
     } catch (e) {
       Get.snackbar('Error', 'Failed to assign student to bus: $e');
+    }
+  }
+
+  Future<void> removeStudentFromBus(String busId, String studentId) async {
+    try {
+      final busDoc = busCollection.doc(busId);
+      await busDoc.update({
+        'assignedStudents': FieldValue.arrayRemove([studentId]),
+      });
+    } catch (e) {
+      Get.snackbar('Error', 'Failed to remove student from bus: $e');
     }
   }
 

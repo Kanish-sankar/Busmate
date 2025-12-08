@@ -21,14 +21,14 @@ android {
     ndkVersion = "27.0.12077973"
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
 
         coreLibraryDesugaringEnabled true
     }
 
     kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_1_8
+        jvmTarget = '17'
     }
 
     defaultConfig {
@@ -49,6 +49,12 @@ android {
                 storePassword keystoreProperties['storePassword']
                 keyAlias keystoreProperties['keyAlias']
                 keyPassword keystoreProperties['keyPassword']
+            } else {
+                // Fallback to debug keystore if release keystore is missing
+                storeFile file("${System.properties['user.home']}/.android/debug.keystore")
+                storePassword 'android'
+                keyAlias 'androiddebugkey'
+                keyPassword 'android'
             }
         }
     }
@@ -75,12 +81,42 @@ android {
     }
 }
 
+configurations.all {
+    resolutionStrategy {
+        force 'androidx.core:core:1.13.1'
+        force 'androidx.core:core-ktx:1.13.1'
+        eachDependency { details ->
+            if (details.requested.group == 'com.google.firebase' && details.requested.name == 'firebase-auth') {
+                details.useVersion '23.0.0'
+                details.because 'Kotlin 1.9 compatible firebase-auth'
+            }
+            if (details.requested.group == 'com.google.firebase' && details.requested.name == 'firebase-auth-ktx') {
+                details.useVersion '23.0.0'
+                details.because 'Kotlin 1.9 compatible firebase-auth-ktx'
+            }
+        }
+    }
+}
+
 dependencies {
     // ✅ Add the desugaring library
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'
 
+    // Force compatible androidx.core versions for AGP 8.2.1
+    constraints {
+        implementation('androidx.core:core:1.13.1') {
+            because 'AGP 8.2.1 requires androidx.core < 1.16.0'
+        }
+        implementation('androidx.core:core-ktx:1.13.1') {
+            because 'AGP 8.2.1 requires androidx.core < 1.16.0'
+        }
+    }
+
     // Add Firebase Messaging dependency
     implementation 'com.google.firebase:firebase-messaging:23.4.1'
+
+    // Force firebase-auth to a Kotlin 1.9-compatible version to avoid metadata mismatch
+    implementation 'com.google.firebase:firebase-auth:23.0.0'
 
     // your other dependencies...
 }

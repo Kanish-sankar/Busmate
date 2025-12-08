@@ -7,12 +7,6 @@ import 'package:get/get.dart';
 class GetDriver extends GetxController {
   RxList<DriverModel> driverList = <DriverModel>[].obs;
   
-  @override
-  void onInit() {
-    super.onInit();
-    // REMOVED: Automatic fetching on init to reduce Firebase costs
-    // Call fetchDrivers() manually only when needed
-  }
 
   // Fetch all driver documents from Firestore
   Future<void> fetchDrivers() async {

@@ -65,8 +65,9 @@ class AddSchoolScreen extends StatelessWidget {
       if (response.statusCode == 200) {
         if (kDebugMode) print('✅ Email sent successfully.');
       } else {
-        if (kDebugMode)
+        if (kDebugMode) {
           print('❌ Failed to send email. Response: ${response.body}');
+        }
       }
     } catch (e) {
       if (kDebugMode) print('❌ Error sending email: $e');

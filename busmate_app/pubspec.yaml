@@ -48,6 +48,7 @@ dependencies:
   latlong2:
   flutter_svg:
   cloud_firestore:
+  firebase_database:
   firebase_messaging: 
   http: 
   geolocator: 
@@ -55,7 +56,9 @@ dependencies:
   change_app_package_name: 
   flutter_local_notifications:
   flutter_launcher_icons:
-  permission_handler: 
+  permission_handler:
+  crypto:
+  bcrypt: 
 
 flutter_icons:
   android: true

@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
+import 'package:get_storage/get_storage.dart';
 
 Widget notificationType(String id) => AnimatedContainer(
       margin: EdgeInsets.all(10.w),
@@ -52,12 +53,32 @@ Widget notificationType(String id) => AnimatedContainer(
                 style: TextStyle(
                   fontSize: 14.sp,
                 )),
-            onTap: () {
-              FirebaseFirestore.instance
-                  .collection('students')
-                  .doc(id)
-                  .update({'notificationType': 'Voice Notification'});
-              Get.back();
+            onTap: () async {
+              final schoolId = GetStorage().read('studentSchoolId');
+              if (schoolId != null) {
+                // Try schooldetails first
+                DocumentReference docRef = FirebaseFirestore.instance
+                    .collection('schooldetails')
+                    .doc(schoolId)
+                    .collection('students')
+                    .doc(id);
+                
+                DocumentSnapshot doc = await docRef.get();
+                if (!doc.exists) {
+                  // Try schools collection
+                  docRef = FirebaseFirestore.instance
+                      .collection('schools')
+                      .doc(schoolId)
+                      .collection('students')
+                      .doc(id);
+                }
+                
+                await docRef.update({'notificationType': 'Voice Notification'});
+                Get.back();
+                Get.snackbar("Success", "Notification type updated to Voice");
+              } else {
+                Get.snackbar("Error", "School ID not found");
+              }
             },
           ),
           ListTile(
@@ -65,12 +86,32 @@ Widget notificationType(String id) => AnimatedContainer(
                 style: TextStyle(
                   fontSize: 14.sp,
                 )),
-            onTap: () {
-              FirebaseFirestore.instance
-                  .collection('students')
-                  .doc(id)
-                  .update({'notificationType': 'Text Notification'});
-              Get.back();
+            onTap: () async {
+              final schoolId = GetStorage().read('studentSchoolId');
+              if (schoolId != null) {
+                // Try schooldetails first
+                DocumentReference docRef = FirebaseFirestore.instance
+                    .collection('schooldetails')
+                    .doc(schoolId)
+                    .collection('students')
+                    .doc(id);
+                
+                DocumentSnapshot doc = await docRef.get();
+                if (!doc.exists) {
+                  // Try schools collection
+                  docRef = FirebaseFirestore.instance
+                      .collection('schools')
+                      .doc(schoolId)
+                      .collection('students')
+                      .doc(id);
+                }
+                
+                await docRef.update({'notificationType': 'Text Notification'});
+                Get.back();
+                Get.snackbar("Success", "Notification type updated to Text");
+              } else {
+                Get.snackbar("Error", "School ID not found");
+              }
             },
           ),
         ],

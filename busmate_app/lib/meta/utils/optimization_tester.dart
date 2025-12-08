@@ -329,8 +329,8 @@ class OptimizationTester {
       results['cacheWriteRead'] = cachedData != null && cachedData['test'] == 'data' ? 'PASSED' : 'FAILED';
       
       // Test 2: TTL functionality
-      await CacheManager.setCached('ttl_test', {'data': 'test'}, ttl: Duration(milliseconds: 100));
-      await Future.delayed(Duration(milliseconds: 200));
+      await CacheManager.setCached('ttl_test', {'data': 'test'}, ttl: const Duration(milliseconds: 100));
+      await Future.delayed(const Duration(milliseconds: 200));
       final expiredData = await CacheManager.getCached('ttl_test');
       
       results['ttlFunctionality'] = expiredData == null ? 'PASSED' : 'FAILED';
@@ -396,7 +396,7 @@ class OptimizationTester {
       
       // In a real test, this would perform actual batch updates
       // For testing purposes, we simulate the operation
-      await Future.delayed(Duration(milliseconds: 100));
+      await Future.delayed(const Duration(milliseconds: 100));
       
       stopwatch.stop();
       

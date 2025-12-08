@@ -8,6 +8,7 @@ class Driver {
   final String licenseNumber;
   final String contactInfo;
   final String profileImageUrl; // URL for profile picture
+  final String gpsType; // 'software' or 'hardware'
   final bool available; // Driver's availability status
   final String? assignedBusId; // Bus assigned to the driver
   final String schoolId; // Added schoolId field
@@ -20,6 +21,7 @@ class Driver {
     required this.licenseNumber,
     required this.contactInfo,
     required this.profileImageUrl,
+    this.gpsType = 'software',
     required this.available,
     required this.assignedBusId,
     required this.schoolId, // Added to constructor
@@ -35,6 +37,7 @@ class Driver {
       licenseNumber: data['licenseNumber'] ?? '',
       contactInfo: data['contactInfo'] ?? '',
       profileImageUrl: data['profileImageUrl'] ?? '',
+      gpsType: data['gpsType'] ?? 'software',
       available: data['available'] ?? false,
       assignedBusId: data['assignedBusId'] ?? '',
       schoolId: data['schoolId'] ?? '', // Added to fromDocument
@@ -49,6 +52,7 @@ class Driver {
       'licenseNumber': licenseNumber,
       'contactInfo': contactInfo,
       'profileImageUrl': profileImageUrl,
+      'gpsType': gpsType,
       'available': available,
       'assignedBusId': assignedBusId,
       'schoolId': schoolId, // Added to toMap

@@ -37,8 +37,7 @@ class LocationSearchField extends StatelessWidget {
   static const String _baseUrl =
       'https://us-central1-busmate-b80e8.cloudfunctions.net';
 
-  LocationSearchField({Key? key, required this.onLocationSelected})
-      : super(key: key);
+  LocationSearchField({super.key, required this.onLocationSelected});
 
   Future<List<PlacePrediction>> _getPlacePredictions(String input) async {
     if (input.isEmpty) return [];

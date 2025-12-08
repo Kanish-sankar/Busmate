@@ -18,6 +18,8 @@ class StudentModel {
   String stopping;
   String studentClass;
   List<String> siblings;
+  bool notified; // Track if student has been notified for current trip
+  GeoPoint? stopLocation; // Student's stop coordinates for location-based matching
 
   StudentModel({
     required this.id,
@@ -37,6 +39,8 @@ class StudentModel {
     required this.stopping,
     required this.studentClass,
     required this.siblings,
+    this.notified = false,
+    this.stopLocation,
   });
 
   // Convert Firestore document to StudentModel
@@ -64,6 +68,15 @@ class StudentModel {
               ?.map((siblings) => siblings.toString())
               .toList() ??
           [],
+      notified: data['notified'] ?? false,
+      stopLocation: data['stopLocation'] != null
+          ? (data['stopLocation'] is GeoPoint
+              ? data['stopLocation'] as GeoPoint
+              : GeoPoint(
+                  (data['stopLocation']['latitude'] ?? 0.0) as double,
+                  (data['stopLocation']['longitude'] ?? 0.0) as double,
+                ))
+          : null,
     );
   }
 
@@ -77,6 +90,7 @@ class StudentModel {
       'name': name,
       'notificationPreferenceByLocation': notificationPreferenceByLocation,
       'notificationPreferenceByTime': notificationPreferenceByTime,
+      'fcmToken': fcmToken,
       'notificationType': notificationType,
       'parentContact': parentContact,
       'password': password,
@@ -85,6 +99,65 @@ class StudentModel {
       'stopping': stopping,
       'studentClass': studentClass,
       'siblings': siblings,
+      'notified': notified,
+      'stopLocation': stopLocation,
     };
+  }
+
+  // Convert to JSON for caching
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'assignedBusId': assignedBusId,
+      'assignedDriverId': assignedDriverId,
+      'email': email,
+      'languagePreference': languagePreference,
+      'name': name,
+      'notificationPreferenceByLocation': notificationPreferenceByLocation,
+      'notificationPreferenceByTime': notificationPreferenceByTime,
+      'fcmToken': fcmToken,
+      'notificationType': notificationType,
+      'parentContact': parentContact,
+      'password': password,
+      'rollNumber': rollNumber,
+      'schoolId': schoolId,
+      'stopping': stopping,
+      'studentClass': studentClass,
+      'siblings': siblings,
+      'notified': notified,
+      'stopLocation': stopLocation != null
+          ? {'latitude': stopLocation!.latitude, 'longitude': stopLocation!.longitude}
+          : null,
+    };
+  }
+
+  // Create from JSON (for cache retrieval)
+  factory StudentModel.fromJson(Map<String, dynamic> json) {
+    return StudentModel(
+      id: json['id'] ?? '',
+      assignedBusId: json['assignedBusId'] ?? '',
+      assignedDriverId: json['assignedDriverId'] ?? '',
+      email: json['email'] ?? '',
+      languagePreference: json['languagePreference'] ?? '',
+      name: json['name'] ?? '',
+      notificationPreferenceByLocation: json['notificationPreferenceByLocation'] ?? '',
+      notificationPreferenceByTime: json['notificationPreferenceByTime'] ?? 5,
+      fcmToken: json['fcmToken'] ?? '',
+      notificationType: json['notificationType'] ?? '',
+      parentContact: json['parentContact'] ?? '',
+      password: json['password'] ?? '',
+      rollNumber: json['rollNumber'] ?? '',
+      schoolId: json['schoolId'] ?? '',
+      stopping: json['stopping'] ?? '',
+      studentClass: json['studentClass'] ?? '',
+      siblings: (json['siblings'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [],
+      notified: json['notified'] ?? false,
+      stopLocation: json['stopLocation'] != null
+          ? GeoPoint(
+              (json['stopLocation']['latitude'] ?? 0.0) as double,
+              (json['stopLocation']['longitude'] ?? 0.0) as double,
+            )
+          : null,
+    );
   }
 }

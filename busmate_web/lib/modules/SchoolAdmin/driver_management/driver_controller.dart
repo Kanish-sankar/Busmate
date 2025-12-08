@@ -9,7 +9,7 @@ class DriverController extends GetxController {
   var isLoading = false.obs;
   var searchText = ''.obs;
   FirebaseFirestore firestore = FirebaseFirestore.instance;
-  late String schoolId;
+  String schoolId = '';
 
   // Use subcollection under schooldetails
   CollectionReference get driverCollection => 
@@ -23,10 +23,10 @@ class DriverController extends GetxController {
     if (arguments != null && arguments.containsKey('schoolId')) {
       schoolId = arguments['schoolId'];
     }
-    // schoolId should be set by the screen before calling onInit
-    // If not set, throw an error to catch configuration issues
+    // If schoolId is not provided at initialization, do not throw - wait for screen to set it.
     if (schoolId.isEmpty) {
-      throw Exception('DriverController initialized without schoolId. Please pass schoolId to DriverManagementScreen.');
+      print('⚠️ DriverController.onInit - schoolId not provided. Waiting for screen to set schoolId.');
+      return;
     }
     fetchDrivers();
   }
@@ -73,8 +73,42 @@ class DriverController extends GetxController {
 
   Future<void> deleteDriver(String id) async {
     try {
+      // First, find and unassign the driver from any buses
+      QuerySnapshot busesQuery = await FirebaseFirestore.instance
+          .collection('schooldetails')
+          .doc(schoolId)
+          .collection('buses')
+          .where('driverId', isEqualTo: id)
+          .get();
+      
+      // Clear driver assignment from buses
+      for (var busDoc in busesQuery.docs) {
+        await busDoc.reference.update({
+          'driverId': null,
+          'driverName': null,
+          'driverPhone': null,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+      
+      // Delete the driver
       await driverCollection.doc(id).delete();
-      Get.snackbar('Success', 'Driver deleted successfully');
+      
+      // Also delete from adminusers collection (if exists)
+      try {
+        await FirebaseFirestore.instance
+            .collection('adminusers')
+            .doc(id)
+            .delete();
+      } catch (e) {
+        print('Driver not found in adminusers: $e');
+      }
+      
+      Get.snackbar(
+        'Success', 
+        'Driver deleted and removed from ${busesQuery.docs.length} bus(es)',
+        snackPosition: SnackPosition.BOTTOM,
+      );
     } catch (e) {
       Get.snackbar('Error', 'Failed to delete driver: $e');
     }

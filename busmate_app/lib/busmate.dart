@@ -20,9 +20,10 @@ class BusMate extends StatelessWidget {
       GetStorage().write('selectedLangIndex', 0);
     }
     return ScreenUtilInit(
-        designSize: const Size(360, 690),
+        designSize: const Size(414, 896),
         minTextAdapt: true,
         splitScreenMode: true,
+        useInheritedMediaQuery: true,
         builder: (_, child) {
           return GetMaterialApp(
             locale: Locale(

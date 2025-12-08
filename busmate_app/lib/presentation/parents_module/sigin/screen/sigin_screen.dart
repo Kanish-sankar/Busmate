@@ -42,20 +42,6 @@ class SignInScreen extends GetView<SignInController> {
                         ),
                       ),
                     ),
-                    // Debug button to create test user (remove in production)
-                    Positioned(
-                      bottom: 80,
-                      right: 20,
-                      child: FloatingActionButton.extended(
-                        onPressed: () => controller.authLogin.createTestUser(),
-                        backgroundColor: Colors.orange,
-                        icon: const Icon(Icons.person_add, color: Colors.white),
-                        label: const Text(
-                          'Create Test User',
-                          style: TextStyle(color: Colors.white),
-                        ),
-                      ),
-                    ),
                   ],
                 );
               },
@@ -823,7 +809,7 @@ class FabricPatternPainter extends CustomPainter {
     }
 
     // Draw decorative swirls in corners
-    _drawDecorativeSwirl(canvas, Offset(30, 30), 60, paintThick);
+    _drawDecorativeSwirl(canvas, const Offset(30, 30), 60, paintThick);
     _drawDecorativeSwirl(canvas, Offset(size.width - 30, 30), 60, paintThick, flipX: true);
     _drawDecorativeSwirl(canvas, Offset(30, size.height - 30), 60, paintThick, flipY: true);
     _drawDecorativeSwirl(canvas, Offset(size.width - 30, size.height - 30), 60, paintThick, flipX: true, flipY: true);

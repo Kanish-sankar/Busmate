@@ -21,11 +21,10 @@ class _SuperAdminPaymentManagementScreenState
   @override
   void initState() {
     super.initState();
-    // Initialize controller once with a unique tag
-    controller = Get.put(
-      PaymentController(),
-      tag: 'super_admin_payment',
-    );
+    // Initialize controller once with a unique tag using Get.isRegistered to prevent duplicates
+    controller = Get.isRegistered<PaymentController>(tag: 'super_admin_payment')
+        ? Get.find<PaymentController>(tag: 'super_admin_payment')
+        : Get.put(PaymentController(), tag: 'super_admin_payment');
     controller.fetchAllPayments();
   }
 

@@ -1,149 +1,78 @@
 import 'package:busmate_web/modules/Authentication/auth_controller.dart';
 import 'package:busmate_web/modules/SchoolAdmin/dashboard/dashboard_controller.dart';
-import 'package:busmate_web/modules/SchoolAdmin/route_management/select_bus_screen.dart';
+import 'package:busmate_web/modules/SchoolAdmin/dashboard/dashboard_screen.dart';
 import 'package:busmate_web/modules/SuperAdmin/dashboard/dashboard_controller.dart';
+import 'package:busmate_web/modules/SuperAdmin/dashboard/enhanced_home_screen.dart';
 import 'package:busmate_web/modules/SuperAdmin/notification_management/notification_screen.dart';
 import 'package:busmate_web/modules/SuperAdmin/payment_management/super_admin_payment_screen.dart';
 import 'package:busmate_web/modules/SuperAdmin/school_management/school_management_screen.dart';
-import 'package:busmate_web/modules/SchoolAdmin/bus_management/bus_management_screen_new.dart';
-import 'package:busmate_web/modules/SchoolAdmin/driver_management/driver_management_screen.dart';
-import 'package:busmate_web/modules/SchoolAdmin/student_management/student_management_screen.dart';
-import 'package:busmate_web/modules/SchoolAdmin/payments/school_admin_payment_screen.dart';
-import 'package:busmate_web/modules/SchoolAdmin/notifications/notifications_screen.dart';
-import 'package:busmate_web/modules/SchoolAdmin/view_bus_status/view_bus_status_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:sidebarx/sidebarx.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 
-class SuperAdminDashboard extends StatelessWidget {
+class SuperAdminDashboard extends StatefulWidget {
+  const SuperAdminDashboard({super.key});
+
+  @override
+  State<SuperAdminDashboard> createState() => _SuperAdminDashboardState();
+}
+
+class _SuperAdminDashboardState extends State<SuperAdminDashboard> {
   // Controller for Super Admin-specific functions.
-  final SuperAdminDashboardController controller =
-      Get.put(SuperAdminDashboardController());
+  late final SuperAdminDashboardController controller;
   // Controller for School Admin dashboard that holds the selected school ID.
-  final SchoolAdminDashboardController scontroller =
-      Get.put(SchoolAdminDashboardController());
-  final AuthController authController = Get.find<AuthController>();
-  final SidebarXController sidebarController =
-      SidebarXController(selectedIndex: 0);
+  late final SchoolAdminDashboardController scontroller;
+  late final AuthController authController;
+  late final SidebarXController sidebarController;
 
-  SuperAdminDashboard({super.key});
-
-  /// Builds an expansion tile for managing a specific school.
-  /// When expanded, it updates the selected school ID in both controllers.
-  Widget _buildSchoolManagementOptions(String schoolId, String schoolName) {
-    return ExpansionTile(
-      key: UniqueKey(), // Force rebuild every time dialog opens
-      leading: const Icon(Icons.account_balance),
-      title: Text(schoolName),
-      onExpansionChanged: (expanded) {
-        controller.updateSelectedSchool(expanded ? schoolId : '');
-        if (expanded) {
-          // Ensure that the SchoolAdminDashboardController holds the current schoolId.
-          scontroller.schoolId.value = schoolId;
-        }
-      },
-      children: [
-        ListTile(
-          leading: const Icon(Icons.bus_alert),
-          title: const Text("Bus Management"),
-          onTap: () {
-            controller.updateSelectedSchool(schoolId);
-            scontroller.schoolId.value = schoolId;
-            // Close the dialog before navigating
-            Get.back(); // Use Get.back() instead of Navigator.pop
-            Get.to(() => const BusManagementScreenNew(),
-                arguments: {'schoolId': schoolId});
-          },
-        ),
-        ListTile(
-          leading: const Icon(Icons.person_2_sharp),
-          title: const Text("Driver Management"),
-          onTap: () {
-            controller.updateSelectedSchool(schoolId);
-            scontroller.schoolId.value = schoolId;
-            // Close the dialog before navigating
-            Get.back(); // Use Get.back() instead of Navigator.pop
-            Get.to(() => DriverManagementScreen(),
-                arguments: {'schoolId': schoolId});
-          },
-        ),
-        ListTile(
-          leading: const Icon(Icons.route),
-          title: const Text("Route Management"),
-          onTap: () async {
-            controller.updateSelectedSchool(schoolId);
-            scontroller.schoolId.value = schoolId;
-            // Close the dialog before navigating
-            Get.back(); // Use Get.back() instead of Navigator.pop
-            await Get.to(() => SelectBusScreen(),
-                arguments: {'schoolId': schoolId});
-            controller.updateSelectedSchool('');
-          },
-        ),
-        ListTile(
-          leading: const Icon(Icons.child_care),
-          title: const Text("Student Management"),
-          onTap: () {
-            controller.updateSelectedSchool(schoolId);
-            scontroller.schoolId.value = schoolId;
-            // Close the dialog before navigating
-            Get.back(); // Use Get.back() instead of Navigator.pop
-            Get.to(() => StudentManagementScreen(),
-                arguments: {'schoolId': schoolId});
-          },
-        ),
-        ListTile(
-          leading: const Icon(Icons.payment),
-          title: const Text("Payment Management"),
-          onTap: () {
-            controller.updateSelectedSchool(schoolId);
-            scontroller.schoolId.value = schoolId;
-            // Close the dialog before navigating
-            Get.back(); // Use Get.back() instead of Navigator.pop
-            Get.to(() => SchoolAdminPaymentScreen(schoolId),
-                arguments: {'schoolId': schoolId});
-          },
-        ),
-        ListTile(
-          leading: const Icon(Icons.notifications_active),
-          title: const Text("Notifications"),
-          onTap: () {
-            controller.updateSelectedSchool(schoolId);
-            scontroller.schoolId.value = schoolId;
-            // Close the dialog before navigating
-            Get.back(); // Use Get.back() instead of Navigator.pop
-            Get.to(() => SchoolNotificationsScreen(schoolId),
-                arguments: {'schoolId': schoolId});
-          },
-        ),
-        ListTile(
-          leading: const Icon(Icons.lan_rounded),
-          title: const Text("View Bus Status"),
-          onTap: () {
-            controller.updateSelectedSchool(schoolId);
-            scontroller.schoolId.value = schoolId;
-            // Close the dialog before navigating
-            Get.back(); // Use Get.back() instead of Navigator.pop
-            Get.to(() => ViewBusStatusScreen(),
-                arguments: {'schoolId': schoolId});
-          },
-        ),
-      ],
-    );
+  @override
+  void initState() {
+    super.initState();
+    
+    // Use Get.isRegistered to prevent duplicate controller creation
+    controller = Get.isRegistered<SuperAdminDashboardController>(tag: 'superAdmin')
+        ? Get.find<SuperAdminDashboardController>(tag: 'superAdmin')
+        : Get.put(SuperAdminDashboardController(), tag: 'superAdmin');
+    
+    scontroller = Get.isRegistered<SchoolAdminDashboardController>(tag: 'forNavigation')
+        ? Get.find<SchoolAdminDashboardController>(tag: 'forNavigation')
+        : Get.put(SchoolAdminDashboardController(), tag: 'forNavigation');
+    
+    authController = Get.find<AuthController>();
+    sidebarController = SidebarXController(selectedIndex: 0);
+  }
+  
+  // Build pages dynamically to prevent GlobalKey conflicts
+  // Each page gets a unique ValueKey to help AnimatedSwitcher properly dispose old widgets
+  Widget _buildPage(int index) {
+    switch (index) {
+      case 0:
+        return const EnhancedSuperAdminHomeScreen(key: ValueKey('home_page'));
+      case 1:
+        return const SchoolManagementScreen(key: ValueKey('school_page'));
+      case 2:
+        return const SuperAdminPaymentManagementScreen(key: ValueKey('payment_page'));
+      case 3:
+        return SendNotificationScreen(key: const ValueKey('notification_page'));
+      case 4:
+        return const SuperAdminSchoolSelectorScreen(key: ValueKey('school_selector_page'));
+      default:
+        return const EnhancedSuperAdminHomeScreen(key: ValueKey('home_default'));
+    }
+  }
+  
+  @override
+  void dispose() {
+    // Clean up controllers when widget is disposed
+    Get.delete<SuperAdminDashboardController>(tag: 'superAdmin');
+    Get.delete<SchoolAdminDashboardController>(tag: 'forNavigation');
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    // Define the main pages for the super admin dashboard.
-    final List<Widget> pages = [
-      SuperAdminHomeScreen(), // New advanced dashboard home
-      const SchoolManagementScreen(),
-      SuperAdminPaymentManagementScreen(),
-      SendNotificationScreen()
-    ];
-
     return Scaffold(
       appBar: AppBar(
         title: const Text("Dashboard"),
@@ -222,93 +151,20 @@ class SuperAdminDashboard extends StatelessWidget {
                 icon: Icons.account_balance,
                 label: 'Manage Schools',
                 onTap: () {
-                  sidebarController.selectIndex(3);
-                  print('🏫 Opening Manage Schools dialog');
-                  print('🏫 Schools count: ${controller.schools.length}');
-                  showDialog(
-                    context: context,
-                    builder: (context) {
-                      return Dialog(
-                        child: Container(
-                          width: 500,
-                          padding: const EdgeInsets.all(20),
-                          child: Obx(() {
-                            if (controller.schools.isEmpty) {
-                              return Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Text(
-                                    'Manage Schools',
-                                    style: TextStyle(
-                                      fontSize: 20,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 20),
-                                  const CircularProgressIndicator(),
-                                  const SizedBox(height: 20),
-                                  const Text('Loading schools...'),
-                                  const SizedBox(height: 20),
-                                  TextButton(
-                                    onPressed: () => Get.back(),
-                                    child: const Text('Close'),
-                                  ),
-                                ],
-                              );
-                            }
-                            
-                            return Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    const Text(
-                                      'Manage Schools',
-                                      style: TextStyle(
-                                        fontSize: 20,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(Icons.close),
-                                      onPressed: () => Get.back(),
-                                    ),
-                                  ],
-                                ),
-                                const Divider(),
-                                const SizedBox(height: 10),
-                                Flexible(
-                                  child: SingleChildScrollView(
-                                    child: Column(
-                                      children: controller.schools.map((school) {
-                                        var schoolData =
-                                            school.data() as Map<String, dynamic>?;
-                                        // Try both field names (schoolName and school_name)
-                                        String schoolName =
-                                            schoolData?['schoolName'] ?? 
-                                            schoolData?['school_name'] ??
-                                            'Unnamed School';
-                                        print('🏫 School: $schoolName (${school.id})');
-                                        return _buildSchoolManagementOptions(
-                                            school.id, schoolName);
-                                      }).toList(),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            );
-                          }),
-                        ),
-                      );
-                    },
-                  );
+                  sidebarController.selectIndex(4);
+                  controller.changePage(4);
                 },
               ),
             ],
           ),
           Expanded(
-            child: Obx(() => pages[controller.currentPageIndex.value]),
+            child: Obx(() {
+              // Build only the current page to avoid GlobalKey conflicts
+              return AnimatedSwitcher(
+                duration: const Duration(milliseconds: 200),
+                child: _buildPage(controller.currentPageIndex.value),
+              );
+            }),
           ),
         ],
       ),
@@ -318,6 +174,8 @@ class SuperAdminDashboard extends StatelessWidget {
 
 // --- New Advanced Dashboard Home Screen ---
 class SuperAdminHomeScreen extends StatefulWidget {
+  const SuperAdminHomeScreen({super.key});
+  
   @override
   State<SuperAdminHomeScreen> createState() => _SuperAdminHomeScreenState();
 }
@@ -400,6 +258,7 @@ class _SuperAdminHomeScreenState extends State<SuperAdminHomeScreen> {
   }
 
   Widget _buildMetricCard({
+    Key? key,
     required IconData icon,
     required String label,
     required int value,
@@ -408,6 +267,7 @@ class _SuperAdminHomeScreenState extends State<SuperAdminHomeScreen> {
     int delay = 0,
   }) {
     return TweenAnimationBuilder(
+      key: key,
       duration: Duration(milliseconds: 1000 + delay),
       tween: Tween<double>(begin: 0, end: 1),
       builder: (context, double animValue, child) {
@@ -555,7 +415,7 @@ class _SuperAdminHomeScreenState extends State<SuperAdminHomeScreen> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.check_circle, color: Colors.green, size: 16),
+          const Icon(Icons.check_circle, color: Colors.green, size: 16),
           const SizedBox(width: 6),
           Flexible(
             child: Text(
@@ -586,8 +446,8 @@ class _SuperAdminHomeScreenState extends State<SuperAdminHomeScreen> {
           children: [
             Row(
               children: [
-                Flexible(
-                  child: const Text(
+                const Flexible(
+                  child: Text(
                     "Recently Added Schools",
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
@@ -605,10 +465,10 @@ class _SuperAdminHomeScreenState extends State<SuperAdminHomeScreen> {
             ),
             const SizedBox(height: 10),
             if (recentSchools.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 16),
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 16),
                 child: Row(
-                  children: const [
+                  children: [
                     Icon(Icons.info_outline, color: Colors.grey),
                     SizedBox(width: 8),
                     Expanded(
@@ -674,8 +534,8 @@ class _SuperAdminHomeScreenState extends State<SuperAdminHomeScreen> {
           children: [
             Row(
               children: [
-                Flexible(
-                  child: const Text(
+                const Flexible(
+                  child: Text(
                     "Recent Payment Requests",
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
@@ -693,10 +553,10 @@ class _SuperAdminHomeScreenState extends State<SuperAdminHomeScreen> {
             ),
             const SizedBox(height: 10),
             if (recentPayments.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 16),
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 16),
                 child: Row(
-                  children: const [
+                  children: [
                     Icon(Icons.info_outline, color: Colors.grey),
                     SizedBox(width: 8),
                     Expanded(
@@ -926,10 +786,10 @@ class _SuperAdminHomeScreenState extends State<SuperAdminHomeScreen> {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(
+                          const Icon(
                             Icons.calendar_today,
                             size: 16,
-                            color: const Color(0xFF1565C0),
+                            color: Color(0xFF1565C0),
                           ),
                           const SizedBox(width: 8),
                           Text(
@@ -966,30 +826,35 @@ class _SuperAdminHomeScreenState extends State<SuperAdminHomeScreen> {
                   runSpacing: 16,
                   children: [
                     _buildMetricCard(
+                      key: const ValueKey('metric_schools'),
                       icon: Icons.school,
                       label: "Schools",
                       value: schools,
                       delay: 0,
                     ),
                     _buildMetricCard(
+                      key: const ValueKey('metric_buses'),
                       icon: Icons.directions_bus,
                       label: "Buses",
                       value: buses,
                       delay: 100,
                     ),
                     _buildMetricCard(
+                      key: const ValueKey('metric_drivers'),
                       icon: Icons.person,
                       label: "Drivers",
                       value: drivers,
                       delay: 200,
                     ),
                     _buildMetricCard(
+                      key: const ValueKey('metric_students'),
                       icon: Icons.child_care,
                       label: "Students",
                       value: students,
                       delay: 300,
                     ),
                     _buildMetricCard(
+                      key: const ValueKey('metric_active_buses'),
                       icon: Icons.directions_bus_filled,
                       label: "Active Buses",
                       value: activeBuses,
@@ -1041,6 +906,419 @@ class _SuperAdminHomeScreenState extends State<SuperAdminHomeScreen> {
               ),
             ],
           ),
+        ),
+      ],
+    );
+  }
+}
+
+class SuperAdminSchoolSelectorScreen extends StatefulWidget {
+  const SuperAdminSchoolSelectorScreen({super.key});
+
+  @override
+  State<SuperAdminSchoolSelectorScreen> createState() => _SuperAdminSchoolSelectorScreenState();
+}
+
+class _SuperAdminSchoolSelectorScreenState extends State<SuperAdminSchoolSelectorScreen> {
+  final TextEditingController _searchController = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _handleSchoolTap(
+    String schoolId,
+    SuperAdminDashboardController superController,
+    SchoolAdminDashboardController schoolController,
+  ) {
+    superController.updateSelectedSchool(schoolId);
+    schoolController.schoolId.value = schoolId;
+
+    Get.to(
+      () => const SchoolAdminDashboard(),
+      arguments: {
+        'schoolId': schoolId,
+        'fromSuperAdmin': true,
+        'role': 'school_admin',
+      },
+      transition: Transition.rightToLeft,
+      duration: const Duration(milliseconds: 300),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final superController = Get.find<SuperAdminDashboardController>(tag: 'superAdmin');
+    final schoolController = Get.find<SchoolAdminDashboardController>(tag: 'forNavigation');
+    final theme = Theme.of(context);
+
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Color(0xFFEBF4FF), Color(0xFFEFF6FF)],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ),
+      ),
+      child: Column(
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 40),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Select a School',
+                  style: theme.textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFF0F172A),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Choose a campus to open its complete management workspace.',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    color: Colors.blueGrey[600],
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Obx(() {
+                  final total = superController.schools.length;
+                  return Wrap(
+                    spacing: 16,
+                    runSpacing: 16,
+                    children: [
+                      _QuickStatChip(label: 'Total Schools', value: '$total'),
+                      _QuickStatChip(
+                        label: 'Selected',
+                        value: superController.selectedSchoolId.value.isEmpty
+                            ? 'None'
+                            : superController.selectedSchoolId.value,
+                      ),
+                    ],
+                  );
+                }),
+              ],
+            ),
+          ),
+          Expanded(
+            child: Container(
+              width: double.infinity,
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(32),
+                  topRight: Radius.circular(32),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Color(0x11000000),
+                    blurRadius: 20,
+                    offset: Offset(0, -6),
+                  )
+                ],
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 28),
+                child: Column(
+                  children: [
+                    TextField(
+                      controller: _searchController,
+                      decoration: InputDecoration(
+                        prefixIcon: const Icon(Icons.search),
+                        hintText: 'Search by school name, city, or ID',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
+                      onChanged: (_) => setState(() {}),
+                    ),
+                    const SizedBox(height: 24),
+                    Expanded(
+                      child: Obx(() {
+                        final docs = superController.schools;
+                        if (docs.isEmpty) {
+                          return const Center(
+                            child: CircularProgressIndicator(),
+                          );
+                        }
+
+                        final query = _searchController.text.trim().toLowerCase();
+                        final filtered = docs.where((doc) {
+                          final data = doc.data() as Map<String, dynamic>?;
+                          final name = (data?['school_name'] ?? data?['schoolName'] ?? '').toString().toLowerCase();
+                          final city = (data?['city'] ?? data?['location'] ?? '').toString().toLowerCase();
+                          final id = doc.id.toLowerCase();
+                          if (query.isEmpty) return true;
+                          return name.contains(query) || city.contains(query) || id.contains(query);
+                        }).toList();
+
+                        if (filtered.isEmpty) {
+                          return Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.search_off, size: 48, color: Colors.blueGrey[200]),
+                              const SizedBox(height: 12),
+                              Text(
+                                'No schools match "$query"',
+                                style: theme.textTheme.titleMedium?.copyWith(color: Colors.blueGrey[500]),
+                              )
+                            ],
+                          );
+                        }
+
+                        return LayoutBuilder(
+                          builder: (context, constraints) {
+                            final width = constraints.maxWidth;
+                            final crossAxisCount = width > 1400
+                                ? 3
+                                : width > 900
+                                    ? 2
+                                    : 1;
+                            final aspectRatio = width > 1400
+                                ? 1.9
+                                : width > 900
+                                    ? 1.7
+                                    : 2.4;
+
+                            return GridView.builder(
+                              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: crossAxisCount,
+                                mainAxisSpacing: 24,
+                                crossAxisSpacing: 24,
+                                childAspectRatio: aspectRatio,
+                              ),
+                              itemCount: filtered.length,
+                              itemBuilder: (context, index) {
+                                final doc = filtered[index];
+                                final data = doc.data() as Map<String, dynamic>? ?? {};
+                                final name = data['school_name'] ?? data['schoolName'] ?? 'Unnamed School';
+                                final city = data['city'] ?? data['location'] ?? 'Unknown city';
+                                final contact = data['contactPerson'] ?? data['principal'] ?? 'Administrator';
+                                final phone = data['contactPhone'] ?? data['phone'] ?? '--';
+                                final busCount = (data['buses'] is List)
+                                    ? (data['buses'] as List).length
+                                    : (data['busCount'] ?? data['bus_count'] ?? 0);
+                                final studentCount = data['studentCount'] ?? data['students'] ?? 0;
+
+                                return _SchoolSummaryCard(
+                                  name: name.toString(),
+                                  schoolId: doc.id,
+                                  city: city.toString(),
+                                  contactName: contact.toString(),
+                                  contactPhone: phone.toString(),
+                                  busCount: busCount is int ? busCount : int.tryParse(busCount.toString()) ?? 0,
+                                  studentCount: studentCount is int
+                                      ? studentCount
+                                      : int.tryParse(studentCount.toString()) ?? 0,
+                                  onTap: () => _handleSchoolTap(doc.id, superController, schoolController),
+                                );
+                              },
+                            );
+                          },
+                        );
+                      }),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _QuickStatChip extends StatelessWidget {
+  const _QuickStatChip({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(999),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x11000000),
+            blurRadius: 12,
+            offset: Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            value,
+            style: const TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: 18,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: TextStyle(
+              color: Colors.blueGrey[600],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SchoolSummaryCard extends StatelessWidget {
+  const _SchoolSummaryCard({
+    required this.name,
+    required this.schoolId,
+    required this.city,
+    required this.contactName,
+    required this.contactPhone,
+    required this.busCount,
+    required this.studentCount,
+    required this.onTap,
+  });
+
+  final String name;
+  final String schoolId;
+  final String city;
+  final String contactName;
+  final String contactPhone;
+  final int busCount;
+  final int studentCount;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(24),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          color: Colors.white,
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x11000000),
+              blurRadius: 16,
+              offset: Offset(0, 10),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFDDEBFF),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.apartment, color: Color(0xFF1D4ED8)),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'ID: $schoolId',
+                        style: TextStyle(color: Colors.blueGrey[600]),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.arrow_outward, color: Color(0xFF1D4ED8)),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Icon(Icons.location_on_outlined, size: 20, color: Colors.blueGrey[400]),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    city,
+                    style: TextStyle(color: Colors.blueGrey[600]),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Icon(Icons.person_outline, size: 20, color: Colors.blueGrey[400]),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    '$contactName · $contactPhone',
+                    style: TextStyle(color: Colors.blueGrey[600]),
+                  ),
+                ),
+              ],
+            ),
+            const Spacer(),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _SchoolStat(label: 'Buses', value: busCount.toString()),
+                _SchoolStat(label: 'Students', value: studentCount.toString()),
+              ],
+            )
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SchoolStat extends StatelessWidget {
+  const _SchoolStat({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF1D4ED8),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: TextStyle(color: Colors.blueGrey[500]),
         ),
       ],
     );

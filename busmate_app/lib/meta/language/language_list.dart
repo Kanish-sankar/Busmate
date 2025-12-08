@@ -97,12 +97,21 @@ Widget languageList() => AnimatedContainer(
                   langName = "malayalam";
                   storage.write('sound', "notification_malayalam");
                 }
-                FirebaseFirestore.instance
-                    .collection('students')
-                    .doc(GetStorage().read('studentId'))
-                    .update({
-                  'languagePreference': langName,
-                });
+                // Update Firebase
+                final studentId = GetStorage().read('studentId');
+                if (studentId != null) {
+                  try {
+                    FirebaseFirestore.instance
+                        .collection('students')
+                        .doc(studentId)
+                        .update({
+                      'languagePreference': langName,
+                    });
+                  } catch (e) {
+                    print('⚠️ Firebase update skipped (demo mode or offline): $e');
+                  }
+                }
+                
                 Get.updateLocale(Locale(
                   storage.read('langCode'),
                   storage.read('langCountryCode'),

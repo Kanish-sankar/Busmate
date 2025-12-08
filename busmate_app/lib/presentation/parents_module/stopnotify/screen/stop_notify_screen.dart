@@ -80,15 +80,19 @@ class StopNotifyScreen extends GetView<StopNotifyController> {
                             controller.timeOptions[index],
                         onTap: () {
                           controller.selectTime(controller.timeOptions[index]);
+                          final schoolId = GetStorage().read('studentSchoolId');
+                          final studentId = GetStorage().read('studentId');
+                          
                           FirebaseFirestore.instance
+                              .collection('schools')
+                              .doc(schoolId)
                               .collection('students')
-                              .doc(GetStorage().read('studentId'))
+                              .doc(studentId)
                               .update({
-                            'notificationPreferenceByTime':
-                                controller.selectedTime!.value,
-                          });
-                          log(controller.selectedTime!.value.toString());
-                          log(controller.selectedStop!.value.toString());
+                              'notificationPreferenceByTime':
+                                  controller.selectedTime!.value,
+                            });
+                            log('Updated notification preference: ${controller.selectedTime!.value} minutes');
                         },
                       );
                     });

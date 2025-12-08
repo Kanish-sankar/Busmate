@@ -15,7 +15,7 @@ class AppPages {
   static final routes = [
     GetPage(
       name: Routes.SPLASH,
-      page: () => SplashScreen(),
+      page: () => const SplashScreen(),
     ),
     GetPage(
       name: Routes.LOGIN,
@@ -31,14 +31,14 @@ class AppPages {
     ),
     GetPage(
       name: Routes.SUPER_ADMIN_DASHBOARD,
-      page: () => SuperAdminDashboard(),
+      page: () => const SuperAdminDashboard(),
       middlewares: [
         AuthMiddleware(requiredRole: UserRole.superior),
       ],
     ),
     GetPage(
       name: Routes.SCHOOL_ADMIN_DASHBOARD,
-      page: () => SchoolAdminDashboard(),
+      page: () => const SchoolAdminDashboard(),
       middlewares: [
         AuthMiddleware(requiredRole: UserRole.schoolAdmin),
       ],

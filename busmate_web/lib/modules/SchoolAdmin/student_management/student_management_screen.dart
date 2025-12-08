@@ -1,14 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:busmate_web/modules/Authentication/auth_controller.dart';
 import 'student_controller.dart';
 import 'student_model.dart';
-import 'add_student_screen.dart';
+import 'add_student_screen_upgraded.dart';
 
 class StudentManagementScreen extends StatelessWidget {
   final String? schoolId;
+  final bool fromSuperAdmin;
   late final StudentController controller;
 
-  StudentManagementScreen({super.key, this.schoolId}) {
+  StudentManagementScreen({
+    super.key, 
+    this.schoolId,
+    this.fromSuperAdmin = false,
+  }) {
     // Initialize controller with schoolId passed as parameter OR from Get.arguments
     final arguments = Get.arguments as Map<String, dynamic>?;
     final effectiveSchoolId = schoolId ?? arguments?['schoolId'];
@@ -34,6 +40,16 @@ class StudentManagementScreen extends StatelessWidget {
   
   @override
   Widget build(BuildContext context) {
+    final authController = Get.find<AuthController>();
+    
+    // Check if we're being accessed by a Superior Admin through school navigation
+    // Use widget parameter first, then fallback to Get.arguments
+    final arguments = Get.arguments as Map<String, dynamic>?;
+    final fromSuperAdminFlag = fromSuperAdmin || (arguments?['fromSuperAdmin'] ?? false);
+    
+    // Only restrict if user is an actual School Admin (not Superior Admin viewing school)
+    final shouldRestrictAccess = authController.isSchoolAdmin && !fromSuperAdminFlag;
+    
     return Scaffold(
       appBar: AppBar(
         title: const Text('Student Management'),
@@ -99,7 +115,7 @@ class StudentManagementScreen extends StatelessWidget {
                                         value: busId,
                                         child: Text('Bus $busId'),
                                       ))
-                                  .toList(),
+                                  ,
                             ],
                             onChanged: (value) {
                               controller.selectedBusFilter.value = value ?? '';
@@ -146,7 +162,14 @@ class StudentManagementScreen extends StatelessWidget {
                 return const Center(child: CircularProgressIndicator());
               }
               if (controller.filteredStudents.isEmpty) {
-                return const Center(child: Text('No students found'));
+                return Center(
+                  child: Text(
+                    shouldRestrictAccess
+                      ? 'No students found. Contact Superior Admin to add students.'
+                      : 'No students found',
+                    textAlign: TextAlign.center,
+                  ),
+                );
               }
               return SingleChildScrollView(
                   scrollDirection: Axis.vertical,
@@ -183,24 +206,26 @@ class StudentManagementScreen extends StatelessWidget {
                           DataCell(
                             Row(
                               children: [
+                                // Edit button - Available to both Superior Admin and School Admin
                                 IconButton(
                                   icon: const Icon(Icons.edit),
                                   onPressed: () {
-                                    Get.to(() => AddStudentScreen(),
+                                    Get.to(() => AddStudentScreenUpgraded(),
                                         arguments: {
                                           'isEdit': true,
                                           'student': student,
-                                          'schoolId': controller
-                                              .schoolId, // <-- Pass schoolId
+                                          'schoolId': controller.schoolId,
                                         });
                                   },
                                 ),
-                                IconButton(
-                                  icon: const Icon(Icons.delete),
-                                  onPressed: () {
-                                    controller.deleteStudent(student.id);
-                                  },
-                                ),
+                                // Delete button - Only for Superior Admin (not School Admin)
+                                if (!shouldRestrictAccess)
+                                  IconButton(
+                                    icon: const Icon(Icons.delete),
+                                    onPressed: () {
+                                      controller.deleteStudent(student.id);
+                                    },
+                                  ),
                               ],
                             ),
                           ),
@@ -212,14 +237,17 @@ class StudentManagementScreen extends StatelessWidget {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          Get.to(AddStudentScreen(), arguments: {
-            'schoolId': controller.schoolId, // <-- Pass schoolId for add too
-          });
-        },
-        child: const Icon(Icons.add),
-      ),
+      // Only show Add Student button if not restricted (Superior Admins or accessing from Super Admin)
+      floatingActionButton: !shouldRestrictAccess
+        ? FloatingActionButton(
+            onPressed: () {
+              Get.to(AddStudentScreenUpgraded(), arguments: {
+                'schoolId': controller.schoolId, // <-- Pass schoolId for add too
+              });
+            },
+            child: const Icon(Icons.add),
+          )
+        : null,
     );
   }
 }

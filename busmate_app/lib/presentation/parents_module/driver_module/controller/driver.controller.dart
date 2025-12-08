@@ -14,7 +14,10 @@ import 'package:busmate/meta/model/bus_model.dart';
 import 'package:busmate/meta/model/driver_model.dart';
 import 'package:busmate/meta/model/scool_model.dart';
 import 'package:busmate/meta/model/student_model.dart';
+import 'package:busmate/meta/nav/pages.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:geolocator/geolocator.dart' as geolocator;
@@ -25,12 +28,26 @@ import 'package:permission_handler/permission_handler.dart';
 class DriverController extends GetxController {
   // ignore: constant_identifier_names
   static const double STOP_RADIUS = 100.0; // 100 meters radius
+  static const String _trackingEnabledKey = 'driverTrackingEnabled';
+
+  final FirebaseAuth _firebaseAuth = FirebaseAuth.instance;
+
   RxList<dynamic> remainingStops = <dynamic>[].obs;
   RxBool isTripActive = false.obs; // <-- Add this observable
 
   @override
   void onInit() async {
     GetStorage storage = GetStorage();
+    if (storage.read(_trackingEnabledKey) == null) {
+      storage.write(_trackingEnabledKey, false);
+    }
+    
+    // Debug prints
+    print('🔍 [Driver] GetStorage values:');
+    print('   driverId: ${storage.read('driverId')}');
+    print('   driverSchoolId: ${storage.read('driverSchoolId')}');
+    print('   driverBusId: ${storage.read('driverBusId')}');
+    
     await fetchSchool(storage.read('driverSchoolId'));
     await fetchDriver(storage.read('driverId'));
     await fetchBusDetail(
@@ -46,18 +63,30 @@ class DriverController extends GetxController {
     // Set up a port to receive updates from the background isolate
     _setupBackgroundListener();
 
-    // Listen to Firestore for trip status changes
+    // Listen to Realtime Database for trip status changes
     final busId = GetStorage().read('driverBusId');
-    if (busId != null) {
-      FirebaseFirestore.instance
-          .collection('bus_status')
-          .doc(busId)
-          .snapshots()
-          .listen((doc) {
-        if (doc.exists && doc.data() != null) {
-          final data = doc.data() as Map<String, dynamic>;
-          isTripActive.value = (data['currentStatus'] == 'Active');
+    final schoolId = GetStorage().read('driverSchoolId');
+    
+    // Note: Button state is now LOCAL and controls the database
+    // We don't listen to database for button state anymore
+    // Database listener removed to prevent conflicts
+    
+    if (busId == null || schoolId == null) {
+      print('❌ [Driver] Cannot proceed - busId or schoolId is null');
+      isTripActive.value = false;
+    } else {
+      // Check initial state from database once on startup
+      print('🔍 [Driver] Checking initial trip state from DB: bus_locations/$schoolId/$busId');
+      FirebaseDatabase.instance
+          .ref('bus_locations/$schoolId/$busId/isActive')
+          .once()
+          .then((snapshot) {
+        if (snapshot.snapshot.exists && snapshot.snapshot.value != null) {
+          final isActive = snapshot.snapshot.value == true;
+          print('📊 [Driver] Initial DB state - isActive: $isActive');
+          isTripActive.value = isActive;
         } else {
+          print('⚠️ [Driver] No initial state in DB - defaulting to inactive');
           isTripActive.value = false;
         }
       });
@@ -105,22 +134,31 @@ class DriverController extends GetxController {
   var isLoading = false.obs;
 
   // Fetch School by ID
-  Future<void> fetchSchool(String schoolId) async {
+  Future<void> fetchSchool(String? schoolId) async {
     try {
+      print('🏫 [Driver] Fetching school: $schoolId');
+      if (schoolId == null || schoolId.isEmpty) {
+        print('❌ [Driver] schoolId is null or empty');
+        school.value = null;
+        return;
+      }
+      
       isLoading.value = true;
       DocumentSnapshot doc = await FirebaseFirestore.instance
-          .collection('schools')
+          .collection('schooldetails')
           .doc(schoolId)
           .get();
 
       if (doc.exists && doc.data() != null) {
         school.value = SchoolModel.fromMap(doc.data() as Map<String, dynamic>);
-        print(school.value!.schoolName);
+        print('✅ [Driver] School loaded: ${school.value!.schoolName}');
       } else {
         school.value = null;
+        print('❌ [Driver] School not found in Firestore');
         Get.snackbar("Error", "School not found");
       }
     } catch (e) {
+      print('❌ [Driver] Error fetching school: $e');
       Get.snackbar("Error", "Failed to fetch school: $e");
     } finally {
       isLoading.value = false;
@@ -128,22 +166,41 @@ class DriverController extends GetxController {
   }
 
   // Fetch Driver by ID
-  Future<void> fetchDriver(String driverId) async {
+  Future<void> fetchDriver(String? driverId) async {
     try {
+      print('🚗 [Driver] Fetching driver: $driverId');
+      if (driverId == null || driverId.isEmpty) {
+        print('❌ [Driver] driverId is null or empty');
+        driver.value = null;
+        return;
+      }
+      
+      final schoolId = GetStorage().read('driverSchoolId');
+      if (schoolId == null || schoolId.isEmpty) {
+        print('❌ [Driver] schoolId is null, cannot fetch driver');
+        driver.value = null;
+        return;
+      }
+      
       isLoading.value = true;
+      print('🔍 [Driver] Fetching from: schooldetails/$schoolId/drivers/$driverId');
       DocumentSnapshot doc = await FirebaseFirestore.instance
+          .collection('schooldetails')
+          .doc(schoolId)
           .collection('drivers')
           .doc(driverId)
           .get();
 
       if (doc.exists && doc.data() != null) {
         driver.value = DriverModel.fromMap(doc);
-        print(driver.value!.id);
+        print('✅ [Driver] Driver loaded: ${driver.value!.id}');
       } else {
         driver.value = null;
+        print('❌ [Driver] Driver not found in Firestore');
         Get.snackbar("Error", "Driver not found");
       }
     } catch (e) {
+      print('❌ [Driver] Error fetching driver: $e');
       Get.snackbar("Error", "Failed to fetch driver: $e");
     } finally {
       isLoading.value = false;
@@ -151,11 +208,19 @@ class DriverController extends GetxController {
   }
 
   // Fetch Bus by ID
-  Future<void> fetchBusDetail(String schoolId, String busId) async {
+  Future<void> fetchBusDetail(String? schoolId, String? busId) async {
     try {
+      print('🚌 [Driver] Fetching bus: $busId from school: $schoolId');
+      if (schoolId == null || schoolId.isEmpty || busId == null || busId.isEmpty) {
+        print('❌ [Driver] schoolId or busId is null/empty');
+        busDetail.value = null;
+        return;
+      }
+      
       isLoading.value = true;
+      print('🔍 [Driver] Fetching from: schooldetails/$schoolId/buses/$busId');
       DocumentSnapshot doc = await FirebaseFirestore.instance
-          .collection('schools')
+          .collection('schooldetails')
           .doc(schoolId)
           .collection('buses')
           .doc(busId)
@@ -225,44 +290,100 @@ class DriverController extends GetxController {
       }
 
       isLoading.value = true;
-      print('📝 [StartTrip] Updating bus status to Active...');
+      
+      // **BUTTON CONTROLS STATE** - Update immediately for instant UI feedback
+      isTripActive.value = true;
+      print('🔴 [Driver] Button state set to ACTIVE (red) - USER CLICKED START');
 
-      String schoolId = GetStorage().read('driverSchoolId');
-      String busId = GetStorage().read('driverBusId');
+      final storage = GetStorage();
+      storage.write(_trackingEnabledKey, true);
+
+      String schoolId = storage.read('driverSchoolId');
+      String busId = storage.read('driverBusId');
       String routeType = "pickup"; // <-- define routeType with default
 
       print('🔑 [StartTrip] Using schoolId: $schoolId, busId: $busId');
 
-      // Initialize remainingStops with all stops when starting trip
-      final stoppings = busDetail.value!.stoppings;
-      final remainingStopsWithETA = stoppings
-          .map((stop) => StopWithETA(
-                name: stop.name,
-                latitude: stop.latitude,
-                longitude: stop.longitude,
-              ))
-          .toList();
+      // Query active route schedule to get route ID and stops
+      print('🔍 [StartTrip] Querying active route schedule...');
+      final routeQuery = await FirebaseFirestore.instance
+          .collection('schools')
+          .doc(schoolId)
+          .collection('route_schedules')
+          .where('busId', isEqualTo: busId)
+          .where('isActive', isEqualTo: true)
+          .limit(1)
+          .get();
 
-      // Create initial bus status document
-      final busStatus = BusStatusModel(
-        busId: busId,
-        schoolId: schoolId,
-        currentLocation: {},
-        latitude: 0.0,
-        longitude: 0.0,
-        currentSpeed: 0.0,
-        currentStatus: 'Active',
-        remainingStops: remainingStopsWithETA,
-        lastUpdated: DateTime.now(),
-      );
+      if (routeQuery.docs.isEmpty) {
+        Get.snackbar("Error", "No active route schedule found for this bus");
+        isLoading.value = false;
+        isTripActive.value = false;
+        return;
+      }
 
-      // Create or update the bus status document
-      await FirebaseFirestore.instance
-          .collection('bus_status')
-          .doc(busId)
-          .set(busStatus.toMap());
+      final routeDoc = routeQuery.docs.first;
+      final routeId = routeDoc.id;
+      final routeData = routeDoc.data();
+      final stoppings = routeData['stops'] as List<dynamic>? ?? routeData['stoppings'] as List<dynamic>? ?? [];
+      final routeName = routeData['routeName'] as String? ?? 'Unknown Route';
+      routeType = routeData['direction'] as String? ?? 'pickup';
 
-      print('✅ [StartTrip] Bus status document created');
+      if (stoppings.isEmpty) {
+        Get.snackbar("Error", "Route has no stops defined");
+        isLoading.value = false;
+        isTripActive.value = false;
+        return;
+      }
+
+      // Convert stops to proper format
+      final stops = stoppings.map((stop) {
+        final location = stop['location'];
+        double lat, lng;
+        
+        if (location != null && location is Map) {
+          lat = ((location['latitude'] ?? 0.0) as num).toDouble();
+          lng = ((location['longitude'] ?? 0.0) as num).toDouble();
+        } else {
+          lat = ((stop['latitude'] ?? 0.0) as num).toDouble();
+          lng = ((stop['longitude'] ?? 0.0) as num).toDouble();
+        }
+        
+        return {
+          'name': stop['name'] ?? 'Unknown Stop',
+          'latitude': lat,
+          'longitude': lng,
+          'estimatedMinutesOfArrival': null,
+          'distanceMeters': null,
+          'eta': null,
+        };
+      }).toList();
+
+      print('✅ [StartTrip] Found route: $routeName ($routeType) with ${stops.length} stops');
+
+      // Initialize bus status in Realtime Database with isActive: true
+      print('📝 [StartTrip] Creating bus status in Realtime DB...');
+      await FirebaseDatabase.instance
+          .ref('bus_locations/$schoolId/$busId')
+          .set({
+        'isActive': true,
+        'activeRouteId': routeId, // Real route ID from route_schedules
+        'tripDirection': routeType,
+        'routeName': routeName,
+        'currentStatus': 'Active',
+        'latitude': stops[0]['latitude'],
+        'longitude': stops[0]['longitude'],
+        'speed': 0.0,
+        'source': 'phone',
+        'remainingStops': stops,
+        'stopsPassedCount': 0,
+        'totalStops': stops.length,
+        'lastETACalculation': 0, // Force initial ETA calculation
+        'lastRecalculationAt': 0,
+        'timestamp': ServerValue.timestamp,
+      });
+
+      print('✅ [StartTrip] Bus status created in Realtime DB with route: $routeName');
 
       // Get initial position and update Firestore
       print('📍 [StartTrip] Getting initial position...');
@@ -295,33 +416,9 @@ class DriverController extends GetxController {
         } catch (e) {
           print("❌ [StartTrip] Failed to reset 'notified' for students: $e");
         }
-        // Update the bus status with initial position
-        final initialStatus = BusStatusModel(
-          busId: busId,
-          schoolId: schoolId,
-          currentLocation: {
-            'latitude': position.latitude,
-            'longitude': position.longitude,
-            'timestamp': FieldValue.serverTimestamp(),
-            'source': 'initial_position'
-          },
-          latitude: position.latitude,
-          longitude: position.longitude,
-          currentSpeed: 0.0,
-          currentStatus: 'Active',
-          remainingStops: remainingStopsWithETA,
-          lastUpdated: DateTime.now(),
-          busRouteType: routeType, // <-- set route type
-        );
-
-        // Calculate initial ETAs
-        initialStatus.updateETAs();
-
-        // Update Firestore with initial status
-        await FirebaseFirestore.instance
-            .collection('bus_status')
-            .doc(busId)
-            .update(initialStatus.toMap());
+        // Initial position will be written to Realtime Database only
+        // (Firestore writes removed to reduce costs)
+        print('✅ [StartTrip] Initial position captured, will be sent to Realtime DB');
 
         print('✅ [StartTrip] Initial location and ETAs updated in Firestore');
       } catch (e) {
@@ -337,20 +434,17 @@ class DriverController extends GetxController {
       // Start fallback foreground timer for location updates
       _startForegroundFallback(schoolId, busId);
 
-      // Update bus status to Active in Firestore
-      await FirebaseFirestore.instance
-          .collection('bus_status')
-          .doc(busId)
-          .update({'currentStatus': 'Active'});
+      // Bus status is now tracked in Realtime Database only
       // Refresh bus details to reflect the updated status
       await fetchBusDetail(schoolId, busId);
 
-      isTripActive.value = true; // <-- Set immediately
+      // Note: isTripActive will be updated automatically by the Realtime DB listener
       Get.snackbar("Success", "Trip started successfully");
     } catch (e, st) {
       print('❌ [StartTrip] Error: $e');
       print('📜 [StartTrip] Stack trace: $st');
-      isTripActive.value = false; // <-- Reset on error
+      isTripActive.value = false;
+      GetStorage().write(_trackingEnabledKey, false);
       Get.snackbar("Error", "Failed to start trip: $e");
     } finally {
       isLoading.value = false;
@@ -367,26 +461,23 @@ class DriverController extends GetxController {
     _foregroundTimer?.cancel();
 
     // Start a new timer for foreground location updates as fallback
-    _foregroundTimer = Timer.periodic(const Duration(seconds: 1), (_) async {
+    // Changed from 1 second to 30 seconds to reduce Firebase Function calls
+    // 1s = 86,400 calls/day per bus | 30s = 2,880 calls/day per bus (97% reduction)
+    _foregroundTimer = Timer.periodic(const Duration(seconds: 30), (_) async {
       print('⏰ [ForegroundFallback] Triggered');
 
       try {
-        // Check if the trip is still active
-        DocumentSnapshot busDoc = await FirebaseFirestore.instance
-            .collection('bus_status')
-            .doc(busId)
-            .get();
-
-        if (busDoc.exists && busDoc.data() != null) {
-          Map<String, dynamic> data = busDoc.data() as Map<String, dynamic>;
-          if (data['currentStatus'] != 'Active') {
-            print(
-                '🛑 [ForegroundFallback] Bus no longer active, stopping fallback');
-            _foregroundTimer?.cancel();
-            _foregroundTimer = null;
-            return;
-          }
+        final storage = GetStorage();
+        final trackingEnabled = storage.read(_trackingEnabledKey) == true;
+        if (!trackingEnabled) {
+          print('⏹️ [ForegroundFallback] Tracking disabled flag detected. Stopping timer.');
+          _foregroundTimer?.cancel();
+          _foregroundTimer = null;
+          return;
         }
+
+        // Note: Trip status is now monitored via Realtime DB listener
+        // No need to check Firestore here
 
         // Get current position
         geolocator.Position position =
@@ -397,89 +488,20 @@ class DriverController extends GetxController {
         print(
             '📍 [ForegroundFallback] Position: ${position.latitude}, ${position.longitude}');
 
-        // Get current bus status
-        DocumentSnapshot statusDoc = await FirebaseFirestore.instance
-            .collection('bus_status')
-            .doc(busId)
-            .get();
+        // Note: Foreground fallback simplified - just write GPS data to Realtime DB
+        // All ETA calculations and stop management handled by Cloud Functions
+        final schoolIdFromStorage = storage.read('driverSchoolId') ?? schoolId;
+        await FirebaseDatabase.instance
+          .ref('bus_locations/$schoolIdFromStorage/$busId')
+            .update({
+          'latitude': position.latitude,
+          'longitude': position.longitude,
+          'speed': position.speed,
+          'timestamp': ServerValue.timestamp,
+          'source': 'foreground_fallback',
+        });
 
-        if (statusDoc.exists && statusDoc.data() != null) {
-          Map<String, dynamic> data = statusDoc.data() as Map<String, dynamic>;
-          BusStatusModel status = BusStatusModel.fromMap(data, busId);
-
-          // Current bus location
-          final busLocation = LatLng(position.latitude, position.longitude);
-
-          // Check proximity to remaining stops and remove those within threshold
-          // Variables for future implementation:
-          // bool stopsRemoved = false;
-          // List<StopWithETA> stopsToRemove = [];
-
-          // Only remove stops in the correct order based on route type
-          String routeType = status.busRouteType ?? "pickup";
-          if (status.remainingStops.isNotEmpty) {
-            if (routeType == "pickup") {
-              // Remove from the front if reached
-              final stop = status.remainingStops.first;
-              final stopLocation = LatLng(stop.latitude, stop.longitude);
-              final distanceToStop = calculateDistance(
-                  busLocation.latitude,
-                  busLocation.longitude,
-                  stopLocation.latitude,
-                  stopLocation.longitude);
-              if (distanceToStop <= STOP_PROXIMITY_THRESHOLD) {
-                print(
-                    '🚏 [ForegroundFallback] Bus reached stop: ${stop.name} (distance: ${distanceToStop.toStringAsFixed(2)}m)');
-                status.remainingStops.removeAt(0);
-                print(
-                    '✂️ [ForegroundFallback] Removed stop: ${stop.name} from remaining stops');
-              }
-            } else {
-              // "drop" route: remove from the end if reached
-              final stop = status.remainingStops.last;
-              final stopLocation = LatLng(stop.latitude, stop.longitude);
-              final distanceToStop = calculateDistance(
-                  busLocation.latitude,
-                  busLocation.longitude,
-                  stopLocation.latitude,
-                  stopLocation.longitude);
-              if (distanceToStop <= STOP_PROXIMITY_THRESHOLD) {
-                print(
-                    '🚏 [ForegroundFallback] Bus reached stop: ${stop.name} (distance: ${distanceToStop.toStringAsFixed(2)}m)');
-                status.remainingStops.removeLast();
-                print(
-                    '✂️ [ForegroundFallback] Removed stop: ${stop.name} from remaining stops');
-              }
-            }
-            print(
-                '📊 [ForegroundFallback] Remaining stops count: ${status.remainingStops.length}');
-          }
-
-          // Update location and speed
-          status.latitude = position.latitude;
-          status.longitude = position.longitude;
-          status.currentSpeed = position.speed;
-          status.currentLocation = {
-            'latitude': position.latitude,
-            'longitude': position.longitude,
-            'timestamp': FieldValue.serverTimestamp(),
-            'source': 'foreground_fallback'
-          };
-
-          // Add speed sample for average calculation
-          status.addSpeedSample(position.speed);
-
-          // Update ETAs
-          status.updateETAs();
-
-          // Update in Firestore
-          await FirebaseFirestore.instance
-              .collection('bus_status')
-              .doc(busId)
-              .update(status.toMap());
-        }
-
-        print('✅ [ForegroundFallback] Location and ETAs updated');
+        print('✅ [ForegroundFallback] GPS data written to Realtime DB');
       } catch (e) {
         print('❌ [ForegroundFallback] Error: $e');
       }
@@ -547,7 +569,7 @@ class DriverController extends GetxController {
         ),
         androidSettings: const AndroidSettings(
           accuracy: LocationAccuracy.NAVIGATION,
-          interval: 1, // Changed from 2000 to 1000 for more frequent updates
+          interval: 30, // 30 seconds - optimal for battery and cost efficiency
           // distanceFilter: 10, // 10 meters minimum movement
           client: LocationClient.google,
           androidNotificationSettings: AndroidNotificationSettings(
@@ -576,6 +598,11 @@ class DriverController extends GetxController {
     } catch (e, st) {
       print('❌ [StartTrip] Error starting background locator: $e');
       print('📜 [StartTrip] Stack trace: $st');
+      
+      // Rollback button state on error
+      isTripActive.value = false;
+      print('⬅️ [Driver] Rolled back button state to INACTIVE (green) due to error');
+      
       rethrow;
     }
   }
@@ -583,62 +610,106 @@ class DriverController extends GetxController {
   Future<void> stopTrip() async {
     try {
       print('🛑 [StopTrip] Stopping trip...');
-
-      if (busDetail.value == null) {
-        Get.snackbar("Error", "Bus details not available");
-        return;
-      }
-
       isLoading.value = true;
-      String schoolId = GetStorage().read('driverSchoolId');
-      String busId = GetStorage().read('driverBusId');
 
-      // Update bus status document
-      await FirebaseFirestore.instance
-          .collection('bus_status')
-          .doc(busId)
-          .update({
-        'currentStatus': 'InActive',
-        'remainingStops': [], // Clear remaining stops when trip ends
-        'lastUpdated': FieldValue.serverTimestamp(),
-      });
+      final storage = GetStorage();
+      final String? schoolId = storage.read('driverSchoolId');
+      final String? busId = storage.read('driverBusId');
 
-      print('✅ [StopTrip] Bus status updated to InActive');
+      // **BUTTON CONTROLS STATE** - Update immediately for instant UI feedback
+      isTripActive.value = false;
+      print('🟢 [Driver] Button state set to INACTIVE (green) - USER CLICKED STOP');
 
-      // Cancel foreground timer if running
-      if (_foregroundTimer != null) {
-        print('⏱️ [StopTrip] Cancelling foreground timer');
-        _foregroundTimer?.cancel();
-        _foregroundTimer = null;
+      if (schoolId != null && busId != null) {
+        print('📝 [StopTrip] Updating Realtime DB: bus_locations/$schoolId/$busId');
+        await FirebaseDatabase.instance
+            .ref('bus_locations/$schoolId/$busId')
+            .update({
+          'isActive': false,
+          'currentStatus': 'InActive',
+          'timestamp': ServerValue.timestamp,
+        });
+        print('✅ [StopTrip] Bus status updated to InActive in Realtime DB');
       }
 
-      // Unregister background location updates
-      print('🛑 [StopTrip] Unregistering background location updates');
-      final isRunning = await BackgroundLocator.isServiceRunning();
-      if (isRunning) {
-        await BackgroundLocator.unRegisterLocationUpdate();
-        print('✅ [StopTrip] Background location updates stopped');
-      } else {
-        print('⚠️ [StopTrip] Background locator was not running');
+      await _stopTrackingServices(updateRealtimeStatus: false);
+
+      if (schoolId != null && busId != null) {
+        await fetchBusDetail(schoolId, busId);
       }
 
-      // Update bus status to InActive in Firestore
-      await FirebaseFirestore.instance
-          .collection('bus_status')
-          .doc(busId)
-          .update({'currentStatus': 'InActive'});
-      // Refresh bus details to reflect the updated status
-      await fetchBusDetail(schoolId, busId);
-
-      isTripActive.value = false; // <-- Set immediately
       Get.snackbar("Success", "Trip stopped successfully");
     } catch (e, st) {
       print('❌ [StopTrip] Error: $e');
       print('📜 [StopTrip] Stack trace: $st');
-      isTripActive.value = true; // <-- Reset on error
+      
+      // Rollback button state on error
+      isTripActive.value = true;
+      GetStorage().write(_trackingEnabledKey, true);
+      print('⬅️ [Driver] Rolled back button state to ACTIVE (red) due to error');
+      
       Get.snackbar("Error", "Failed to stop trip: $e");
     } finally {
       isLoading.value = false;
+    }
+  }
+
+  Future<void> handleDriverLogout() async {
+    print('🚪 [Driver] Logging out driver...');
+    try {
+      await _stopTrackingServices(updateRealtimeStatus: true);
+    } catch (e) {
+      print('⚠️ [Driver] Error while stopping services during logout: $e');
+    }
+
+    try {
+      await _firebaseAuth.signOut();
+      print('✅ [Driver] Firebase signOut complete');
+    } catch (e) {
+      print('⚠️ [Driver] Firebase signOut failed: $e');
+    }
+
+    await GetStorage().erase();
+    Get.offAllNamed(Routes.sigIn);
+  }
+
+  Future<void> _stopTrackingServices({bool updateRealtimeStatus = true}) async {
+    final storage = GetStorage();
+    final String? schoolId = storage.read('driverSchoolId');
+    final String? busId = storage.read('driverBusId');
+
+    storage.write(_trackingEnabledKey, false);
+    isTripActive.value = false;
+
+    if (_foregroundTimer != null) {
+      print('⏱️ [Driver] Cancelling foreground timer (force stop)');
+      _foregroundTimer?.cancel();
+      _foregroundTimer = null;
+    }
+
+    try {
+      final isRunning = await BackgroundLocator.isServiceRunning();
+      if (isRunning) {
+        await BackgroundLocator.unRegisterLocationUpdate();
+        print('✅ [Driver] Background location updates stopped (force)');
+      }
+    } catch (e) {
+      print('⚠️ [Driver] Error stopping background locator: $e');
+    }
+
+    if (updateRealtimeStatus && schoolId != null && busId != null) {
+      try {
+        await FirebaseDatabase.instance
+            .ref('bus_locations/$schoolId/$busId')
+            .update({
+          'isActive': false,
+          'currentStatus': 'InActive',
+          'timestamp': ServerValue.timestamp,
+        });
+        print('📝 [Driver] Realtime DB updated to inactive (force stop)');
+      } catch (e) {
+        print('⚠️ [Driver] Failed to update Realtime DB while stopping: $e');
+      }
     }
   }
 
@@ -689,34 +760,9 @@ class DriverController extends GetxController {
   // Add method to remove a stop when reached
   Future<void> removeStop(StopWithETA stop) async {
     try {
-      GetStorage().read('driverSchoolId');
-      String busId = GetStorage().read('driverBusId');
-
-      // Get current bus status
-      DocumentSnapshot doc = await FirebaseFirestore.instance
-          .collection('bus_status')
-          .doc(busId)
-          .get();
-
-      if (doc.exists && doc.data() != null) {
-        Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-        BusStatusModel status = BusStatusModel.fromMap(data, busId);
-
-        // Remove the reached stop
-        status.remainingStops.removeWhere((s) =>
-            s.name == stop.name &&
-            s.latitude == stop.latitude &&
-            s.longitude == stop.longitude);
-
-        // Update ETAs for remaining stops
-        status.updateETAs();
-
-        // Update Firestore with new status
-        await FirebaseFirestore.instance
-            .collection('bus_status')
-            .doc(busId)
-            .update(status.toMap());
-      }
+      // Note: removeStop method deprecated - stops are now managed
+      // automatically in Realtime Database by Cloud Functions
+      print('⚠️ [RemoveStop] Manual stop removal deprecated - handled by backend');
     } catch (e) {
       print('❌ [RemoveStop] Error: $e');
       Get.snackbar("Error", "Failed to update stop: $e");

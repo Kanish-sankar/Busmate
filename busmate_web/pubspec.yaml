@@ -40,6 +40,7 @@ dependencies:
   firebase_core: ^3.12.0
   firebase_auth: ^5.5.0
   cloud_firestore: ^5.6.4
+  firebase_database: ^11.1.4
   url_launcher: ^6.3.1
   latlong2: ^0.9.1
   flutter_map: ^8.1.1
@@ -59,6 +60,7 @@ dependencies:
   google_api_headers: ^4.4.1
   flutter_typeahead: ^5.2.0
   awesome_place_search: ^2.1.0
+  crypto:
 
 dev_dependencies:
   flutter_test:

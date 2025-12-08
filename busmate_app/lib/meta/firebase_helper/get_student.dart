@@ -7,12 +7,6 @@ import 'package:get/get.dart';
 class GetStudent extends GetxController {
   RxList<StudentModel> studentList = <StudentModel>[].obs;
   
-  @override
-  void onInit() {
-    super.onInit();
-    // REMOVED: Automatic fetching on init to reduce Firebase costs
-    // Call fetchStudents() manually only when needed
-  }
 
   Future<void> fetchStudents() async {
     try {

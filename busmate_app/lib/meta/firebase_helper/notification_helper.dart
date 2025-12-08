@@ -1,4 +1,5 @@
 import 'dart:io' show Platform;
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -6,11 +7,29 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter/services.dart' show rootBundle;
 
 class NotificationHelper {
   static final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
       FlutterLocalNotificationsPlugin();
   static final FirebaseMessaging firebaseMessaging = FirebaseMessaging.instance;
+  static ByteArrayAndroidBitmap? _cachedBusmateLargeIcon;
+  static const String _busmateLogoAsset = 'assets/images/BUSMATE.FRONT.png';
+
+  static Future<AndroidBitmap<Object>?> _loadBusmateLargeIcon() async {
+    if (_cachedBusmateLargeIcon != null) {
+      return _cachedBusmateLargeIcon;
+    }
+    try {
+      final ByteData byteData = await rootBundle.load(_busmateLogoAsset);
+      _cachedBusmateLargeIcon =
+          ByteArrayAndroidBitmap(byteData.buffer.asUint8List());
+      return _cachedBusmateLargeIcon;
+    } catch (e) {
+      print('⚠️ Failed to load BusMate logo for notification: $e');
+      return null;
+    }
+  }
 
   static Future<void> initialize() async {
     // Request notification permissions
@@ -151,6 +170,8 @@ class NotificationHelper {
       soundName = getSoundName(selectedLanguage);
     }
 
+    final largeIconBitmap = await _loadBusmateLargeIcon();
+
     final AndroidNotificationDetails androidPlatformChannelSpecifics =
         AndroidNotificationDetails(
       'busmate',
@@ -165,6 +186,9 @@ class NotificationHelper {
           ? RawResourceAndroidNotificationSound(soundName)
           : null,
       enableVibration: true,
+      icon: '@drawable/ic_busmate_notification',
+      largeIcon:
+          largeIconBitmap ?? const DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
       actions: <AndroidNotificationAction>[
         const AndroidNotificationAction(
           'ACKNOWLEDGE_ACTION',
@@ -200,8 +224,10 @@ class NotificationHelper {
     );
   }
 
-  static void showLocalNotification(RemoteMessage message) async {
-    const AndroidNotificationDetails androidDetails =
+  static Future<void> showLocalNotification(RemoteMessage message) async {
+    final largeIconBitmap = await _loadBusmateLargeIcon();
+
+    final AndroidNotificationDetails androidDetails =
         AndroidNotificationDetails(
       'busmate_silent',
       'Busmate Silent Notifications',
@@ -209,9 +235,12 @@ class NotificationHelper {
       importance: Importance.max,
       priority: Priority.high,
       playSound: true,
+      icon: '@drawable/ic_busmate_notification',
+      largeIcon:
+          largeIconBitmap ?? const DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
     );
 
-    const NotificationDetails platformDetails = NotificationDetails(
+    final NotificationDetails platformDetails = NotificationDetails(
       android: androidDetails,
     );
 
@@ -231,6 +260,7 @@ class NotificationHelper {
   }
 
   static String getSoundName(String language) {
+    // Language-specific notification sound mapping (Original WAV Files)
     switch (language.toLowerCase()) {
       case "english":
         return "notification_english";
@@ -246,6 +276,74 @@ class NotificationHelper {
         return "notification_malayalam";
       default:
         return "notification_english";
+    }
+  }
+
+  // Test notification function to preview voice notifications
+  static Future<void> showTestNotification({
+    String language = 'tamil',
+    bool isVoice = true,
+  }) async {
+    try {
+      String? soundName = isVoice ? getSoundName(language) : null;
+      print('🔊 Preparing notification - Language: $language, Sound: $soundName');
+      
+      final largeIconBitmap = await _loadBusmateLargeIcon();
+
+      final AndroidNotificationDetails androidPlatformChannelSpecifics =
+          AndroidNotificationDetails(
+        'busmate',
+        'Busmate Notifications',
+        channelDescription: 'Test notification for bus arrival',
+        importance: Importance.max,
+        priority: Priority.high,
+        ongoing: true,
+        autoCancel: false,
+        playSound: soundName != null,
+        sound: soundName != null
+            ? RawResourceAndroidNotificationSound(soundName)
+            : null,
+        enableVibration: true,
+        icon: '@drawable/ic_busmate_notification',
+        largeIcon:
+            largeIconBitmap ?? const DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
+        actions: <AndroidNotificationAction>[
+          const AndroidNotificationAction(
+            'ACKNOWLEDGE_ACTION',
+            'Acknowledge',
+            showsUserInterface: true,
+            cancelNotification: true,
+          ),
+        ],
+      );
+
+      final DarwinNotificationDetails iosPlatformChannelSpecifics =
+          DarwinNotificationDetails(
+        categoryIdentifier: 'busmate',
+        sound: soundName != null ? "$soundName.wav" : null,
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+        interruptionLevel: InterruptionLevel.active,
+      );
+
+      final NotificationDetails platformChannelSpecifics = NotificationDetails(
+        android: androidPlatformChannelSpecifics,
+        iOS: iosPlatformChannelSpecifics,
+      );
+
+      int notificationId = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      await flutterLocalNotificationsPlugin.show(
+        notificationId,
+        '🚍 Bus Approaching Your Stop!',
+        'The bus will arrive at Udyog Vihar Phase 4 in approximately 5 minutes. Please be ready!',
+        platformChannelSpecifics,
+      );
+      
+      print('✅ Voice notification sent: Language=$language, Voice=$isVoice, Sound=$soundName');
+    } catch (e) {
+      print('❌ Error in showTestNotification: $e');
+      rethrow;
     }
   }
 }

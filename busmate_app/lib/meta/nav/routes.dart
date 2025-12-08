@@ -4,6 +4,7 @@ abstract class Routes {
   Routes._();
 
   static const splash = _Paths.splash;
+  static const roleSelection = _Paths.roleSelection;
   static const sigIn = _Paths.sigIn;
   static const stopLocation = _Paths.stopLocation;
   static const forgotPassword = _Paths.forgotPassword;
@@ -16,6 +17,7 @@ abstract class _Paths {
   _Paths._();
 
   static const splash = '/splash';
+  static const roleSelection = '/roleSelection';
   static const sigIn = '/signIn';
   static const stopLocation = '/stopLocation';
   static const forgotPassword = '/forgotPassword';

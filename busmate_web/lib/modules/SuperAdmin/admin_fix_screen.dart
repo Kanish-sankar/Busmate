@@ -132,11 +132,11 @@ class AdminFixScreen extends StatelessWidget {
                                         borderRadius: BorderRadius.circular(8),
                                         border: Border.all(color: Colors.orange),
                                       ),
-                                      child: Row(
+                                      child: const Row(
                                         children: [
-                                          const Icon(Icons.warning, color: Colors.orange),
-                                          const SizedBox(width: 8),
-                                          const Expanded(
+                                          Icon(Icons.warning, color: Colors.orange),
+                                          SizedBox(width: 8),
+                                          Expanded(
                                             child: Text(
                                               '⚠️ School not found! Select correct school:',
                                               style: TextStyle(fontWeight: FontWeight.w600),

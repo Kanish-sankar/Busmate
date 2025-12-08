@@ -73,8 +73,44 @@ class StudentController extends GetxController {
 
   Future<void> deleteStudent(String id) async {
     try {
+      // First, find the student to get their assigned bus
+      DocumentSnapshot studentDoc = await studentCollection.doc(id).get();
+      
+      if (studentDoc.exists) {
+        Map<String, dynamic> studentData = studentDoc.data() as Map<String, dynamic>;
+        String? assignedBusId = studentData['assignedBusId'] as String?;
+        
+        // If student is assigned to a bus, remove them from the bus
+        if (assignedBusId != null && assignedBusId.isNotEmpty) {
+          DocumentReference busRef = firestore
+              .collection('schooldetails')
+              .doc(schoolId)
+              .collection('buses')
+              .doc(assignedBusId);
+          
+          // Remove student from bus's assignedStudents array
+          await busRef.update({
+            'assignedStudents': FieldValue.arrayRemove([id]),
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        }
+      }
+      
+      // Delete from students collection (web)
       await studentCollection.doc(id).delete();
-      Get.snackbar('Success', 'Student deleted successfully');
+      
+      // Also delete from adminusers collection (mobile app)
+      try {
+        await firestore.collection('adminusers').doc(id).delete();
+      } catch (e) {
+        print('Student not found in adminusers: $e');
+      }
+      
+      Get.snackbar(
+        'Success', 
+        'Student deleted and removed from bus',
+        snackPosition: SnackPosition.BOTTOM,
+      );
     } catch (e) {
       Get.snackbar('Error', 'Failed to delete student: $e');
     }

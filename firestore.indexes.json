@@ -23,6 +23,20 @@
       "queryScope": "COLLECTION",
       "fields": [
         {
+          "fieldPath": "notified",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "fcmToken",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "students",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
           "fieldPath": "schoolId",
           "order": "ASCENDING"
         },

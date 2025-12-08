@@ -8,6 +8,23 @@ allprojects {
 rootProject.buildDir = "../build"
 subprojects {
     project.buildDir = "${rootProject.buildDir}/${project.name}"
+    
+    // Force all Kotlin modules to use JVM target 17
+    tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+        kotlinOptions {
+            jvmTarget = '17'
+        }
+    }
+
+    // Ensure all Android modules compile against SDK 35 to avoid missing attrs like lStar
+    afterEvaluate { project ->
+        if (project.hasProperty('android')) {
+            project.android.compileSdkVersion = 35
+            if (project.android.defaultConfig != null) {
+                project.android.defaultConfig.targetSdkVersion = 35
+            }
+        }
+    }
 }
 subprojects {
     project.evaluationDependsOn(":app")

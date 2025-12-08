@@ -3,6 +3,7 @@ import 'package:busmate/meta/utils/constant/app_colors.dart';
 import 'package:busmate/meta/utils/constant/app_images.dart';
 import 'package:busmate/presentation/parents_module/dashboard/controller/dashboard.controller.dart';
 import 'package:busmate/presentation/parents_module/dashboard/widgets/student_details.dart';
+import 'package:busmate/meta/firebase_helper/notification_helper.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -53,16 +54,98 @@ class HomeScreen extends GetView<DashboardController> {
                   ),
                   SizedBox(height: 10.h),
                   Center(
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(17.r),
-                      child: Image.asset(
-                        AppImages.jupentaLogoFront,
-                        height: 280.h,
-                        fit: BoxFit.cover,
-                      ),
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        return ClipRRect(
+                          borderRadius: BorderRadius.circular(17.r),
+                          child: Image.asset(
+                            AppImages.jupentaLogoFront,
+                            width: constraints.maxWidth * 0.9,
+                            height: MediaQuery.of(context).size.height * 0.25,
+                            fit: BoxFit.contain,
+                          ),
+                        );
+                      },
                     ),
                   ),
                   SizedBox(height: 10.h),
+                  
+                  // Kid Switcher Dropdown
+                  Obx(() {
+                    if (controller.siblings.isEmpty) {
+                      return const SizedBox.shrink();
+                    }
+                    
+                    // Get PRIMARY student ID (the logged-in account holder)
+                    String? primaryStudentId = GetStorage().read('primaryStudentId');
+                    String? primaryStudentName = 'Primary Student';
+                    
+                    // Find primary student name
+                    if (primaryStudentId == controller.student.value?.id) {
+                      primaryStudentName = controller.student.value?.name ?? 'N/A';
+                    } else {
+                      // Check if primary is in siblings
+                      var primarySibling = controller.siblings.where((s) => s.id == primaryStudentId).firstOrNull;
+                      if (primarySibling != null) {
+                        primaryStudentName = primarySibling.name;
+                      }
+                    }
+                    
+                    // Build list: PRIMARY student + all siblings
+                    List<Map<String, String>> allKids = [
+                      {
+                        'id': primaryStudentId ?? '',
+                        'name': primaryStudentName,
+                      },
+                      ...controller.siblings.map((sib) => {
+                        'id': sib.id,
+                        'name': sib.name,
+                      }),
+                    ];
+                    
+                    String currentKidId = GetStorage().read('studentId') ?? '';
+                    
+                    return Container(
+                      padding: EdgeInsets.symmetric(horizontal: 15.w, vertical: 8.h),
+                      decoration: BoxDecoration(
+                        color: AppColors.lightblue,
+                        borderRadius: BorderRadius.circular(10.r),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.people, size: 20.sp),
+                          SizedBox(width: 10.w),
+                          Text(
+                            'Viewing: ',
+                            style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.bold),
+                          ),
+                          Expanded(
+                            child: DropdownButton<String>(
+                              value: currentKidId,
+                              isExpanded: true,
+                              underline: const SizedBox(),
+                              items: allKids.map((kid) {
+                                return DropdownMenuItem<String>(
+                                  value: kid['id'],
+                                  child: Text(
+                                    kid['name']!,
+                                    style: TextStyle(fontSize: 14.sp),
+                                  ),
+                                );
+                              }).toList(),
+                              onChanged: (String? newKidId) {
+                                if (newKidId != null && newKidId != currentKidId) {
+                                  controller.switchActiveStudent(newKidId);
+                                }
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                  SizedBox(height: 15.h),
+                  
                   Center(
                     child: Container(
                       padding:

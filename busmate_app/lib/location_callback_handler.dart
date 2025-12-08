@@ -7,7 +7,7 @@ import 'package:flutter/material.dart';
 
 import 'package:background_locator_2/location_dto.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'package:get_storage/get_storage.dart';
 
 import 'package:busmate/firebase_options.dart';
@@ -16,6 +16,7 @@ import 'package:latlong2/latlong.dart';
 
 const String isolateName = 'LocatorIsolate';
 const String storageChannel = 'storage_channel';
+const String trackingFlagKey = 'driverTrackingEnabled';
 
 // Add these constants at the top with other constants
 // ignore: constant_identifier_names
@@ -122,6 +123,7 @@ void backgroundLocationCallback(LocationDto locationDto) async {
     String? schoolId;
     String? busId;
     String? busRouteType;
+    bool trackingEnabledFlag = true;
 
     // Strategy 1: Try GetStorage
     try {
@@ -129,9 +131,18 @@ void backgroundLocationCallback(LocationDto locationDto) async {
       schoolId = storage.read('driverSchoolId');
       busId = storage.read('driverBusId');
       busRouteType = storage.read('busRouteType'); // <-- read route type
+      final dynamic trackingFlagValue = storage.read(trackingFlagKey);
+      if (trackingFlagValue != null) {
+        trackingEnabledFlag = trackingFlagValue == true;
+      }
       log('📦 [BackgroundLocator] From storage - schoolId: $schoolId, busId: $busId, busRouteType: $busRouteType');
     } catch (e) {
       log('⚠️ [BackgroundLocator] GetStorage read error: $e');
+    }
+
+    if (!trackingEnabledFlag) {
+      log('⏹️ [BackgroundLocator] Tracking disabled flag is false. Skipping update.');
+      return;
     }
 
     // If IDs are missing, we can't update Firestore
@@ -148,19 +159,24 @@ void backgroundLocationCallback(LocationDto locationDto) async {
       log('🔥 [BackgroundLocator] Firebase initialized');
     }
 
-    // Get current bus status
-    DocumentSnapshot doc = await FirebaseFirestore.instance
-        .collection('bus_status')
-        .doc(busId)
-        .get();
+    // Get current bus data from Realtime Database (unified architecture)
+    final database = FirebaseDatabase.instance;
+    final busRef = database.ref('bus_locations/$schoolId/$busId');
+    final snapshot = await busRef.once();
 
-    if (!doc.exists || doc.data() == null) {
-      log('❌ [BackgroundLocator] Bus status document not found');
+    if (!snapshot.snapshot.exists || snapshot.snapshot.value == null) {
+      log('⚠️ [BackgroundLocator] Bus data not found in Realtime Database');
+      log('ℹ️ [BackgroundLocator] Cloud Function will initialize with route schedule');
+      // Don't initialize - let the Cloud Function handle it with proper route data
+      // This prevents creating generic "Stop1", "Stop2" names
       return;
     }
 
-    BusStatusModel status =
-        BusStatusModel.fromMap(doc.data() as Map<String, dynamic>, busId);
+    final busData = snapshot.snapshot.value as Map<dynamic, dynamic>;
+    BusStatusModel status = BusStatusModel.fromMap(
+      Map<String, dynamic>.from(busData),
+      busId,
+    );
 
     // If busRouteType is not set in status, set it from storage/params
     if (status.busRouteType == null && busRouteType != null) {
@@ -168,7 +184,7 @@ void backgroundLocationCallback(LocationDto locationDto) async {
     }
 
     final now = DateTime.now();
-    final Distance distance = const Distance();
+    const Distance distance = Distance();
     final busLocation = LatLng(locationDto.latitude, locationDto.longitude);
 
     // --- Delay Detection ---
@@ -306,48 +322,36 @@ void backgroundLocationCallback(LocationDto locationDto) async {
     status.latitude = locationDto.latitude;
     status.longitude = locationDto.longitude;
     status.currentSpeed = locationDto.speed;
-    status.currentLocation = {
-      'latitude': locationDto.latitude,
-      'longitude': locationDto.longitude,
-      'accuracy': locationDto.accuracy,
-      'altitude': locationDto.altitude,
-      'speed': locationDto.speed,
-      'heading': locationDto.heading,
-      'timestamp': FieldValue.serverTimestamp(),
-      'updateTime': DateTime.now().millisecondsSinceEpoch,
-    };
 
     // Add speed sample for average calculation
     status.addSpeedSample(locationDto.speed);
 
-    // --- Dynamic ETA recalculation every 30s ---
-    if (now.difference(status.lastUpdated).inSeconds > ETA_RECALC_INTERVAL) {
-      status.updateETAs();
-      status.lastUpdated = now;
-    }
-
-    // Update location in Firestore with retry strategy
-    log('📝 [BackgroundLocator] Updating Firestore...');
-
-    // Try up to 3 times with increasing delays
-    for (int attempt = 1; attempt <= 3; attempt++) {
-      try {
-        await FirebaseFirestore.instance
-            .collection('bus_status')
-            .doc(busId)
-            .update(status.toMap());
-
-        log('✅ [BackgroundLocator] Firestore updated successfully');
-        break; // Success, exit retry loop
-      } catch (e) {
-        log('⚠️ [BackgroundLocator] Firestore update attempt $attempt failed: $e');
-        if (attempt < 3) {
-          // Wait before retrying (exponential backoff)
-          final delay = Duration(milliseconds: 500 * attempt);
-          log('⏳ [BackgroundLocator] Retrying in ${delay.inMilliseconds}ms');
-          await Future.delayed(delay);
-        }
-      }
+    // --- Send GPS and bus status to Realtime Database (unified architecture) ---
+    try {
+      final database = FirebaseDatabase.instance;
+      await database
+          .ref('bus_locations/$schoolId/$busId')
+          .update({
+            'latitude': locationDto.latitude,
+            'longitude': locationDto.longitude,
+            'speed': locationDto.speed,
+            'accuracy': locationDto.accuracy,
+            'altitude': locationDto.altitude,
+            'heading': locationDto.heading,
+            'timestamp': ServerValue.timestamp,
+            'source': 'phone',
+            // Note: isActive is NOT updated here - only controlled by Start/Stop Trip buttons
+            'isDelayed': status.isDelayed,
+            'remainingStops': status.remainingStops.map((s) => s.toMap()).toList(),
+            'stopsPassedCount': status.stopsPassedCount,
+            'totalStops': status.totalStops,
+            'lastRecalculationAt': status.lastRecalculationAt ?? 0,
+            'lastETACalculation': status.lastETACalculation?.millisecondsSinceEpoch ?? 0,
+          });
+      log('📍 [BackgroundLocator] GPS and bus status sent to Realtime Database');
+      log('✅ [BackgroundLocator] All data in Realtime DB - ETAs handled by Firebase Function');
+    } catch (e) {
+      log('⚠️ [BackgroundLocator] Error updating Realtime Database: $e');
     }
   } catch (e, st) {
     log('❌ [BackgroundLocator] Error in location callback: $e');

@@ -4,10 +4,7 @@ import 'package:flutter/foundation.dart'
 class DefaultFirebaseOptions {
   static FirebaseOptions get currentPlatform {
     if (kIsWeb) {
-      throw UnsupportedError(
-        'DefaultFirebaseOptions have not been configured for web - '
-        'you can reconfigure this by running the FlutterFire CLI again.',
-      );
+      return web;
     }
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:
@@ -20,10 +17,7 @@ class DefaultFirebaseOptions {
           'you can reconfigure this by running the FlutterFire CLI again.',
         );
       case TargetPlatform.windows:
-        throw UnsupportedError(
-          'DefaultFirebaseOptions have not been configured for windows - '
-          'you can reconfigure this by running the FlutterFire CLI again.',
-        );
+        return windows;
       case TargetPlatform.linux:
         throw UnsupportedError(
           'DefaultFirebaseOptions have not been configured for linux - '
@@ -53,6 +47,25 @@ class DefaultFirebaseOptions {
     databaseURL: 'https://busmate-b80e8-default-rtdb.firebaseio.com',
     storageBucket: 'busmate-b80e8.firebasestorage.app',
     iosBundleId: 'com.jupenta.busmate',
+  );
+
+  static const FirebaseOptions windows = FirebaseOptions(
+    apiKey: 'AIzaSyCBFLvMISWAg7IACMaGv3YV6J1oRxGdQhs',
+    appId: '1:6712109665:android:d5dfbd1fd7fe54939c9820',
+    messagingSenderId: '6712109665',
+    projectId: 'busmate-b80e8',
+    databaseURL: 'https://busmate-b80e8-default-rtdb.firebaseio.com',
+    storageBucket: 'busmate-b80e8.firebasestorage.app',
+  );
+
+  static const FirebaseOptions web = FirebaseOptions(
+    apiKey: 'AIzaSyCBFLvMISWAg7IACMaGv3YV6J1oRxGdQhs',
+    appId: '1:6712109665:web:d5dfbd1fd7fe54939c9820',
+    messagingSenderId: '6712109665',
+    projectId: 'busmate-b80e8',
+    databaseURL: 'https://busmate-b80e8-default-rtdb.firebaseio.com',
+    storageBucket: 'busmate-b80e8.firebasestorage.app',
+    measurementId: 'G-XXXXXXXXXX',
   );
 
 }

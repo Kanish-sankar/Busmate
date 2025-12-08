@@ -6,15 +6,19 @@ import corsLib from 'cors';
 import axios from 'axios';
 import { Request, Response } from 'express';
 
+// Initialize Firebase Admin SDK
+if (!admin.apps.length) {
+  admin.initializeApp();
+}
+
 // Initialize CORS middleware to allow cross-origin requests
 const cors = corsLib({ origin: true });
 
 // Secure API key management using Firebase Functions config
 const API_KEY = functions.config().google?.maps_api_key || process.env.GOOGLE_MAPS_API_KEY;
+const OLA_MAPS_API_KEY = functions.config().ola?.maps_api_key || process.env.OLA_MAPS_API_KEY || 'c8mw89lGYQ05uglqqr7Val5eUTMRTPqgwMNS6F7h';
 
-/**
- * Proxy for Google Places Autocomplete
- */
+
 export const autocomplete = functions.https.onRequest(
   (req: Request, res: Response) => {
     cors(req, res, async () => {
@@ -143,7 +147,7 @@ export const createSchoolUser = onRequest(async (req, res): Promise<void> => {
   res.set("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
 
   try {
-    const { email, password, role, schoolId, permissions } = req.body;
+    const { email, password, role, schoolId, permissions, adminName, adminID } = req.body;
     if (!email || !password || !role) {
       logger.error("Missing required fields", { email, password, role });
       res.status(400).send("Missing required fields: email, password, or role");
@@ -205,6 +209,14 @@ export const createSchoolUser = onRequest(async (req, res): Promise<void> => {
       userData.schoolId = schoolId; // Add schoolId if provided
     }
     
+    // Add admin name and ID if provided (for Regional Admins)
+    if (adminName) {
+      userData.adminName = adminName;
+    }
+    if (adminID) {
+      userData.adminID = adminID;
+    }
+    
     // For admin manager roles, assign the client-provided permissions.
     if (
       role === "schoolAdmin" ||
@@ -214,7 +226,14 @@ export const createSchoolUser = onRequest(async (req, res): Promise<void> => {
       userData.permissions = permissions;
     }
 
-    await admin.firestore().collection("adminusers").doc(docId).set(userData);
+    // Save to appropriate collection based on role
+    // Regional and School Admins go to 'admins' collection (used by web auth)
+    // Drivers and students go to 'adminusers' collection (used by mobile app)
+    const collectionName = (role === "regionalAdmin" || role === "schoolAdmin" || role === "schoolSuperAdmin") 
+      ? "admins" 
+      : "adminusers";
+    
+    await admin.firestore().collection(collectionName).doc(docId).set(userData);
 
     logger.info(`User created successfully: ${docId}`);
     res.status(200).send({ message: "User created successfully", uid: docId });
@@ -226,3 +245,140 @@ export const createSchoolUser = onRequest(async (req, res): Promise<void> => {
     return;
   }
 });
+
+/**
+ * Migrate regional admins from 'adminusers' collection to 'admins' collection
+ * Call this once to migrate old data
+ */
+export const migrateRegionalAdmins = onRequest(async (req, res): Promise<void> => {
+  // Set CORS headers
+  res.set("Access-Control-Allow-Origin", "*");
+  res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.set("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
+
+  try {
+    logger.info("Starting migration of regional admins from adminusers to admins");
+
+    const db = admin.firestore();
+    
+    // Get all users from adminusers collection where role is 'regionalAdmin'
+    const adminUsersSnapshot = await db
+      .collection('adminusers')
+      .where('role', '==', 'regionalAdmin')
+      .get();
+
+    let migratedCount = 0;
+    const migratedIds: string[] = [];
+
+    // Migrate each regional admin to admins collection
+    for (const doc of adminUsersSnapshot.docs) {
+      const data = doc.data();
+      const userId = doc.id;
+
+      try {
+        // Copy to admins collection
+        await db.collection('admins').doc(userId).set({
+          email: data.email,
+          role: 'regionalAdmin',
+          schoolId: data.schoolId,
+          permissions: data.permissions || {},
+          adminName: data.adminName,
+          adminId: data.adminID || userId,
+          createdAt: data.createdAt || admin.firestore.FieldValue.serverTimestamp(),
+          migratedFrom: 'adminusers',
+          migratedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        migratedCount++;
+        migratedIds.push(userId);
+        logger.info(`Migrated regional admin: ${userId}`);
+      } catch (error) {
+        logger.error(`Failed to migrate regional admin ${userId}:`, error);
+      }
+    }
+
+    res.status(200).send({
+      success: true,
+      message: `Successfully migrated ${migratedCount} regional admins`,
+      migratedIds: migratedIds,
+    });
+  } catch (error) {
+    logger.error("Error during migration:", error);
+    const errorMessage = error instanceof Error ? error.message : "An unknown error occurred";
+    res.status(500).send({ error: errorMessage });
+  }
+});
+
+/**
+ * Ola Maps Distance Matrix API Proxy
+ * Proxies requests to Ola Maps API to avoid CORS issues in web browser
+ * Keeps API key secure on server-side
+ */
+export const olaDistanceMatrix = functions.https.onRequest(
+  (req: Request, res: Response) => {
+    cors(req, res, async () => {
+      // Only allow POST requests
+      if (req.method !== 'POST') {
+        return res.status(405).json({ error: 'Method not allowed. Use POST.' });
+      }
+
+      const { origins, destinations, mode } = req.body;
+
+      if (!OLA_MAPS_API_KEY) {
+        logger.error("Ola Maps API key not configured");
+        return res.status(500).json({ error: 'Ola Maps API key not configured.' });
+      }
+
+      if (!origins || !destinations) {
+        logger.warn("Missing required parameters");
+        return res.status(400).json({ 
+          error: 'Missing required parameters: origins and destinations are required.' 
+        });
+      }
+
+      try {
+        logger.info(`Ola Maps Distance Matrix request: ${origins.length} origins, ${destinations.length} destinations`);
+        
+        const response = await axios.post(
+          'https://api.olamaps.io/routing/v1/distanceMatrix',
+          {
+            origins,
+            destinations,
+            mode: mode || 'driving'
+          },
+          {
+            headers: {
+              'Authorization': `Bearer ${OLA_MAPS_API_KEY}`,
+              'Content-Type': 'application/json',
+              'X-Request-Id': Date.now().toString()
+            },
+            timeout: 10000 // 10 second timeout
+          }
+        );
+
+        logger.info("Ola Maps API call successful");
+        return res.status(200).json(response.data);
+        
+      } catch (error: any) {
+        logger.error("Ola Maps API error:", error.response?.data || error.message);
+        
+        if (error.response) {
+          // API responded with error
+          return res.status(error.response.status).json({
+            error: error.response.data?.message || 'Ola Maps API error',
+            details: error.response.data
+          });
+        } else if (error.code === 'ECONNABORTED') {
+          // Timeout
+          return res.status(504).json({ error: 'Request timeout' });
+        } else {
+          // Network or other error
+          return res.status(500).json({ 
+            error: 'Failed to connect to Ola Maps API',
+            message: error.message 
+          });
+        }
+      }
+    });
+  }
+);

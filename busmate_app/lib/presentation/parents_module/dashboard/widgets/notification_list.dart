@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
+import 'package:get_storage/get_storage.dart';
 
 Widget notificationList(String id, List<Stoppings> data) => AnimatedContainer(
       margin: EdgeInsets.all(10.w),
@@ -58,18 +59,38 @@ Widget notificationList(String id, List<Stoppings> data) => AnimatedContainer(
                     : data[index - 6].name, style: TextStyle(
                       fontSize: 12.sp,
                     ),),
-                onTap: () {
+                onTap: () async {
                   if (index < 6) {
-                    FirebaseFirestore.instance
-                        .collection('students')
-                        .doc(id)
-                        .update({
-                      'notificationPreferenceByTime': 5 * (index + 1),
-                    });
+                    final schoolId = GetStorage().read('studentSchoolId');
+                    if (schoolId != null) {
+                      // Try schooldetails first
+                      DocumentReference docRef = FirebaseFirestore.instance
+                          .collection('schooldetails')
+                          .doc(schoolId)
+                          .collection('students')
+                          .doc(id);
+                      
+                      DocumentSnapshot doc = await docRef.get();
+                      if (!doc.exists) {
+                        // Try schools collection
+                        docRef = FirebaseFirestore.instance
+                            .collection('schools')
+                            .doc(schoolId)
+                            .collection('students')
+                            .doc(id);
+                      }
+                      
+                      await docRef.update({
+                        'notificationPreferenceByTime': 5 * (index + 1),
+                      });
+                      Get.back();
+                      Get.snackbar("Success", "Notification time updated to ${5 * (index + 1)} minutes");
+                    } else {
+                      Get.snackbar("Error", "School ID not found");
+                    }
                   } else {
                     // for now not needed
                   }
-                  Get.back();
                 },
                 // textColor: GetStorage().read('selectedLangIndex') == index
                 //     ? Colors.blue

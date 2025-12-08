@@ -1,3 +1,5 @@
+import 'package:busmate/presentation/auth/role_selection/binding/role_selection_binding.dart';
+import 'package:busmate/presentation/auth/role_selection/screen/role_selection_screen.dart';
 import 'package:busmate/presentation/parents_module/dashboard/binding/dashboard.binding.dart';
 import 'package:busmate/presentation/parents_module/dashboard/screens/dashboard_screen.dart';
 import 'package:busmate/presentation/parents_module/driver_module/binding/driver.binding.dart';
@@ -26,6 +28,11 @@ class AppPages {
       name: Routes.splash,
       page: () => const SplashScreen(),
       binding: SplashBindings(),
+    ),
+    GetPage(
+      name: Routes.roleSelection,
+      page: () => const RoleSelectionScreen(),
+      binding: RoleSelectionBinding(),
     ),
     GetPage(
       name: Routes.sigIn,

@@ -10,7 +10,10 @@ class SchoolManagementScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final controller = Get.put(SchoolManagementController());
+    // Use Get.find if already exists, otherwise create new
+    final controller = Get.isRegistered<SchoolManagementController>()
+        ? Get.find<SchoolManagementController>()
+        : Get.put(SchoolManagementController());
     return Scaffold(
       body: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -38,7 +41,7 @@ class SchoolManagementScreen extends StatelessWidget {
                 ),
                 const SizedBox(width: 10),
                 ElevatedButton.icon(
-                  onPressed: () => Get.to(() => AddSchoolScreen()),
+                  onPressed: () => Get.to(() => const AddSchoolScreen()),
                   icon: const Icon(Icons.add),
                   label: const Text("Add School"),
                   style: ElevatedButton.styleFrom(

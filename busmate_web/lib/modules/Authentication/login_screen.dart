@@ -19,14 +19,14 @@ class LoginScreen extends StatelessWidget {
       body: Container(
         width: screenWidth,
         height: screenHeight,
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: [
-              const Color(0xFFF5F7FA),
-              const Color(0xFFE8EEF5),
-              const Color(0xFFD6E4F5),
+              Color(0xFFF5F7FA),
+              Color(0xFFE8EEF5),
+              Color(0xFFD6E4F5),
             ],
           ),
         ),
@@ -91,15 +91,15 @@ class LoginScreen extends StatelessWidget {
   // LEFT PANEL - Branding & Design
   Widget _buildLeftPanel() {
     return Container(
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            const Color(0xFF0D47A1), // Darker blue
-            const Color(0xFF1565C0),
-            const Color(0xFF1976D2),
-            const Color(0xFF1E88E5), // Lighter blue
+            Color(0xFF0D47A1), // Darker blue
+            Color(0xFF1565C0),
+            Color(0xFF1976D2),
+            Color(0xFF1E88E5), // Lighter blue
           ],
         ),
       ),
@@ -113,7 +113,7 @@ class LoginScreen extends StatelessWidget {
           ),
           
           // Animated floating elements
-          Positioned.fill(
+          const Positioned.fill(
             child: _FloatingElements(),
           ),
           
@@ -142,7 +142,7 @@ class LoginScreen extends StatelessWidget {
                     height: 120,
                     fit: BoxFit.contain,
                     errorBuilder: (context, error, stackTrace) {
-                      return Row(
+                      return const Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(
@@ -150,7 +150,7 @@ class LoginScreen extends StatelessWidget {
                             size: 60,
                             color: Colors.white,
                           ),
-                          const SizedBox(width: 16),
+                          SizedBox(width: 16),
                           Text(
                             'BusMate',
                             style: TextStyle(
@@ -258,7 +258,7 @@ class LoginScreen extends StatelessWidget {
         Expanded(
           child: Text(
             text,
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: 17,
               fontWeight: FontWeight.w500,
               color: Colors.white,
@@ -287,15 +287,15 @@ class LoginScreen extends StatelessWidget {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(vertical: 30, horizontal: 20),
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         gradient: LinearGradient(
           colors: [
-            const Color(0xFF0D47A1),
-            const Color(0xFF1565C0),
-            const Color(0xFF1E88E5),
+            Color(0xFF0D47A1),
+            Color(0xFF1565C0),
+            Color(0xFF1E88E5),
           ],
         ),
-        borderRadius: const BorderRadius.only(
+        borderRadius: BorderRadius.only(
           topLeft: Radius.circular(24),
           topRight: Radius.circular(24),
         ),
@@ -321,11 +321,11 @@ class LoginScreen extends StatelessWidget {
               height: 70,
               fit: BoxFit.contain,
               errorBuilder: (context, error, stackTrace) {
-                return Row(
+                return const Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(Icons.directions_bus_rounded, color: Colors.white, size: 40),
-                    const SizedBox(width: 12),
+                    SizedBox(width: 12),
                     Text(
                       'BusMate',
                       style: TextStyle(
@@ -365,12 +365,12 @@ class LoginScreen extends StatelessWidget {
                 ),
               );
             },
-            child: Text(
+            child: const Text(
               'Welcome Back!',
               style: TextStyle(
                 fontSize: 38,
                 fontWeight: FontWeight.w800,
-                color: const Color(0xFF1565C0),
+                color: Color(0xFF1565C0),
                 height: 1.2,
               ),
             ),
@@ -519,17 +519,17 @@ class LoginScreen extends StatelessWidget {
                   ),
                   elevation: 0,
                 ).copyWith(
-                  elevation: MaterialStateProperty.resolveWith((states) {
-                    if (states.contains(MaterialState.hovered)) {
+                  elevation: WidgetStateProperty.resolveWith((states) {
+                    if (states.contains(WidgetState.hovered)) {
                       return 8;
                     }
                     return 0;
                   }),
-                  backgroundColor: MaterialStateProperty.resolveWith((states) {
-                    if (states.contains(MaterialState.hovered)) {
+                  backgroundColor: WidgetStateProperty.resolveWith((states) {
+                    if (states.contains(WidgetState.hovered)) {
                       return const Color(0xFF1976D2);
                     }
-                    if (states.contains(MaterialState.disabled)) {
+                    if (states.contains(WidgetState.disabled)) {
                       return Colors.grey[300];
                     }
                     return const Color(0xFF1565C0);
@@ -616,7 +616,7 @@ class LoginScreen extends StatelessWidget {
                     ),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: const Color(0xFF1565C0),
-                      side: BorderSide(color: const Color(0xFF1565C0), width: 1.5),
+                      side: const BorderSide(color: Color(0xFF1565C0), width: 1.5),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
@@ -651,7 +651,7 @@ class LoginScreen extends StatelessWidget {
                     ),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: const Color(0xFF2E7D32),
-                      side: BorderSide(color: const Color(0xFF2E7D32), width: 1.5),
+                      side: const BorderSide(color: Color(0xFF2E7D32), width: 1.5),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
@@ -685,12 +685,12 @@ class LoginScreen extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 4),
-                  Text(
+                  const Text(
                     'Jupenta Technologies',
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
-                      color: const Color(0xFF1565C0),
+                      color: Color(0xFF1565C0),
                     ),
                   ),
                 ],

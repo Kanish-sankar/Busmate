@@ -64,38 +64,38 @@ class ManageDetailScreen extends GetView<DashboardController> {
                       color: AppColors.lightblue,
                       borderRadius: BorderRadius.circular(7.r),
                     ),
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Obx(
-                            () => Text(
-                              "${'stplocationpref'.tr} : ${controller.student.value?.stopping ?? "N/A"}",
-                              style: TextStyle(fontSize: 12.sp),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Obx(
+                              () => Text(
+                                "${'stplocationpref'.tr} : ${controller.student.value?.stopping ?? "N/A"}",
+                                style: TextStyle(fontSize: 12.sp),
+                              ),
                             ),
                           ),
-                          IconButton(
-                            icon: Icon(
-                              Icons.edit_note,
-                              size: 25.sp,
-                              color: Colors.black,
-                            ),
-                            onPressed: () {
-                              // changing language
-                              showModalBottomSheet(
-                                context: context,
-                                enableDrag: true,
-                                isScrollControlled: true,
-                                builder: (context) => locationList(
-                                    controller.student.value!.id,
-                                    controller.busDetail.value!.stoppings),
-                              );
-                            },
+                        ),
+                        IconButton(
+                          icon: Icon(
+                            Icons.edit_note,
+                            size: 25.sp,
+                            color: Colors.black,
                           ),
-                        ],
-                      ),
+                          onPressed: () {
+                            // changing language
+                            showModalBottomSheet(
+                              context: context,
+                              enableDrag: true,
+                              isScrollControlled: true,
+                              builder: (context) => locationList(
+                                  controller.student.value!.id,
+                                  controller.busDetail.value!.stoppings),
+                            );
+                          },
+                        ),
+                      ],
                     ),
                   ),
                   SizedBox(
@@ -115,13 +115,13 @@ class ManageDetailScreen extends GetView<DashboardController> {
                       borderRadius: BorderRadius.circular(7.r),
                     ),
                     child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Obx(
-                          () => Text(
-                            "${'notfpref'.tr} : ${controller.student.value!.notificationPreferenceByTime} Mins",
-                            style: TextStyle(fontSize: 12.sp),
+                        Expanded(
+                          child: Obx(
+                            () => Text(
+                              "${'notfpref'.tr} : ${controller.student.value!.notificationPreferenceByTime} Mins",
+                              style: TextStyle(fontSize: 12.sp),
+                            ),
                           ),
                         ),
                         IconButton(
@@ -164,13 +164,13 @@ class ManageDetailScreen extends GetView<DashboardController> {
                       borderRadius: BorderRadius.circular(7.r),
                     ),
                     child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Obx(
-                          () => Text(
-                            "${'notType'.tr} : ${controller.student.value!.notificationType}",
-                            style: TextStyle(fontSize: 12.sp),
+                        Expanded(
+                          child: Obx(
+                            () => Text(
+                              "${'notType'.tr} : ${controller.student.value!.notificationType}",
+                              style: TextStyle(fontSize: 12.sp),
+                            ),
                           ),
                         ),
                         IconButton(

@@ -16,12 +16,15 @@ class DashboardScreen extends GetView<DashboardController> {
     final DashboardController dashcontroller = Get.put(DashboardController());
     return Scaffold(
       backgroundColor: AppColors.white,
-      bottomNavigationBar: Obx(
-        () => CurvedNavigationBar(
-            height: 61.h,
-          backgroundColor: AppColors.white,
-          color: AppColors.lightblue,
-          items: [
+      bottomNavigationBar: SafeArea(
+        bottom: true,
+        minimum: const EdgeInsets.only(bottom: 0),
+        child: Obx(
+          () => CurvedNavigationBar(
+              height: 65,
+            backgroundColor: AppColors.white,
+            color: AppColors.lightblue,
+            items: [
             CurvedNavigationBarItem(
               child: Icon(
                 Icons.home_rounded,
@@ -92,6 +95,7 @@ class DashboardScreen extends GetView<DashboardController> {
             log("index$index");
             dashcontroller.isButtonPress(index);
           },
+        ),
         ),
       ),
       body: GetBuilder<DashboardController>(

@@ -7,10 +7,17 @@ import 'notification_model.dart';
 import 'package:intl/intl.dart';
 
 class SendNotificationScreen extends StatelessWidget {
-  final NotificationController notificationController =
-      Get.put(NotificationController());
+  SendNotificationScreen({super.key});
+  
+  // Use Get.find if already exists, otherwise create new
+  final NotificationController notificationController = 
+      Get.isRegistered<NotificationController>()
+          ? Get.find<NotificationController>()
+          : Get.put(NotificationController());
   final SchoolManagementController controller =
-      Get.put(SchoolManagementController());
+      Get.isRegistered<SchoolManagementController>()
+          ? Get.find<SchoolManagementController>()
+          : Get.put(SchoolManagementController());
 
   final TextEditingController titleController = TextEditingController();
   final TextEditingController messageController = TextEditingController();
@@ -21,8 +28,6 @@ class SendNotificationScreen extends StatelessWidget {
   // { 'schools': true/false, 'parents': true/false, 'drivers': true/false }
   final RxMap<String, Map<String, bool>> selectedSchoolRecipients =
       <String, Map<String, bool>>{}.obs;
-
-  SendNotificationScreen({super.key});
 
   @override
   Widget build(BuildContext context) {

@@ -2,7 +2,12 @@ import 'package:busmate/meta/utils/constant/app_colors.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
-Widget driverInfoBox(String title, String info, void Function()? onTap, {String? imageUrl}) {
+Widget driverInfoBox(
+  String title, 
+  String info, 
+  void Function()? onTap, 
+  {String? imageUrl, String? phoneNumber}
+) {
   return Container(
     width: double.infinity,
     padding: EdgeInsets.symmetric(vertical: 10.h, horizontal: 10.w),
@@ -37,23 +42,54 @@ Widget driverInfoBox(String title, String info, void Function()? onTap, {String?
                   : null,
             ),
             SizedBox(width: 7.w),
-            Text(
-              info,
-              style: TextStyle(
-                fontSize: 14.sp,
-                color: AppColors.darkteal,
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    info,
+                    style: TextStyle(
+                      fontSize: 14.sp,
+                      color: AppColors.darkteal,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  if (phoneNumber != null && phoneNumber.isNotEmpty)
+                    GestureDetector(
+                      onTap: onTap,
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.phone,
+                            size: 14.sp,
+                            color: Colors.blue,
+                          ),
+                          SizedBox(width: 4.w),
+                          Text(
+                            phoneNumber,
+                            style: TextStyle(
+                              fontSize: 13.sp,
+                              color: Colors.blue,
+                              decoration: TextDecoration.underline,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
               ),
             ),
-            const Spacer(),
             GestureDetector(
               onTap: onTap,
               child: Container(
+                padding: EdgeInsets.all(8.w),
                 decoration: BoxDecoration(
                     color: AppColors.darkteal,
-                    borderRadius: BorderRadius.circular(3.r)),
-                child: const Icon(
+                    borderRadius: BorderRadius.circular(5.r)),
+                child: Icon(
                   Icons.call,
                   color: Colors.white,
+                  size: 20.sp,
                 ),
               ),
             ),

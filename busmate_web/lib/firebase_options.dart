@@ -60,5 +60,6 @@ class DefaultFirebaseOptions {
     authDomain: 'busmate-b80e8.firebaseapp.com',
     storageBucket: 'busmate-b80e8.firebasestorage.app',
     measurementId: 'G-GXLHLCF094',
+    databaseURL: 'https://busmate-b80e8-default-rtdb.firebaseio.com',
   );
 }
