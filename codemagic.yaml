@@ -9,13 +9,15 @@ workflows:
     scripts:
       - name: Set up Flutter
         script: |
+          cd busmate_app
           flutter pub get
           flutter doctor
       - name: Build iOS
         script: |
+          cd busmate_app
           flutter build ios --release --no-codesign
     artifacts:
-      - build/ios/iphoneos/Runner.app
+      - busmate_app/build/ios/iphoneos/Runner.app
     publishing:
       app_store_connect:
         api_key: $APP_STORE_CONNECT_PRIVATE_KEY
