@@ -3,7 +3,6 @@ import 'package:busmate/meta/utils/constant/app_colors.dart';
 import 'package:busmate/meta/utils/constant/app_images.dart';
 import 'package:busmate/presentation/parents_module/dashboard/controller/dashboard.controller.dart';
 import 'package:busmate/presentation/parents_module/dashboard/widgets/student_details.dart';
-import 'package:busmate/meta/firebase_helper/notification_helper.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';

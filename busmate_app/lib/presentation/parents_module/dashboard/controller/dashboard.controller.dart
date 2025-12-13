@@ -5,7 +5,6 @@ import 'package:busmate/meta/model/bus_model.dart';
 import 'package:busmate/meta/model/driver_model.dart';
 import 'package:busmate/meta/model/scool_model.dart';
 import 'package:busmate/meta/model/student_model.dart';
-import 'package:busmate/meta/firebase_helper/notification_helper.dart';
 import 'package:busmate/presentation/parents_module/dashboard/screens/help_support.dart';
 import 'package:busmate/presentation/parents_module/dashboard/screens/home_screen.dart';
 import 'package:busmate/presentation/parents_module/dashboard/screens/live_tracking_screen.dart';
@@ -1025,32 +1024,45 @@ class DashboardController extends GetxController {
       return;
     }
     
-    print('📡 [BusStatus] Listening to: bus_locations/$schoolId/$busId');
+    print('📡 [BusStatus] Setting up dual-path listeners:');
+    print('   🔵 Live: live_bus_locations/$schoolId/$busId (3s GPS updates for map)');
+    print('   🟢 Full: bus_locations/$schoolId/$busId (ETAs, stops, status, route type)');
     
+    // PATH 1: Listen to /bus_locations for ALL data (ETAs, stops, status, active/inactive, route type, etc.)
     FirebaseDatabase.instance
         .ref('bus_locations/$schoolId/$busId')
         .onValue
         .listen((event) {
-      print('📨 [BusStatus] Received event - exists: ${event.snapshot.exists}');
+      print('📨 [BusStatus] Received FULL data event - exists: ${event.snapshot.exists}');
       
       if (event.snapshot.exists && event.snapshot.value != null) {
         final data = Map<String, dynamic>.from(event.snapshot.value as Map);
-        print('✅ [BusStatus] Data received: lat=${data['latitude']}, lng=${data['longitude']}, status=${data['currentStatus'] ?? data['status']}');
-        
         busStatus.value = BusStatusModel.fromMap(data, busId);
-        print('✅ [BusStatus] Bus status updated: ${busStatus.value?.currentStatus}');
-
-        // Update the map if bus is active
-        if (busStatus.value?.currentStatus == 'Active') {
-          print('🗺️ [BusStatus] Bus is active, map should update');
-        }
+        print('✅ [BusStatus] Full status updated: ${busStatus.value?.currentStatus}, isActive: ${busStatus.value?.isActive}, ETAs: ${busStatus.value?.remainingStops.length} stops');
+        print('   📊 Route: ${data['routeName'] ?? 'N/A'}, Direction: ${data['tripDirection'] ?? 'N/A'}');
       } else {
-        print('⚠️ [BusStatus] No bus location data found - driver may not have started trip yet');
-        busStatus.value = null;
+        print('⚠️ [BusStatus] No bus location data - driver may not have started trip');
       }
     }, onError: (e) {
-      print('❌ [BusStatus] Error fetching bus status from Realtime DB: $e');
-      busStatus.value = null;
+      print('❌ [BusStatus] Error fetching full bus data: $e');
+    });
+    
+    // PATH 2: Listen to /live_bus_locations ONLY for smooth GPS updates (map marker position)
+    FirebaseDatabase.instance
+        .ref('live_bus_locations/$schoolId/$busId')
+        .onValue
+        .listen((event) {
+      if (event.snapshot.exists && event.snapshot.value != null && busStatus.value != null) {
+        final data = Map<String, dynamic>.from(event.snapshot.value as Map);
+        // Update ONLY GPS coordinates for smooth 3-second map tracking
+        busStatus.value!.latitude = data['latitude'];
+        busStatus.value!.longitude = data['longitude'];
+        busStatus.value!.currentSpeed = data['speed'] ?? 0.0;
+        busStatus.refresh();
+        print('🗺️ [BusStatus] Map marker updated (lat: ${data['latitude']}, lng: ${data['longitude']})');
+      }
+    }, onError: (e) {
+      print('❌ [BusStatus] Error fetching live GPS: $e');
     });
   }
 

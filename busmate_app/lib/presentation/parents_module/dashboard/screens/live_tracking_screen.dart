@@ -294,7 +294,7 @@ class LiveTrackingScreen extends GetView<DashboardController> {
                                     ),
                                     // Show route polyline
                                     Obx(() {
-                                      final routePoints = controller.routePolyline.value;
+                                      final routePoints = controller.routePolyline;
                                       if (routePoints.isEmpty) {
                                         // Generate simple polyline from stops if not available
                                         final polylinePoints = busDetail.stoppings
@@ -573,7 +573,7 @@ class LiveTrackingScreen extends GetView<DashboardController> {
                                   
                                   // Polyline layer showing route
                                   Obx(() {
-                                    final routePoints = controller.routePolyline.value;
+                                    final routePoints = controller.routePolyline;
                                     if (routePoints.isEmpty) {
                                       print('⚠️ No route polyline points available');
                                       return const SizedBox.shrink();
@@ -640,10 +640,21 @@ class LiveTrackingScreen extends GetView<DashboardController> {
                       }
                       
                       final isMoving = isActuallyOnline && (speed > 2.0);
-                      final allStops = busDetail?.stoppings ?? [];
+                      
+                      // Get trip direction from RTDB (tripDirection is the actual current trip)
+                      final tripDirection = busStatus?.tripDirection ?? "pickup";
+                      
+                      // Get all stops from busDetail (static data, always in pickup order)
+                      final allStopsPickupOrder = busDetail?.stoppings ?? [];
+                      
+                      // Reverse stops if this is a drop route
+                      final allStops = tripDirection == "drop" 
+                          ? allStopsPickupOrder.reversed.toList() 
+                          : allStopsPickupOrder;
+                      
                       final remainingStopsList =
                           busStatus?.remainingStops ?? [];
-                      final routeType = busStatus?.busRouteType ?? "pickup";
+                      final routeType = tripDirection; // Use tripDirection instead of busRouteType
 
                       // Calculate completed stops based on route type
                       int completedStops = 0;
@@ -732,15 +743,9 @@ class LiveTrackingScreen extends GetView<DashboardController> {
                                 itemCount: allStops.length,
                                 itemBuilder: (context, idx) {
                                   final stop = allStops[idx];
-                                  // For pickup: completed stops are from the start
-                                  // For drop: completed stops are from the end
-                                  bool isCompleted = false;
-                                  if (routeType == "pickup") {
-                                    isCompleted = idx < completedStops;
-                                  } else {
-                                    isCompleted =
-                                        idx >= (totalStops - completedStops);
-                                  }
+                                  // Since we've already reversed allStops for drop routes,
+                                  // completed stops are always the first N items in the displayed list
+                                  bool isCompleted = idx < completedStops;
 
                                   // Find matching stop in remainingStops to get ETA
                                   final remainingStop =
@@ -800,22 +805,12 @@ class LiveTrackingScreen extends GetView<DashboardController> {
                                               if (!isCompleted &&
                                                   remainingStop
                                                           .estimatedTimeOfArrival !=
-                                                      null) ...[
+                                                      null)
                                                 Text(
                                                   "ETA: ${formatETA(remainingStop.estimatedTimeOfArrival!)}",
                                                   style: TextStyle(
                                                       fontSize: 12.sp),
                                                 ),
-                                                if (remainingStop
-                                                        .distanceToStop !=
-                                                    null)
-                                                  Text(
-                                                    "Distance: ${(remainingStop.distanceToStop! / 1000).toStringAsFixed(1)} km",
-                                                    style: TextStyle(
-                                                        fontSize: 12.sp,
-                                                        color: Colors.blue),
-                                                  ),
-                                              ],
                                               Text(
                                                 "Lat: ${stop.latitude.toStringAsFixed(6)}, Lng: ${stop.longitude.toStringAsFixed(6)}",
                                                 style: TextStyle(

@@ -22,7 +22,6 @@ import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:geolocator/geolocator.dart' as geolocator;
 import 'package:http/http.dart' as http;
-import 'package:latlong2/latlong.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 class DriverController extends GetxController {
@@ -304,16 +303,15 @@ class DriverController extends GetxController {
 
       print('🔑 [StartTrip] Using schoolId: $schoolId, busId: $busId');
 
-      // Query active route schedule to get route ID and stops
-      print('🔍 [StartTrip] Querying active route schedule...');
+      // Query ALL active route schedules (may have both pickup and drop)
+      print('🔍 [StartTrip] Querying active route schedules...');
       final routeQuery = await FirebaseFirestore.instance
           .collection('schools')
           .doc(schoolId)
           .collection('route_schedules')
           .where('busId', isEqualTo: busId)
           .where('isActive', isEqualTo: true)
-          .limit(1)
-          .get();
+          .get(); // Get ALL active schedules
 
       if (routeQuery.docs.isEmpty) {
         Get.snackbar("Error", "No active route schedule found for this bus");
@@ -322,12 +320,87 @@ class DriverController extends GetxController {
         return;
       }
 
-      final routeDoc = routeQuery.docs.first;
+      // Get current time to match with schedule
+      final now = DateTime.now();
+      final currentTime = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+      print('🕐 [StartTrip] Current time: $currentTime');
+
+      // Find schedule that matches current time window
+      DocumentSnapshot<Map<String, dynamic>>? selectedDoc;
+      bool foundMatchingSchedule = false;
+      
+      if (routeQuery.docs.length > 1) {
+        print('📋 [StartTrip] Found ${routeQuery.docs.length} active schedules - checking time windows:');
+        
+        for (var doc in routeQuery.docs) {
+          final data = doc.data();
+          final startTime = data['startTime'] as String? ?? '';
+          final endTime = data['endTime'] as String? ?? '23:59';
+          final direction = data['direction'] as String? ?? 'unknown';
+          
+          print('   - ${data['routeName']}: $direction ($startTime - $endTime)');
+          
+          // Check if current time is within this schedule's window
+          if (_isTimeWithinSchedule(currentTime, startTime, endTime)) {
+            selectedDoc = doc;
+            foundMatchingSchedule = true;
+            print('   ✅ Selected this schedule (matches current time)');
+            break;
+          }
+        }
+      } else {
+        // Only one schedule - check if current time is within its window
+        final data = routeQuery.docs.first.data();
+        final startTime = data['startTime'] as String? ?? '';
+        final endTime = data['endTime'] as String? ?? '23:59';
+        
+        if (_isTimeWithinSchedule(currentTime, startTime, endTime)) {
+          selectedDoc = routeQuery.docs.first;
+          foundMatchingSchedule = true;
+          print('   ✅ Current time is within schedule window ($startTime - $endTime)');
+        }
+      }
+      
+      // CRITICAL VALIDATION: If no schedule matches current time, prevent trip start
+      if (!foundMatchingSchedule || selectedDoc == null) {
+        print('❌ [StartTrip] VALIDATION FAILED: No trips scheduled at current time');
+        print('⏰ [StartTrip] Current time ($currentTime) is outside all schedule windows');
+        
+        // Show available schedules to driver
+        String scheduleInfo = 'Available schedules:\n';
+        for (var doc in routeQuery.docs) {
+          final data = doc.data();
+          final startTime = data['startTime'] as String? ?? '';
+          final endTime = data['endTime'] as String? ?? '23:59';
+          final routeName = data['routeName'] as String? ?? 'Unknown';
+          scheduleInfo += '• $routeName: $startTime - $endTime\n';
+        }
+        
+        Get.snackbar(
+          "No Active Trips",
+          "Current time ($currentTime) is outside scheduled trip times.\n\n$scheduleInfo",
+          duration: Duration(seconds: 5),
+          snackPosition: SnackPosition.BOTTOM,
+        );
+        
+        isLoading.value = false;
+        isTripActive.value = false;
+        GetStorage().write(_trackingEnabledKey, false);
+        return;
+      }
+
+      final routeDoc = selectedDoc;
       final routeId = routeDoc.id;
-      final routeData = routeDoc.data();
+      final routeData = routeDoc.data()!; // Safe to use ! here because we validated selectedDoc is not null above
       final stoppings = routeData['stops'] as List<dynamic>? ?? routeData['stoppings'] as List<dynamic>? ?? [];
       final routeName = routeData['routeName'] as String? ?? 'Unknown Route';
       routeType = routeData['direction'] as String? ?? 'pickup';
+      
+      print('🎯 [StartTrip] Selected schedule: $routeName (${routeType.toUpperCase()})');
+      
+      // Get schedule times (CRITICAL: Must match Cloud Function's tripId generation)
+      final scheduleStartTime = routeData['startTime'] as String? ?? '';
+      final scheduleEndTime = routeData['endTime'] as String? ?? '23:59';
 
       if (stoppings.isEmpty) {
         Get.snackbar("Error", "Route has no stops defined");
@@ -337,7 +410,7 @@ class DriverController extends GetxController {
       }
 
       // Convert stops to proper format
-      final stops = stoppings.map((stop) {
+      var stops = stoppings.map((stop) {
         final location = stop['location'];
         double lat, lng;
         
@@ -359,80 +432,108 @@ class DriverController extends GetxController {
         };
       }).toList();
 
+      // CRITICAL: Reverse stops for drop direction (Firestore stores them in pickup order)
+      if (routeType.toLowerCase() == 'drop') {
+        stops = stops.reversed.toList();
+        print('🔄 [StartTrip] Reversed stops for DROP direction');
+      }
+
       print('✅ [StartTrip] Found route: $routeName ($routeType) with ${stops.length} stops');
 
-      // Initialize bus status in Realtime Database with isActive: true
-      print('📝 [StartTrip] Creating bus status in Realtime DB...');
+      // Generate currentTripId using SCHEDULE START TIME (not current time)
+      // CRITICAL: Must match Cloud Function's tripId format for student queries to work
+      final dateKey = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+      final currentTripId = '${routeId}_${dateKey}_${scheduleStartTime.replaceAll(':', '')}';
+      print('🎫 [StartTrip] Generated tripId using schedule time: $currentTripId (schedule: $scheduleStartTime)');
+
+      // Calculate if current time is within schedule window
+      final currentTimeStr = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+      final isWithinWindow = _isTimeWithinSchedule(currentTimeStr, scheduleStartTime, scheduleEndTime);
+      print('⏰ [StartTrip] Time check: Current=$currentTimeStr, Start=$scheduleStartTime, End=$scheduleEndTime, Within=$isWithinWindow');
+      
+      if (!isWithinWindow) {
+        print('⚠️ [StartTrip] WARNING: Current time is OUTSIDE schedule window!');
+        print('⚠️ [StartTrip] Notifications may not work because Cloud Function checks isWithinTripWindow');
+        print('⚠️ [StartTrip] Consider updating schedule times to include current time, or wait until schedule time');
+      }
+
+      // Get driver's ACTUAL current location (not first stop location)
+      print('📍 [StartTrip] Getting driver\'s current GPS location...');
+      geolocator.Position currentPosition;
+      try {
+        currentPosition = await geolocator.Geolocator.getCurrentPosition(
+          desiredAccuracy: geolocator.LocationAccuracy.high,
+        );
+        print('📍 [StartTrip] Current location: ${currentPosition.latitude}, ${currentPosition.longitude}');
+      } catch (e) {
+        print('⚠️ [StartTrip] Could not get current position, using first stop as fallback: $e');
+        // Fallback to first stop if GPS fails
+        currentPosition = geolocator.Position(
+          latitude: stops[0]['latitude'],
+          longitude: stops[0]['longitude'],
+          timestamp: DateTime.now(),
+          accuracy: 0,
+          altitude: 0,
+          heading: 0,
+          speed: 0,
+          speedAccuracy: 0,
+          altitudeAccuracy: 0,
+          headingAccuracy: 0,
+        );
+      }
+
+      // Initialize bus status in Realtime Database with ACTUAL driver location
+      print('📝 [StartTrip] Creating bus status in Realtime DB with driver\'s actual location...');
       await FirebaseDatabase.instance
           .ref('bus_locations/$schoolId/$busId')
           .set({
         'isActive': true,
         'activeRouteId': routeId, // Real route ID from route_schedules
+        'currentTripId': currentTripId, // CRITICAL: Required for notifications
         'tripDirection': routeType,
         'routeName': routeName,
         'currentStatus': 'Active',
-        'latitude': stops[0]['latitude'],
-        'longitude': stops[0]['longitude'],
-        'speed': 0.0,
+        'latitude': currentPosition.latitude,  // DRIVER'S ACTUAL CURRENT LOCATION
+        'longitude': currentPosition.longitude, // DRIVER'S ACTUAL CURRENT LOCATION
+        'speed': currentPosition.speed,
+        'accuracy': currentPosition.accuracy,
+        'heading': currentPosition.heading,
         'source': 'phone',
-        'remainingStops': stops,
-        'stopsPassedCount': 0,
+        'remainingStops': stops, // ALL stops including Stop 1 (driver needs to reach it first)
+        'stopsPassedCount': 0,   // No stops passed yet
         'totalStops': stops.length,
         'lastETACalculation': 0, // Force initial ETA calculation
         'lastRecalculationAt': 0,
+        'scheduleStartTime': scheduleStartTime, // Use schedule's start time, not current time
+        'scheduleEndTime': scheduleEndTime, // Store end time for reference
+        'tripStartedAt': now.millisecondsSinceEpoch,
+        'isWithinTripWindow': isWithinWindow, // Calculate based on schedule times
+        'allStudentsNotified': false, // CRITICAL: Reset notification flags for new trip
+        'noPendingStudents': false, // CRITICAL: Reset to allow notification processing
         'timestamp': ServerValue.timestamp,
       });
 
-      print('✅ [StartTrip] Bus status created in Realtime DB with route: $routeName');
+      print('✅ [StartTrip] Bus status created in Realtime DB with driver\'s actual location');
+      print('📍 [StartTrip] Driver location: ${currentPosition.latitude}, ${currentPosition.longitude}');
+      print('🎯 [StartTrip] All ${stops.length} stops in remainingStops (driver will reach Stop 1 first)');
 
-      // Get initial position and update Firestore
-      print('📍 [StartTrip] Getting initial position...');
-      try {
-        geolocator.Position position =
-            await geolocator.Geolocator.getCurrentPosition(
-          desiredAccuracy: geolocator.LocationAccuracy.high,
-        );
-
-        print(
-            '📍 [StartTrip] Initial position received: ${position.latitude}, ${position.longitude}');
-        // Determine route type (pickup/drop) based on initial position
-        routeType = determineRouteType(
-          busDetail.value!.stoppings,
-          LatLng(position.latitude, position.longitude),
-        );
-        print('🛣️ [StartTrip] Route type determined: $routeType');
-
-        // Set 'notified' to false for all students assigned to this bus
-        try {
-          final studentsQuery = await FirebaseFirestore.instance
-              .collection('students')
-              .where('assignedBusId', isEqualTo: busId)
-              .get();
-          for (var doc in studentsQuery.docs) {
-            await doc.reference.update({'notified': false});
-          }
-          print(
-              "✅ [StartTrip] Reset 'notified' for all students on bus $busId");
-        } catch (e) {
-          print("❌ [StartTrip] Failed to reset 'notified' for students: $e");
-        }
-        // Initial position will be written to Realtime Database only
-        // (Firestore writes removed to reduce costs)
-        print('✅ [StartTrip] Initial position captured, will be sent to Realtime DB');
-
-        print('✅ [StartTrip] Initial location and ETAs updated in Firestore');
-      } catch (e) {
-        print('⚠️ [StartTrip] Could not get initial position: $e');
-      }
-
-      // Start background location updates
+      // Start background location updates IMMEDIATELY (non-blocking)
       print('🚀 [StartTrip] Starting background location updates...');
-      // Pass routeType to background locator
-      await _startBackgroundLocator(schoolId, busId, routeType);
+      _startBackgroundLocator(schoolId, busId, routeType);
       print('✅ [StartTrip] Background location updates started');
 
       // Start fallback foreground timer for location updates
       _startForegroundFallback(schoolId, busId);
+
+      // CRITICAL: Reset students in BACKGROUND (non-blocking) to avoid delay
+      // This ensures student.currentTripId matches bus.currentTripId for notification query
+      print('👥 [StartTrip] Resetting students in background (non-blocking)...');
+      _resetStudentsForTrip(schoolId, busId, currentTripId, routeId).then((_) {
+        print('✅ [StartTrip] Student reset completed in background');
+      }).catchError((e) {
+        print('❌ [StartTrip] Failed to reset students: $e');
+        print('⚠️ [StartTrip] NOTIFICATIONS WILL NOT WORK - student tripId won\'t match bus tripId!');
+      });
 
       // Bus status is now tracked in Realtime Database only
       // Refresh bus details to reflect the updated status
@@ -451,6 +552,35 @@ class DriverController extends GetxController {
     }
   }
 
+  // Background method to reset students without blocking trip start
+  Future<void> _resetStudentsForTrip(String schoolId, String busId, String currentTripId, String routeId) async {
+    try {
+      final studentsSnapshot = await FirebaseFirestore.instance
+          .collection('schooldetails/$schoolId/students')
+          .where('assignedBusId', isEqualTo: busId)
+          .get();
+
+      if (studentsSnapshot.docs.isNotEmpty) {
+        final batch = FirebaseFirestore.instance.batch();
+        for (var doc in studentsSnapshot.docs) {
+          batch.update(doc.reference, {
+            'notified': false,
+            'currentTripId': currentTripId, // MUST MATCH bus.currentTripId for query to work!
+            'tripStartedAt': FieldValue.serverTimestamp(),
+            'lastNotifiedRoute': routeId,
+            'lastNotifiedAt': null,
+          });
+        }
+        await batch.commit();
+        print('✅ Background: Reset ${studentsSnapshot.docs.length} students with matching tripId');
+      } else {
+        print('⚠️ Background: No students assigned to bus $busId');
+      }
+    } catch (e) {
+      throw Exception('Failed to reset students: $e');
+    }
+  }
+
 // Add this constant to the DriverController class
   static const double STOP_PROXIMITY_THRESHOLD = 200.0; // 200 meters
 
@@ -461,10 +591,10 @@ class DriverController extends GetxController {
     _foregroundTimer?.cancel();
 
     // Start a new timer for foreground location updates as fallback
-    // Changed from 1 second to 30 seconds to reduce Firebase Function calls
-    // 1s = 86,400 calls/day per bus | 30s = 2,880 calls/day per bus (97% reduction)
+    // 30 seconds interval - optimal balance of precision, battery, and cost
+    // 30s = 2,880 calls/day per bus (cost-effective while maintaining good responsiveness)
     _foregroundTimer = Timer.periodic(const Duration(seconds: 30), (_) async {
-      print('⏰ [ForegroundFallback] Triggered');
+      print('⏰ [ForegroundFallback] Triggered (30s interval - cost optimized)');
 
       try {
         final storage = GetStorage();
@@ -569,7 +699,7 @@ class DriverController extends GetxController {
         ),
         androidSettings: const AndroidSettings(
           accuracy: LocationAccuracy.NAVIGATION,
-          interval: 30, // 30 seconds - optimal for battery and cost efficiency
+          interval: 3, // 3 seconds - for smooth live tracking (dual-path system controls actual writes)
           // distanceFilter: 10, // 10 meters minimum movement
           client: LocationClient.google,
           androidNotificationSettings: AndroidNotificationSettings(
@@ -626,7 +756,9 @@ class DriverController extends GetxController {
             .ref('bus_locations/$schoolId/$busId')
             .update({
           'isActive': false,
+          'isWithinTripWindow': false,
           'currentStatus': 'InActive',
+          'tripEndedAt': ServerValue.timestamp,
           'timestamp': ServerValue.timestamp,
         });
         print('✅ [StopTrip] Bus status updated to InActive in Realtime DB');
@@ -703,7 +835,9 @@ class DriverController extends GetxController {
             .ref('bus_locations/$schoolId/$busId')
             .update({
           'isActive': false,
+          'isWithinTripWindow': false,
           'currentStatus': 'InActive',
+          'tripEndedAt': ServerValue.timestamp,
           'timestamp': ServerValue.timestamp,
         });
         print('📝 [Driver] Realtime DB updated to inactive (force stop)');
@@ -767,5 +901,35 @@ class DriverController extends GetxController {
       print('❌ [RemoveStop] Error: $e');
       Get.snackbar("Error", "Failed to update stop: $e");
     }
+  }
+
+  /// Check if current time is within schedule window (startTime <= current <= endTime)
+  bool _isTimeWithinSchedule(String currentTime, String startTime, String endTime) {
+    try {
+      // Parse times as HH:mm format
+      final current = _parseTimeToMinutes(currentTime);
+      final start = _parseTimeToMinutes(startTime);
+      final end = _parseTimeToMinutes(endTime);
+      
+      // Handle overnight schedules (e.g., 23:00 to 01:00)
+      if (end < start) {
+        // Overnight: current >= start OR current <= end
+        return current >= start || current <= end;
+      } else {
+        // Same day: start <= current <= end
+        return current >= start && current <= end;
+      }
+    } catch (e) {
+      print('⚠️ [TimeCheck] Error parsing schedule times: $e');
+      return true; // Default to true if parsing fails (allow trip to start)
+    }
+  }
+
+  /// Convert HH:mm time string to minutes since midnight for easy comparison
+  int _parseTimeToMinutes(String time) {
+    final parts = time.split(':');
+    final hours = int.parse(parts[0]);
+    final minutes = int.parse(parts[1]);
+    return hours * 60 + minutes;
   }
 }

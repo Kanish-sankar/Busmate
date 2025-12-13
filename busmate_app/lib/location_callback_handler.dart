@@ -113,6 +113,14 @@ const double DELAY_TIME_THRESHOLD = 120.0; // seconds (2 mins)
 const double DELAY_SPEED_THRESHOLD = 2.0; // m/s (below this = stuck)
 const int ETA_RECALC_INTERVAL = 30; // seconds
 
+// Dual-path location update intervals
+const int LIVE_LOCATION_INTERVAL_MS = 3000; // 3 seconds for live tracking (parent app)
+const int FULL_LOCATION_INTERVAL_MS = 30000; // 30 seconds for full data (triggers functions)
+
+// Track last write times globally (shared across callback invocations)
+final Map<String, int> _lastLiveWriteTime = {};
+final Map<String, int> _lastFullWriteTime = {};
+
 @pragma('vm:entry-point')
 void backgroundLocationCallback(LocationDto locationDto) async {
   try {
@@ -326,30 +334,64 @@ void backgroundLocationCallback(LocationDto locationDto) async {
     // Add speed sample for average calculation
     status.addSpeedSample(locationDto.speed);
 
-    // --- Send GPS and bus status to Realtime Database (unified architecture) ---
+    // --- Dual-Path Location Update System ---
+    // Path 1: Live location (3 seconds) - for parent app smooth tracking
+    // Path 2: Full data (30 seconds) - triggers Cloud Functions for notifications/ETAs
+    
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final busKey = '$schoolId/$busId';
+    
+    // Initialize timestamps if not present
+    _lastLiveWriteTime[busKey] ??= 0;
+    _lastFullWriteTime[busKey] ??= 0;
+    
+    final timeSinceLastLive = nowMs - _lastLiveWriteTime[busKey]!;
+    final timeSinceLastFull = nowMs - _lastFullWriteTime[busKey]!;
+    
     try {
-      final database = FirebaseDatabase.instance;
-      await database
-          .ref('bus_locations/$schoolId/$busId')
-          .update({
-            'latitude': locationDto.latitude,
-            'longitude': locationDto.longitude,
-            'speed': locationDto.speed,
-            'accuracy': locationDto.accuracy,
-            'altitude': locationDto.altitude,
-            'heading': locationDto.heading,
-            'timestamp': ServerValue.timestamp,
-            'source': 'phone',
-            // Note: isActive is NOT updated here - only controlled by Start/Stop Trip buttons
-            'isDelayed': status.isDelayed,
-            'remainingStops': status.remainingStops.map((s) => s.toMap()).toList(),
-            'stopsPassedCount': status.stopsPassedCount,
-            'totalStops': status.totalStops,
-            'lastRecalculationAt': status.lastRecalculationAt ?? 0,
-            'lastETACalculation': status.lastETACalculation?.millisecondsSinceEpoch ?? 0,
-          });
-      log('📍 [BackgroundLocator] GPS and bus status sent to Realtime Database');
-      log('✅ [BackgroundLocator] All data in Realtime DB - ETAs handled by Firebase Function');
+      // Write to live location path every 3 seconds (minimal data, no function triggers)
+      if (timeSinceLastLive >= LIVE_LOCATION_INTERVAL_MS) {
+        await database
+            .ref('live_bus_locations/$schoolId/$busId')
+            .update({
+              'latitude': locationDto.latitude,
+              'longitude': locationDto.longitude,
+              'heading': locationDto.heading,
+              'speed': locationDto.speed,
+              'timestamp': ServerValue.timestamp,
+            });
+        _lastLiveWriteTime[busKey] = nowMs;
+        log('🔵 [BackgroundLocator] Live location updated (3s interval) - no functions triggered');
+      }
+      
+      // Write to full location path every 30 seconds (complete data, triggers functions)
+      if (timeSinceLastFull >= FULL_LOCATION_INTERVAL_MS) {
+        await database
+            .ref('bus_locations/$schoolId/$busId')
+            .update({
+              'latitude': locationDto.latitude,
+              'longitude': locationDto.longitude,
+              'speed': locationDto.speed,
+              'accuracy': locationDto.accuracy,
+              'altitude': locationDto.altitude,
+              'heading': locationDto.heading,
+              'timestamp': ServerValue.timestamp,
+              'source': 'phone',
+              // Note: isActive and isWithinTripWindow are NOT updated here
+              // They are controlled by: Start/Stop Trip buttons (driver) or handleTripTransitions (Cloud Function scheduler)
+              'isDelayed': status.isDelayed,
+              'remainingStops': status.remainingStops.map((s) => s.toMap()).toList(),
+              'stopsPassedCount': status.stopsPassedCount,
+              'totalStops': status.totalStops,
+              'lastRecalculationAt': status.lastRecalculationAt ?? 0,
+              'lastETACalculation': status.lastETACalculation?.millisecondsSinceEpoch ?? 0,
+            });
+        _lastFullWriteTime[busKey] = nowMs;
+        log('🟢 [BackgroundLocator] Full data updated (30s interval) - triggers Cloud Functions');
+      }
+      
+      log('📍 [BackgroundLocator] Dual-path GPS update complete');
+      log('✅ [BackgroundLocator] Cost optimization: 90% reduction in function invocations');
     } catch (e) {
       log('⚠️ [BackgroundLocator] Error updating Realtime Database: $e');
     }

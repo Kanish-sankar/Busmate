@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'dart:io' show Platform;
 
 Widget languageList() => AnimatedContainer(
       width: double.infinity,
@@ -112,6 +114,9 @@ Widget languageList() => AnimatedContainer(
                   }
                 }
                 
+                // Send test notification in selected language
+                _sendTestNotification(langName);
+                
                 Get.updateLocale(Locale(
                   storage.read('langCode'),
                   storage.read('langCountryCode'),
@@ -126,3 +131,88 @@ Widget languageList() => AnimatedContainer(
         ],
       ),
     );
+
+// Function to send test notification in selected language
+Future<void> _sendTestNotification(String language) async {
+  try {
+    final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+        FlutterLocalNotificationsPlugin();
+
+    // Language-specific notification messages
+    final Map<String, Map<String, String>> messages = {
+      'english': {
+        'title': '🔔 Language Changed!',
+        'body': 'Your notification language is now set to English',
+      },
+      'hindi': {
+        'title': '🔔 भाषा बदली गई!',
+        'body': 'आपकी अधिसूचना भाषा अब हिंदी में सेट है',
+      },
+      'tamil': {
+        'title': '🔔 மொழி மாற்றப்பட்டது!',
+        'body': 'உங்கள் அறிவிப்பு மொழி இப்போது தமிழில் அமைக்கப்பட்டுள்ளது',
+      },
+      'kannada': {
+        'title': '🔔 ಭಾಷೆ ಬದಲಾಯಿಸಲಾಗಿದೆ!',
+        'body': 'ನಿಮ್ಮ ಅಧಿಸೂಚನೆ ಭಾಷೆ ಈಗ ಕನ್ನಡಕ್ಕೆ ಹೊಂದಿಸಲಾಗಿದೆ',
+      },
+      'telugu': {
+        'title': '🔔 భాష మార్చబడింది!',
+        'body': 'మీ నోటిఫికేషన్ భాష ఇప్పుడు తెలుగుకు సెట్ చేయబడింది',
+      },
+      'malayalam': {
+        'title': '🔔 ഭാഷ മാറ്റി!',
+        'body': 'നിങ്ങളുടെ അറിയിപ്പ് ഭാഷ ഇപ്പോൾ മലയാളത്തിലേക്ക് സജ്ജീകരിച്ചിരിക്കുന്നു',
+      },
+    };
+
+    final message = messages[language.toLowerCase()] ?? messages['english']!;
+    final soundFile = 'notification_${language.toLowerCase()}';
+
+    if (Platform.isAndroid) {
+      // Android notification with custom sound
+      const AndroidNotificationDetails androidDetails =
+          AndroidNotificationDetails(
+        'busmate',
+        'BusMate Notifications',
+        channelDescription: 'Bus arrival notifications',
+        importance: Importance.high,
+        priority: Priority.high,
+        sound: RawResourceAndroidNotificationSound('notification_english'),
+        playSound: true,
+      );
+
+      const NotificationDetails notificationDetails =
+          NotificationDetails(android: androidDetails);
+
+      await flutterLocalNotificationsPlugin.show(
+        DateTime.now().millisecondsSinceEpoch.remainder(100000),
+        message['title']!,
+        message['body']!,
+        notificationDetails,
+      );
+    } else if (Platform.isIOS) {
+      // iOS notification with custom sound
+      final DarwinNotificationDetails iosDetails = DarwinNotificationDetails(
+        sound: '$soundFile.wav',
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      );
+
+      final NotificationDetails notificationDetails =
+          NotificationDetails(iOS: iosDetails);
+
+      await flutterLocalNotificationsPlugin.show(
+        DateTime.now().millisecondsSinceEpoch.remainder(100000),
+        message['title']!,
+        message['body']!,
+        notificationDetails,
+      );
+    }
+
+    print('✅ Test notification sent in $language');
+  } catch (e) {
+    print('⚠️ Error sending test notification: $e');
+  }
+}

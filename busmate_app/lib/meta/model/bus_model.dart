@@ -161,6 +161,7 @@ class BusStatusModel {
   double? lastLongitude;
   String? currentSegment; // e.g., "A-B"
   String? busRouteType; // "pickup" or "drop"
+  String? tripDirection; // Current trip direction from RTDB ("pickup" or "drop")
   List<LatLng>? routePolyline; // Add this to store the polyline
   String? driverName; // Driver name from Realtime DB
   String? driverId; // Driver ID from Realtime DB
@@ -194,6 +195,7 @@ class BusStatusModel {
     this.lastLongitude,
     this.currentSegment,
     this.busRouteType,
+    this.tripDirection,
     this.routePolyline, // Add this parameter
     this.driverName,
     this.driverId,
@@ -288,6 +290,7 @@ class BusStatusModel {
       lastLongitude: (data['lastLongitude'] as num?)?.toDouble(),
       currentSegment: data['currentSegment'],
       busRouteType: data['busRouteType'],
+      tripDirection: data['tripDirection'],
       routePolyline: polyline,
       driverName: data['driverName'],
       driverId: data['driverId'],
@@ -317,6 +320,7 @@ class BusStatusModel {
       'lastLongitude': lastLongitude,
       'currentSegment': currentSegment,
       'busRouteType': busRouteType,
+      'tripDirection': tripDirection,
       'routePolyline': routePolyline
           ?.map((point) => {
                 'latitude': point.latitude,
@@ -800,6 +804,8 @@ class StopWithETA extends Stoppings {
   DateTime? estimatedTimeOfArrival;
   double? estimatedMinutesOfArrival;
   double? distanceToStop;
+  String? etaString;
+  double? distanceMeters;
 
   StopWithETA({
     required super.name,
@@ -808,6 +814,8 @@ class StopWithETA extends Stoppings {
     this.estimatedTimeOfArrival,
     this.estimatedMinutesOfArrival,
     this.distanceToStop,
+    this.etaString,
+    this.distanceMeters,
   });
 
   factory StopWithETA.fromMap(Map<String, dynamic> data) {
@@ -823,14 +831,27 @@ class StopWithETA extends Stoppings {
     final location = data['location'] is Map 
         ? Map<String, dynamic>.from(data['location'] as Map)
         : data['location'] as Map<String, dynamic>?;
+    final latitude = (location?['latitude'] ?? data['latitude'] ?? data['lat'] ?? 0.0) as num;
+    final longitude = (location?['longitude'] ?? data['longitude'] ?? data['lng'] ?? 0.0) as num;
+    final rawEtaString = data['eta'] as String?;
+    final etaFromString = rawEtaString != null ? DateTime.tryParse(rawEtaString) : null;
+    final etaFromField = parseDateTime(data['estimatedTimeOfArrival']);
+    final resolvedEta = etaFromField ?? etaFromString;
+    final distanceMeters = (data['distanceMeters'] ?? data['distanceToStop']) as num?;
     
     return StopWithETA(
       name: data['name'] ?? '',
-      latitude: location?['latitude']?.toDouble() ?? 0.0,
-      longitude: location?['longitude']?.toDouble() ?? 0.0,
-      estimatedTimeOfArrival: parseDateTime(data['estimatedTimeOfArrival']),
-      estimatedMinutesOfArrival: data['estimatedMinutesOfArrival']?.toDouble(),
-      distanceToStop: data['distanceToStop']?.toDouble(),
+      latitude: latitude.toDouble(),
+      longitude: longitude.toDouble(),
+      estimatedTimeOfArrival: resolvedEta,
+      estimatedMinutesOfArrival: data['estimatedMinutesOfArrival'] == null
+          ? null
+          : (data['estimatedMinutesOfArrival'] as num).toDouble(),
+      distanceToStop: data['distanceToStop'] == null
+          ? distanceMeters?.toDouble()
+          : (data['distanceToStop'] as num).toDouble(),
+      etaString: rawEtaString ?? resolvedEta?.toIso8601String(),
+      distanceMeters: distanceMeters?.toDouble(),
     );
   }
 
@@ -838,14 +859,21 @@ class StopWithETA extends Stoppings {
   Map<String, dynamic> toMap() {
     final map = super.toMap();
     if (estimatedTimeOfArrival != null) {
-      map['estimatedTimeOfArrival'] =
-          Timestamp.fromDate(estimatedTimeOfArrival!);
+      // Convert to milliseconds for RTDB compatibility (RTDB doesn't support Firestore Timestamp)
+      map['estimatedTimeOfArrival'] = estimatedTimeOfArrival!.millisecondsSinceEpoch;
     }
     if (estimatedMinutesOfArrival != null) {
       map['estimatedMinutesOfArrival'] = estimatedMinutesOfArrival;
     }
     if (distanceToStop != null) {
       map['distanceToStop'] = distanceToStop;
+    }
+    if (distanceMeters != null) {
+      map['distanceMeters'] = distanceMeters;
+    }
+    final etaValue = etaString ?? estimatedTimeOfArrival?.toIso8601String();
+    if (etaValue != null) {
+      map['eta'] = etaValue;
     }
     return map;
   }
@@ -882,6 +910,9 @@ class Stoppings {
         'latitude': latitude,
         'longitude': longitude,
       },
+      // Duplicate fields help legacy data readers that still expect flat lat/lng
+      'latitude': latitude,
+      'longitude': longitude,
     };
   }
 }

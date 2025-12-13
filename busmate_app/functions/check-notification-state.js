@@ -2,7 +2,7 @@
 const admin = require("firebase-admin");
 
 admin.initializeApp({
-  databaseURL: "https://busmate-b80e8-default-rtdb.asia-southeast1.firebasedatabase.app"
+  databaseURL: "https://busmate-b80e8-default-rtdb.firebaseio.com"
 });
 
 async function checkState() {
@@ -13,12 +13,12 @@ async function checkState() {
   
   try {
     // 1. Check student document
-    console.log("1️⃣ Student Document (schooldetails/SCH1761403353624/students/ccy3tWQ5Mt4lJvoYKYWy):");
+    console.log("1️⃣ Student Document (schooldetails/SCH1765270834407/students/GvhoVtz0hsTTVU4n0bXy):");
     const studentDoc = await db
       .collection("schooldetails")
-      .doc("SCH1761403353624")
+      .doc("SCH1765270834407")
       .collection("students")
-      .doc("ccy3tWQ5Mt4lJvoYKYWy")
+      .doc("GvhoVtz0hsTTVU4n0bXy")
       .get();
     
     if (studentDoc.exists) {
@@ -34,8 +34,8 @@ async function checkState() {
     }
     
     // 2. Check bus location in RTDB
-    console.log("\n2️⃣ Bus Location (bus_locations/SCH1761403353624/1QX7a0pKcZozDV5Riq6i):");
-    const busSnapshot = await rtdb.ref("bus_locations/SCH1761403353624/1QX7a0pKcZozDV5Riq6i").once("value");
+    console.log("\n2️⃣ Bus Location (bus_locations/SCH1765270834407/PBGOivVrrFfaAADMKR6a):");
+    const busSnapshot = await rtdb.ref("bus_locations/SCH1765270834407/PBGOivVrrFfaAADMKR6a").once("value");
     const busData = busSnapshot.val();
     
     if (busData) {
@@ -54,7 +54,8 @@ async function checkState() {
         });
         
         // 3. Check if student's stop is in remaining stops
-        const studentStop = "Coimbatore-Trichy Road, Ondipudur, Sulur, Coimbatore, Tamil Nadu, 641103, India";
+        const studentData = studentDoc.data();
+        const studentStop = studentData.stopping;
         console.log(`\n3️⃣ Looking for student stop: "${studentStop}"`);
         
         const matchingStop = busData.remainingStops.find(s => s.name === studentStop);

@@ -33,7 +33,7 @@ class NotificationHelper {
 
   static Future<void> initialize() async {
     // Request notification permissions
-    await firebaseMessaging.requestPermission(
+    final NotificationSettings settings = await firebaseMessaging.requestPermission(
       alert: true,
       announcement: true,
       badge: true,
@@ -42,34 +42,42 @@ class NotificationHelper {
       provisional: false,
       sound: true,
     );
+    
+    print('🔔 Notification permission status: ${settings.authorizationStatus}');
+    print('   Alert: ${settings.alert}');
+    print('   Badge: ${settings.badge}');
+    print('   Sound: ${settings.sound}');
 
+    // ✅ SHOW NOTIFICATIONS EVEN WHEN APP IS OPEN (FOREGROUND)
     await firebaseMessaging.setForegroundNotificationPresentationOptions(
-      alert: false,
-      badge: false,
-      sound: false,
+      alert: true,  // Show notification banner even when app is open
+      badge: true,  // Update badge count
+      sound: true,  // Play notification sound even when app is open
     );
+    print('✅ Foreground notification presentation enabled');
 
     // Configure notification channels for Android
+    // ⚠️ DO NOT set sound in channel - set it per notification for language flexibility!
 
-    final soundName = GetStorage().read('sound') ?? "notification_english";
-
-// Channel with sound
-    final AndroidNotificationChannel soundChannel = AndroidNotificationChannel(
-      'busmate',
+// Channel with sound (sound set per notification, not in channel)
+// ✅ USING NEW CHANNEL ID to force Android to recreate with proper settings
+    const AndroidNotificationChannel soundChannel = AndroidNotificationChannel(
+      'busmate_v2', // ✅ Changed from 'busmate' to force recreation
       'Busmate Notifications',
       description: 'Plays voice alerts when bus is near',
       importance: Importance.max,
       playSound: true,
-      sound: RawResourceAndroidNotificationSound(soundName),
+      enableVibration: true,
+      // NO sound parameter - allows per-notification sound changes
     );
 
 // Channel without sound
     const AndroidNotificationChannel silentChannel = AndroidNotificationChannel(
-      'busmate_silent',
+      'busmate_silent_v2', // ✅ Changed to match
       'Busmate Silent Notifications',
       description: 'Silent text alerts',
       importance: Importance.high,
-      playSound: true,
+      playSound: false,
     );
 
     // Create channels
@@ -77,6 +85,13 @@ class NotificationHelper {
         flutterLocalNotificationsPlugin.resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>();
 
+    // Delete old channels first to clear cached sound
+    await androidPlugin?.deleteNotificationChannel('busmate');
+    await androidPlugin?.deleteNotificationChannel('busmate_silent');
+    await androidPlugin?.deleteNotificationChannel('busmate_v2');
+    await androidPlugin?.deleteNotificationChannel('busmate_silent_v2');
+    
+    // Recreate channels without hardcoded sounds
     await androidPlugin?.createNotificationChannel(soundChannel);
     await androidPlugin?.createNotificationChannel(silentChannel);
 
@@ -129,17 +144,48 @@ class NotificationHelper {
       },
     );
 
-    // Foreground notification handling
+    // ✅ Foreground notification handling - SHOW EVEN WHEN APP IS OPEN
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      if (!kIsWeb && Platform.isAndroid) {
-        if (message.data['type'] == 'bus_arrival') {
-          showCustomNotification(message);
-        } else {
-          showLocalNotification(message);
+      print("📬 ==========================================");
+      print("📬 FOREGROUND NOTIFICATION RECEIVED");
+      print("📬 ==========================================");
+      print("   Notification title: ${message.notification?.title}");
+      print("   Notification body: ${message.notification?.body}");
+      print("   Data: ${message.data}");
+      print("   Data title: ${message.data['title']}");
+      print("   Data body: ${message.data['body']}");
+      print("   Type: ${message.data['type']}");
+      print("   Notification Type: ${message.data['notificationType']}");
+      print("   Selected Language: ${message.data['selectedLanguage']}");
+      print("   Message ID: ${message.messageId}");
+      print("   Sent time: ${message.sentTime}");
+      
+      // ✅ ALWAYS show notification when app is open - regardless of platform
+      if (!kIsWeb) {
+        try {
+          if (message.data['type'] == 'bus_arrival') {
+            print("   🚌 Calling showCustomNotification for bus arrival...");
+            showCustomNotification(message);
+            print("   ✅ showCustomNotification called successfully");
+          } else {
+            print("   📱 Calling showLocalNotification...");
+            showLocalNotification(message);
+            print("   ✅ showLocalNotification called successfully");
+          }
+        } catch (e) {
+          print("   ❌ ERROR showing notification: $e");
+          print("   Stack trace: ${StackTrace.current}");
         }
+      } else {
+        print("   ⚠️ Web platform - notifications not supported");
       }
-      acknowledgeNotification(message.data['studentId']);
-      print("📬 Notification received: ${message.data} foreground");
+      
+      // Acknowledge notification
+      final studentId = message.data['studentId'];
+      if (studentId != null && studentId.isNotEmpty) {
+        acknowledgeNotification(studentId);
+      }
+      print("📬 ==========================================");
     });
 
     // Background (when app opened by tapping notification)
@@ -161,30 +207,42 @@ class NotificationHelper {
   }
 
   static Future<void> showCustomNotification(RemoteMessage message) async {
+    print("🔔 ==========================================");
+    print("🔔 SHOWING CUSTOM NOTIFICATION");
+    print("🔔 ==========================================");
+    
     String notificationType =
         message.data['notificationType'] ?? 'Text Notification';
     String selectedLanguage = message.data['selectedLanguage'] ?? 'english';
-    String? soundName;
+    
+    print("   Notification Type: $notificationType");
+    print("   Selected Language: $selectedLanguage");
 
-    if (notificationType == "Voice Notification") {
-      soundName = getSoundName(selectedLanguage);
-    }
+    // ✅ ALWAYS use voice notification sound for bus arrival messages
+    // Bus arrival is urgent and should always play sound
+    String soundName = getSoundName(selectedLanguage);
+    print("   🔊 Sound Name: $soundName");
+    print("   📁 Android sound path: android/app/src/main/res/raw/$soundName.wav");
+    print("   📁 Expected Android reference: RawResourceAndroidNotificationSound('$soundName')");
+    
+    // Check notification type preference (but always play sound for bus arrival)
+    bool isVoiceNotification = notificationType.toLowerCase().contains("voice");
+    print("   🎵 Is Voice Notification: $isVoiceNotification");
+    print("   🔊 Playing sound: $soundName (always for bus arrival)");
 
     final largeIconBitmap = await _loadBusmateLargeIcon();
 
     final AndroidNotificationDetails androidPlatformChannelSpecifics =
         AndroidNotificationDetails(
-      'busmate',
+      'busmate_v2', // ✅ Use new channel ID
       'Busmate Notifications',
       channelDescription: 'Notification for bus arrival',
       importance: Importance.max,
       priority: Priority.high,
       ongoing: true,
       autoCancel: false,
-      playSound: soundName != null,
-      sound: soundName != null
-          ? RawResourceAndroidNotificationSound(soundName)
-          : null,
+      playSound: true, // ✅ ALWAYS play sound for bus arrival
+      sound: RawResourceAndroidNotificationSound(soundName), // ✅ Use language-specific sound
       enableVibration: true,
       icon: '@drawable/ic_busmate_notification',
       largeIcon:
@@ -198,15 +256,23 @@ class NotificationHelper {
         ),
       ],
     );
+    
+    print("   ✅ Android notification details configured:");
+    print("      - Channel: busmate_v2");
+    print("      - Play Sound: true");
+    print("      - Sound Resource: RawResourceAndroidNotificationSound('$soundName')");
+    print("      - Importance: max");
+    print("      - Priority: high");
 
     final DarwinNotificationDetails iosPlatformChannelSpecifics =
         DarwinNotificationDetails(
-      categoryIdentifier: 'busmate', // Add this line
-      sound: soundName != null ? "$soundName.wav" : null,
+      categoryIdentifier: 'BUSMATE_CATEGORY',
+      sound: "$soundName.wav", // ✅ Always use language-specific sound
       presentAlert: true,
       presentBadge: true,
       presentSound: true,
-      interruptionLevel: InterruptionLevel.active,
+      interruptionLevel: InterruptionLevel.timeSensitive,
+      threadIdentifier: 'bus_arrival',
     );
 
     final NotificationDetails platformChannelSpecifics = NotificationDetails(
@@ -215,13 +281,26 @@ class NotificationHelper {
     );
 
     int notificationId = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    
+    // ✅ Get title/body from data if notification field is null (data-only messages)
+    final title = message.notification?.title ?? message.data['title'] ?? 'Bus Approaching!';
+    final body = message.notification?.body ?? message.data['body'] ?? 'The bus will arrive soon.';
+    
+    print("   📱 Calling flutterLocalNotificationsPlugin.show()...");
+    print("   ID: $notificationId");
+    print("   Title: $title");
+    print("   Body: $body");
+    
     await flutterLocalNotificationsPlugin.show(
       notificationId,
-      message.notification?.title ?? 'Bus Approaching!',
-      message.notification?.body ?? 'The bus will arrive soon.',
+      title,
+      body,
       platformChannelSpecifics,
       payload: message.data['studentId'],
     );
+    
+    print("   ✅ Notification displayed successfully");
+    print("🔔 ==========================================");
   }
 
   static Future<void> showLocalNotification(RemoteMessage message) async {
@@ -229,7 +308,7 @@ class NotificationHelper {
 
     final AndroidNotificationDetails androidDetails =
         AndroidNotificationDetails(
-      'busmate_silent',
+      'busmate_silent_v2', // ✅ Use new channel ID
       'Busmate Silent Notifications',
       channelDescription: 'Silent text alerts',
       importance: Importance.max,
@@ -240,8 +319,20 @@ class NotificationHelper {
           largeIconBitmap ?? const DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
     );
 
+    // ✅ Add iOS notification details
+    const DarwinNotificationDetails iosDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+      sound: 'notification_english.wav',
+      categoryIdentifier: 'BUSMATE_CATEGORY',
+      interruptionLevel: InterruptionLevel.timeSensitive,
+      threadIdentifier: 'bus_general',
+    );
+
     final NotificationDetails platformDetails = NotificationDetails(
       android: androidDetails,
+      iOS: iosDetails,
     );
 
     int notificationId = DateTime.now().millisecondsSinceEpoch ~/ 1000;
