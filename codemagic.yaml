@@ -25,21 +25,15 @@ workflows:
         script: |
           cd busmate_app/ios
           pod install
-      - name: Set up code signing
+      - name: Enable Xcode automatic signing
         script: |
-          set -e
-          keychain initialize
-          app-store-connect fetch-signing-files \
-            "com.jupenta.busmate" \
-            --type IOS_APP_STORE \
-            --create
-          keychain add-certificates
-          xcode-project use-profiles
+          cd busmate_app/ios
+          xcodebuild -project Runner.xcodeproj -showBuildSettings | grep DEVELOPMENT_TEAM
+          sed -i '' 's/PRODUCT_BUNDLE_IDENTIFIER = com.jupenta.busmate;/PRODUCT_BUNDLE_IDENTIFIER = com.jupenta.busmate;\n\t\t\t\tDEVELOPMENT_TEAM = B6L74QYZVQ;/' Runner.xcodeproj/project.pbxproj
       - name: Build iOS IPA
         script: |
           cd busmate_app
-          flutter build ipa --release \
-            --export-options-plist=ios/ExportOptions.plist
+          flutter build ipa --release
     artifacts:
       - busmate_app/build/ios/ipa/*.ipa
       - busmate_app/build/ios/archive/Runner.xcarchive
