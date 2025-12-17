@@ -8,17 +8,55 @@ plugins {
     id "dev.flutter.flutter-gradle-plugin"
 }
 
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file('local.properties')
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withReader('UTF-8') { reader ->
+        localProperties.load(reader)
+    }
+}
+
+def flutterVersionCode = (localProperties.getProperty('flutter.versionCode') ?: '1').toInteger()
+def flutterVersionName = (localProperties.getProperty('flutter.versionName') ?: '1.0')
+
 def keystoreProperties = new Properties()
 def keystorePropertiesFile = rootProject.file("key.properties")
+
+def isReleaseBuild = gradle.startParameter.taskNames.any { it?.toLowerCase()?.contains('release') }
 
 if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
 
+if (isReleaseBuild) {
+    if (!keystorePropertiesFile.exists()) {
+        throw new GradleException(
+                "Missing android/key.properties. " +
+                        "Create it with storeFile/storePassword/keyAlias/keyPassword (storeFile is relative to android/). " +
+                        "Example storeFile=../upload-keystore.jks"
+        )
+    }
+
+    ['storeFile', 'storePassword', 'keyAlias', 'keyPassword'].each { key ->
+        def value = keystoreProperties[key]
+        if (value == null || value.toString().trim().isEmpty()) {
+            throw new GradleException("Missing '${key}' in android/key.properties (required for release signing).")
+        }
+    }
+
+    def resolvedStoreFile = rootProject.file(keystoreProperties['storeFile'])
+    if (!resolvedStoreFile.exists()) {
+        throw new GradleException(
+                "Keystore file not found at: ${resolvedStoreFile}. " +
+                        "Fix 'storeFile' in android/key.properties (e.g. ../upload-keystore.jks)."
+        )
+    }
+}
+
 android {
     namespace = "com.jupenta.busmate"
     compileSdk = 35
-    ndkVersion = "27.0.12077973"
+    // Removed ndkVersion to avoid native library stripping issues
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -28,7 +66,7 @@ android {
     }
 
     kotlinOptions {
-        jvmTarget = '17'
+        jvmTarget = "17"
     }
 
     defaultConfig {
@@ -38,24 +76,16 @@ android {
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = 23
         targetSdk = flutter.targetSdkVersion
-        versionCode = 5
-        versionName = "2.0.3"
+        versionCode = flutterVersionCode
+        versionName = flutterVersionName
     }
 
     signingConfigs {
         release {
-            if (keystoreProperties.containsKey('storeFile')) {
-                storeFile file(keystoreProperties['storeFile'])
-                storePassword keystoreProperties['storePassword']
-                keyAlias keystoreProperties['keyAlias']
-                keyPassword keystoreProperties['keyPassword']
-            } else {
-                // Fallback to debug keystore if release keystore is missing
-                storeFile file("${System.properties['user.home']}/.android/debug.keystore")
-                storePassword 'android'
-                keyAlias 'androiddebugkey'
-                keyPassword 'android'
-            }
+            storeFile rootProject.file(keystoreProperties['storeFile'])
+            storePassword keystoreProperties['storePassword']
+            keyAlias keystoreProperties['keyAlias']
+            keyPassword keystoreProperties['keyPassword']
         }
     }
 
@@ -65,6 +95,11 @@ android {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            
+            // Skip native debug symbol stripping to avoid build issues
+            ndk {
+                debugSymbolLevel 'NONE'
+            }
         }
     }
 
@@ -81,42 +116,12 @@ android {
     }
 }
 
-configurations.all {
-    resolutionStrategy {
-        force 'androidx.core:core:1.13.1'
-        force 'androidx.core:core-ktx:1.13.1'
-        eachDependency { details ->
-            if (details.requested.group == 'com.google.firebase' && details.requested.name == 'firebase-auth') {
-                details.useVersion '23.0.0'
-                details.because 'Kotlin 1.9 compatible firebase-auth'
-            }
-            if (details.requested.group == 'com.google.firebase' && details.requested.name == 'firebase-auth-ktx') {
-                details.useVersion '23.0.0'
-                details.because 'Kotlin 1.9 compatible firebase-auth-ktx'
-            }
-        }
-    }
-}
-
 dependencies {
     // ✅ Add the desugaring library
-    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'
-
-    // Force compatible androidx.core versions for AGP 8.2.1
-    constraints {
-        implementation('androidx.core:core:1.13.1') {
-            because 'AGP 8.2.1 requires androidx.core < 1.16.0'
-        }
-        implementation('androidx.core:core-ktx:1.13.1') {
-            because 'AGP 8.2.1 requires androidx.core < 1.16.0'
-        }
-    }
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'
 
     // Add Firebase Messaging dependency
     implementation 'com.google.firebase:firebase-messaging:23.4.1'
-
-    // Force firebase-auth to a Kotlin 1.9-compatible version to avoid metadata mismatch
-    implementation 'com.google.firebase:firebase-auth:23.0.0'
 
     // your other dependencies...
 }

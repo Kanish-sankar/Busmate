@@ -91,7 +91,10 @@ class ManageDetailScreen extends GetView<DashboardController> {
                               isScrollControlled: true,
                               builder: (context) => locationList(
                                   controller.student.value!.id,
-                                  controller.busDetail.value!.stoppings),
+                                  controller.currentTripStopsPickupOrder
+                                          .isNotEmpty
+                                      ? controller.currentTripStopsPickupOrder
+                                      : controller.busDetail.value!.stoppings),
                             );
                           },
                         ),
@@ -138,7 +141,10 @@ class ManageDetailScreen extends GetView<DashboardController> {
                               isScrollControlled: true,
                               builder: (context) => notificationList(
                                   controller.student.value!.id,
-                                  controller.busDetail.value!.stoppings),
+                                  controller.currentTripStopsPickupOrder
+                                          .isNotEmpty
+                                      ? controller.currentTripStopsPickupOrder
+                                      : controller.busDetail.value!.stoppings),
                             );
                           },
                         ),
@@ -210,9 +216,11 @@ class ManageDetailScreen extends GetView<DashboardController> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(
-                          "${'Current Language'} : ${GetStorage().read('langName')}",
-                          style: TextStyle(fontSize: 12.sp),
+                        Obx(
+                          () => Text(
+                            "${'Current Language'} : ${controller.student.value?.languagePreference ?? GetStorage().read('langName') ?? 'English'}",
+                            style: TextStyle(fontSize: 12.sp),
+                          ),
                         ),
                         IconButton(
                           icon: Icon(

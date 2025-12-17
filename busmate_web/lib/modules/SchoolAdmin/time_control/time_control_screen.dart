@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'package:get/get.dart';
 import 'route_schedule_model.dart';
 import 'package:busmate_web/modules/SchoolAdmin/bus_management/bus_model.dart';
@@ -17,6 +18,14 @@ class _TimeControlScreenState extends State<TimeControlScreen> {
   bool isLoading = true;
   List<RouteSchedule> schedules = [];
   List<Bus> buses = [];
+
+  Bus? _findBus(String busId) {
+    try {
+      return buses.firstWhere((b) => b.id == busId);
+    } catch (_) {
+      return null;
+    }
+  }
 
   @override
   void initState() {
@@ -127,6 +136,12 @@ class _TimeControlScreenState extends State<TimeControlScreen> {
   Widget _buildScheduleCard(RouteSchedule schedule) {
     final isPickup = schedule.direction == 'pickup';
     final color = isPickup ? Colors.blue : Colors.orange;
+    final bus = _findBus(schedule.busId);
+    final busLabel = (bus != null)
+        ? '${bus.busNo} (${bus.busVehicleNo})'
+        : (schedule.busVehicleNo.isNotEmpty
+            ? schedule.busVehicleNo
+            : schedule.busId);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
@@ -164,9 +179,21 @@ class _TimeControlScreenState extends State<TimeControlScreen> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Bus: ${schedule.busVehicleNo}',
+                        'Bus: $busLabel',
                         style: TextStyle(fontSize: 14, color: Colors.grey[700]),
                       ),
+                      if ((schedule.routeRefId != null &&
+                              schedule.routeRefId!.isNotEmpty) ||
+                          (schedule.routeRefName != null &&
+                              schedule.routeRefName!.isNotEmpty))
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(
+                            'Route: ${schedule.routeRefName ?? 'Route'} (${schedule.routeRefId ?? 'N/A'})',
+                            style: TextStyle(
+                                fontSize: 12, color: Colors.grey[600]),
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -190,6 +217,18 @@ class _TimeControlScreenState extends State<TimeControlScreen> {
                   schedule.directionDisplayName,
                   color,
                 ),
+                if ((schedule.routeRefId != null &&
+                        schedule.routeRefId!.isNotEmpty) ||
+                    (schedule.routeRefName != null &&
+                        schedule.routeRefName!.isNotEmpty)) ...[
+                  const Divider(),
+                  _buildDetailRow(
+                    Icons.route,
+                    'Assigned Route',
+                    schedule.routeRefName ?? schedule.routeRefId ?? 'N/A',
+                    Colors.grey[700]!,
+                  ),
+                ],
                 const Divider(),
                 _buildDetailRow(
                   Icons.access_time,
@@ -226,7 +265,8 @@ class _TimeControlScreenState extends State<TimeControlScreen> {
               TextButton.icon(
                 onPressed: () => _deleteSchedule(schedule),
                 icon: const Icon(Icons.delete, color: Colors.red),
-                label: const Text('Delete', style: TextStyle(color: Colors.red)),
+                label:
+                    const Text('Delete', style: TextStyle(color: Colors.red)),
               ),
             ],
           ),
@@ -235,7 +275,8 @@ class _TimeControlScreenState extends State<TimeControlScreen> {
     );
   }
 
-  Widget _buildDetailRow(IconData icon, String label, String value, Color color) {
+  Widget _buildDetailRow(
+      IconData icon, String label, String value, Color color) {
     return Row(
       children: [
         Icon(icon, size: 20, color: color),
@@ -250,7 +291,8 @@ class _TimeControlScreenState extends State<TimeControlScreen> {
               ),
               Text(
                 value,
-                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                style:
+                    const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
               ),
             ],
           ),
@@ -293,13 +335,21 @@ class _TimeControlScreenState extends State<TimeControlScreen> {
     );
   }
 
-  Future<void> _toggleScheduleStatus(RouteSchedule schedule, bool newStatus) async {
+  Future<void> _toggleScheduleStatus(
+      RouteSchedule schedule, bool newStatus) async {
     try {
+      // Update Firestore (source of truth)
       await FirebaseFirestore.instance
           .collection('schools')
           .doc(widget.schoolId)
           .collection('route_schedules')
           .doc(schedule.id)
+          .update({'isActive': newStatus});
+
+      // Update RTDB cache for fast Cloud Function access
+      await FirebaseDatabase.instance
+          .ref(
+              'route_schedules_cache/${widget.schoolId}/${schedule.busId}/${schedule.id}')
           .update({'isActive': newStatus});
 
       Get.snackbar(
@@ -324,7 +374,8 @@ class _TimeControlScreenState extends State<TimeControlScreen> {
     final confirmed = await Get.dialog<bool>(
       AlertDialog(
         title: const Text('Delete Schedule'),
-        content: Text('Are you sure you want to delete "${schedule.routeName}"?'),
+        content:
+            Text('Are you sure you want to delete "${schedule.routeName}"?'),
         actions: [
           TextButton(
             onPressed: () => Get.back(result: false),
@@ -341,12 +392,21 @@ class _TimeControlScreenState extends State<TimeControlScreen> {
 
     if (confirmed == true) {
       try {
+        // Delete from Firestore
         await FirebaseFirestore.instance
-          .collection('schools')
-          .doc(widget.schoolId)
-          .collection('route_schedules')
-          .doc(schedule.id)
-          .delete();        Get.snackbar(
+            .collection('schools')
+            .doc(widget.schoolId)
+            .collection('route_schedules')
+            .doc(schedule.id)
+            .delete();
+
+        // Delete from RTDB cache
+        await FirebaseDatabase.instance
+            .ref(
+                'route_schedules_cache/${widget.schoolId}/${schedule.busId}/${schedule.id}')
+            .remove();
+
+        Get.snackbar(
           'Schedule Deleted',
           'Route schedule deleted successfully',
           backgroundColor: Colors.green[100],
@@ -381,12 +441,17 @@ class _RouteScheduleFormDialog extends StatefulWidget {
   });
 
   @override
-  State<_RouteScheduleFormDialog> createState() => _RouteScheduleFormDialogState();
+  State<_RouteScheduleFormDialog> createState() =>
+      _RouteScheduleFormDialogState();
 }
 
 class _RouteScheduleFormDialogState extends State<_RouteScheduleFormDialog> {
   final _formKey = GlobalKey<FormState>();
   String? selectedBusId;
+  String? selectedRouteId;
+  String? selectedRouteName;
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> availableRoutes = [];
+  bool isLoadingRoutes = false;
   String routeName = '';
   String direction = 'pickup';
   List<int> selectedDays = [1, 2, 3, 4, 5]; // Mon-Fri default
@@ -402,8 +467,10 @@ class _RouteScheduleFormDialogState extends State<_RouteScheduleFormDialog> {
       selectedBusId = widget.schedule!.busId;
       routeName = widget.schedule!.routeName;
       direction = widget.schedule!.direction;
+      selectedRouteId = widget.schedule!.routeRefId;
+      selectedRouteName = widget.schedule!.routeRefName;
       selectedDays = widget.schedule!.daysOfWeek;
-      
+
       // Parse time
       final startParts = widget.schedule!.startTime.split(':');
       startTime = TimeOfDay(
@@ -416,13 +483,94 @@ class _RouteScheduleFormDialogState extends State<_RouteScheduleFormDialog> {
         minute: int.parse(endParts[1]),
       );
       isActive = widget.schedule!.isActive;
+
+      // Preload routes for editing
+      if (selectedBusId != null) {
+        _loadRoutesForBus(selectedBusId!);
+      }
     }
+  }
+
+  Future<void> _loadRoutesForBus(String busId) async {
+    setState(() {
+      isLoadingRoutes = true;
+      availableRoutes = [];
+      // Keep existing selection while loading
+    });
+
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('schooldetails')
+          .doc(widget.schoolId)
+          .collection('routes')
+          .where('assignedBusId', isEqualTo: busId)
+          .get();
+
+      setState(() {
+        availableRoutes = snapshot.docs;
+        isLoadingRoutes = false;
+
+        // Auto-select if exactly one route exists
+        if (availableRoutes.length == 1) {
+          final doc = availableRoutes.first;
+          selectedRouteId = doc.id;
+          selectedRouteName =
+              (doc.data()['routeName'] as String?) ?? 'Unnamed Route';
+        }
+      });
+    } catch (e) {
+      setState(() {
+        isLoadingRoutes = false;
+      });
+    }
+  }
+
+  List<Map<String, dynamic>> _extractPickupStopsFromRouteDoc(
+      Map<String, dynamic> routeData) {
+    // Preferred: upStops (full Stop.toMap format)
+    final upStopsRaw = routeData['upStops'] as List<dynamic>?;
+    if (upStopsRaw != null && upStopsRaw.isNotEmpty) {
+      return upStopsRaw
+          .where(
+              (s) => (s is Map<String, dynamic>) && (s['isWaypoint'] != true))
+          .map((s) {
+        final m = s as Map<String, dynamic>;
+        final loc = (m['location'] as Map<String, dynamic>?);
+        return {
+          'name': m['name'] ?? '',
+          'latitude': (loc?['latitude'] as num?)?.toDouble() ?? 0.0,
+          'longitude': (loc?['longitude'] as num?)?.toDouble() ?? 0.0,
+        };
+      }).toList();
+    }
+
+    // Legacy: stops (may be simple or nested)
+    final legacyStops = routeData['stops'] as List<dynamic>?;
+    if (legacyStops != null && legacyStops.isNotEmpty) {
+      return legacyStops.map((s) {
+        final m = (s as Map<String, dynamic>);
+        final loc = m['location'] as Map<String, dynamic>?;
+        return {
+          'name': m['name'] ?? '',
+          'latitude': (m['latitude'] as num?)?.toDouble() ??
+              (loc?['latitude'] as num?)?.toDouble() ??
+              0.0,
+          'longitude': (m['longitude'] as num?)?.toDouble() ??
+              (loc?['longitude'] as num?)?.toDouble() ??
+              0.0,
+        };
+      }).toList();
+    }
+
+    return [];
   }
 
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text(widget.schedule == null ? 'Create Route Schedule' : 'Edit Route Schedule'),
+      title: Text(widget.schedule == null
+          ? 'Create Route Schedule'
+          : 'Edit Route Schedule'),
       content: SingleChildScrollView(
         child: Form(
           key: _formKey,
@@ -445,15 +593,82 @@ class _RouteScheduleFormDialogState extends State<_RouteScheduleFormDialog> {
                 onChanged: (value) {
                   setState(() {
                     selectedBusId = value;
+                    selectedRouteId = null;
+                    selectedRouteName = null;
+                    availableRoutes = [];
                     if (value != null) {
                       final bus = widget.buses.firstWhere((b) => b.id == value);
-                      routeName = '${bus.busNo} - ${direction == 'pickup' ? 'Morning Pickup' : 'Afternoon Drop'}';
+                      routeName =
+                          '${bus.busNo} - ${direction == 'pickup' ? 'Morning Pickup' : 'Afternoon Drop'}';
                     }
                   });
+
+                  if (value != null) {
+                    _loadRoutesForBus(value);
+                  }
                 },
-                validator: (value) => value == null ? 'Please select a bus' : null,
+                validator: (value) =>
+                    value == null ? 'Please select a bus' : null,
               ),
               const SizedBox(height: 16),
+
+              // Route Selection (required when multiple routes exist for this bus)
+              if (selectedBusId != null) ...[
+                InputDecorator(
+                  decoration: const InputDecoration(
+                    labelText: 'Select Route',
+                    border: OutlineInputBorder(),
+                  ),
+                  child: isLoadingRoutes
+                      ? const SizedBox(
+                          height: 20,
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: SizedBox(
+                                width: 16,
+                                height: 16,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2)),
+                          ),
+                        )
+                      : DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            isExpanded: true,
+                            value: selectedRouteId,
+                            hint: Text(
+                              availableRoutes.length <= 1
+                                  ? (availableRoutes.isEmpty
+                                      ? 'No routes assigned to this bus'
+                                      : 'Route auto-selected')
+                                  : 'Choose a route',
+                            ),
+                            items: availableRoutes.map((doc) {
+                              final data = doc.data();
+                              final name = (data['routeName'] as String?) ??
+                                  'Unnamed Route';
+                              return DropdownMenuItem(
+                                value: doc.id,
+                                child: Text(name),
+                              );
+                            }).toList(),
+                            onChanged: availableRoutes.length <= 1
+                                ? null
+                                : (value) {
+                                    final doc = availableRoutes
+                                        .firstWhere((d) => d.id == value);
+                                    setState(() {
+                                      selectedRouteId = value;
+                                      selectedRouteName =
+                                          (doc.data()['routeName']
+                                                  as String?) ??
+                                              'Unnamed Route';
+                                    });
+                                  },
+                          ),
+                        ),
+                ),
+                const SizedBox(height: 16),
+              ],
 
               // Route Name
               TextFormField(
@@ -463,8 +678,9 @@ class _RouteScheduleFormDialogState extends State<_RouteScheduleFormDialog> {
                   border: OutlineInputBorder(),
                 ),
                 onChanged: (value) => routeName = value,
-                validator: (value) =>
-                    value == null || value.isEmpty ? 'Please enter route name' : null,
+                validator: (value) => value == null || value.isEmpty
+                    ? 'Please enter route name'
+                    : null,
               ),
               const SizedBox(height: 16),
 
@@ -476,15 +692,19 @@ class _RouteScheduleFormDialogState extends State<_RouteScheduleFormDialog> {
                   border: OutlineInputBorder(),
                 ),
                 items: const [
-                  DropdownMenuItem(value: 'pickup', child: Text('Pickup (Home → School)')),
-                  DropdownMenuItem(value: 'drop', child: Text('Drop (School → Home)')),
+                  DropdownMenuItem(
+                      value: 'pickup', child: Text('Pickup (Home → School)')),
+                  DropdownMenuItem(
+                      value: 'drop', child: Text('Drop (School → Home)')),
                 ],
                 onChanged: (value) {
                   setState(() {
                     direction = value!;
                     if (selectedBusId != null) {
-                      final bus = widget.buses.firstWhere((b) => b.id == selectedBusId);
-                      routeName = '${bus.busNo} - ${direction == 'pickup' ? 'Morning Pickup' : 'Afternoon Drop'}';
+                      final bus =
+                          widget.buses.firstWhere((b) => b.id == selectedBusId);
+                      routeName =
+                          '${bus.busNo} - ${direction == 'pickup' ? 'Morning Pickup' : 'Afternoon Drop'}';
                     }
                   });
                 },
@@ -492,7 +712,8 @@ class _RouteScheduleFormDialogState extends State<_RouteScheduleFormDialog> {
               const SizedBox(height: 16),
 
               // Days of Week
-              const Text('Active Days:', style: TextStyle(fontWeight: FontWeight.bold)),
+              const Text('Active Days:',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
               Wrap(
                 spacing: 8,
                 children: [
@@ -604,47 +825,106 @@ class _RouteScheduleFormDialogState extends State<_RouteScheduleFormDialog> {
 
     try {
       final bus = widget.buses.firstWhere((b) => b.id == selectedBusId);
-      
-      // Get stops from bus
-      List<Map<String, dynamic>> stops;
-      if (direction == 'pickup' && bus.stoppings.isNotEmpty) {
-        stops = bus.stoppings;
-      } else if (direction == 'drop' && bus.stoppings.isNotEmpty) {
-        stops = bus.stoppings.reversed.toList(); // Reverse for drop route
-      } else {
-        stops = [];
+
+      // Enforce route selection when multiple routes exist for this bus
+      if (availableRoutes.length > 1 &&
+          (selectedRouteId == null || selectedRouteId!.isEmpty)) {
+        Get.snackbar(
+          'Validation Error',
+          'Please select a route for this bus',
+          backgroundColor: Colors.red[100],
+          colorText: Colors.red[900],
+        );
+        return;
       }
+
+      // Get stops from selected route (preferred). Drop is derived by reversing pickup.
+      List<Map<String, dynamic>> pickupStops = [];
+      if (selectedRouteId != null && selectedRouteId!.isNotEmpty) {
+        final routeDoc = await FirebaseFirestore.instance
+            .collection('schooldetails')
+            .doc(widget.schoolId)
+            .collection('routes')
+            .doc(selectedRouteId)
+            .get();
+        final routeData = routeDoc.data();
+        if (routeData != null) {
+          pickupStops = _extractPickupStopsFromRouteDoc(routeData);
+          selectedRouteName ??=
+              (routeData['routeName'] as String?) ?? 'Unnamed Route';
+        }
+      }
+
+      // Backward-compatible fallback: use bus.stoppings if no route stops are available
+      if (pickupStops.isEmpty && bus.stoppings.isNotEmpty) {
+        pickupStops = bus.stoppings;
+      }
+
+      // Store stops in PICKUP order for both directions.
+      // The driver app derives DROP at runtime by reversing pickup order when tripDirection == 'drop'.
+      final List<Map<String, dynamic>> stops = pickupStops;
 
       final data = {
         'schoolId': widget.schoolId,
         'busId': bus.id,
         'busVehicleNo': bus.busVehicleNo,
         'routeName': routeName,
+        'routeRefId': selectedRouteId,
+        'routeRefName': selectedRouteName,
         'direction': direction,
         'daysOfWeek': selectedDays,
-        'startTime': '${startTime.hour.toString().padLeft(2, '0')}:${startTime.minute.toString().padLeft(2, '0')}',
-        'endTime': '${endTime.hour.toString().padLeft(2, '0')}:${endTime.minute.toString().padLeft(2, '0')}',
+        'startTime':
+            '${startTime.hour.toString().padLeft(2, '0')}:${startTime.minute.toString().padLeft(2, '0')}',
+        'endTime':
+            '${endTime.hour.toString().padLeft(2, '0')}:${endTime.minute.toString().padLeft(2, '0')}',
         'stops': stops,
         'routePolyline': bus.routePolyline,
         'isActive': isActive,
         'updatedAt': FieldValue.serverTimestamp(),
       };
 
+      String? scheduleId;
       if (widget.schedule == null) {
+        // Create new schedule in Firestore
         data['createdAt'] = FieldValue.serverTimestamp();
-        await FirebaseFirestore.instance
+        final docRef = await FirebaseFirestore.instance
             .collection('schools')
             .doc(widget.schoolId)
             .collection('route_schedules')
             .add(data);
+        scheduleId = docRef.id;
       } else {
+        // Update existing schedule in Firestore
+        scheduleId = widget.schedule!.id;
         await FirebaseFirestore.instance
             .collection('schools')
             .doc(widget.schoolId)
             .collection('route_schedules')
-            .doc(widget.schedule!.id)
+            .doc(scheduleId)
             .update(data);
       }
+
+      // Cache in RTDB for fast Cloud Function access (excluding FieldValue)
+      final cacheData = {
+        'schoolId': widget.schoolId,
+        'busId': bus.id,
+        'busVehicleNo': bus.busVehicleNo,
+        'routeName': routeName,
+        'routeRefId': selectedRouteId,
+        'routeRefName': selectedRouteName,
+        'direction': direction,
+        'daysOfWeek': selectedDays,
+        'startTime': data['startTime'],
+        'endTime': data['endTime'],
+        'stops': stops,
+        'routePolyline': bus.routePolyline,
+        'isActive': isActive,
+        'lastUpdated': ServerValue.timestamp,
+      };
+
+      await FirebaseDatabase.instance
+          .ref('route_schedules_cache/${widget.schoolId}/${bus.id}/$scheduleId')
+          .set(cacheData);
 
       Get.snackbar(
         'Success',

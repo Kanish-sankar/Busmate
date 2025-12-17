@@ -16,22 +16,33 @@ import 'package:permission_handler/permission_handler.dart';
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
 
-/// Background message handler
+/// Background message handler - Handles notifications when app is in background/terminated
+/// ✅ This handler is called for ALL FCM messages when app is not in foreground
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-
-  if (message.notification?.title == "Bus Approaching!") {
+  // Handle bus arrival notifications
+  if (message.data['type'] == 'bus_arrival') {
     String studentId = message.data['studentId'];
-    FirebaseFirestore.instance
-        .collection('notificationTimers')
-        .doc(studentId)
-        .update({
-      "smsSent": true,
-    });
-    // NotificationHelper.showCustomNotification(message);
+    String? selectedLanguage = message.data['selectedLanguage'];
+    // Update notification timer
+    try {
+      await FirebaseFirestore.instance
+          .collection('notificationTimers')
+          .doc(studentId)
+          .update({
+        "smsSent": true,
+      });
+    } catch (e) {
+    }
+    
+    // ✅ Show custom notification with language-specific voice
+    // This works for both Android and iOS in background
+    try {
+      await NotificationHelper.showCustomNotification(message);
+    } catch (e) {
+    }
   }
-  print('Background message: ${message.messageId}');
 }
 
 void main() async {

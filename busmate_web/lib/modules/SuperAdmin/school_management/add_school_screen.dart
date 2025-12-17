@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:busmate_web/modules/utils/uniqueness_check_controller.dart';
 
 class AddSchoolScreen extends StatefulWidget {
   const AddSchoolScreen({super.key});
@@ -35,9 +36,20 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> with TickerProviderSt
   final RxBool showPassword = false.obs;
   final RxBool showConfirmPassword = false.obs;
 
+  late final UniquenessCheckController adminEmailCheck;
+  late final String _adminEmailCheckTag;
+
   @override
   void initState() {
     super.initState();
+
+    _adminEmailCheckTag =
+        'createSchoolAdminEmail-${DateTime.now().millisecondsSinceEpoch}';
+    adminEmailCheck = Get.put(
+      UniquenessCheckController(UniquenessCheckType.firebaseAuthEmail),
+      tag: _adminEmailCheckTag,
+    );
+
     _animationController = AnimationController(
       duration: const Duration(milliseconds: 800),
       vsync: this,
@@ -57,6 +69,7 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> with TickerProviderSt
 
   @override
   void dispose() {
+    Get.delete<UniquenessCheckController>(tag: _adminEmailCheckTag, force: true);
     _animationController.dispose();
     schoolNameController.dispose();
     schoolCodeController.dispose();
@@ -73,6 +86,27 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> with TickerProviderSt
 
   Future<void> _submitForm() async {
     if (!_formKey.currentState!.validate()) return;
+
+    if (adminEmailCheck.isChecking.value) {
+      Get.snackbar(
+        'Please wait',
+        'Checking email availability...',
+        snackPosition: SnackPosition.TOP,
+      );
+      return;
+    }
+
+    if (adminEmailCheck.isTaken.value) {
+      Get.snackbar(
+        'Duplicate Email',
+        'This admin email already exists',
+        snackPosition: SnackPosition.TOP,
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+        icon: const Icon(Icons.error, color: Colors.white),
+      );
+      return;
+    }
     
     // Check if passwords match
     if (passwordController.text != confirmPasswordController.text) {
@@ -100,6 +134,13 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> with TickerProviderSt
       final schoolId = 'SCH${DateTime.now().millisecondsSinceEpoch}';
       final newAdminEmail = adminEmailController.text.trim();
       final newAdminPassword = passwordController.text;
+
+      // Guard: prevent creation if email already exists in Firebase Auth.
+      final methods = await FirebaseAuth.instance
+          .fetchSignInMethodsForEmail(newAdminEmail);
+      if (methods.isNotEmpty) {
+        throw Exception('Admin email already exists: $newAdminEmail');
+      }
       
       // 1. Create school document in schooldetails collection
       await FirebaseFirestore.instance.collection('schooldetails').doc(schoolId).set({
@@ -691,22 +732,39 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> with TickerProviderSt
             Row(
               children: [
                 Expanded(
-                  child: _buildTextField(
-                    controller: adminEmailController,
-                    label: 'Admin Email *',
-                    hint: 'admin@example.com',
-                    icon: Icons.email_outlined,
-                    keyboardType: TextInputType.emailAddress,
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Please enter admin email';
-                      }
-                      if (!GetUtils.isEmail(value)) {
-                        return 'Please enter a valid email';
-                      }
-                      return null;
-                    },
-                  ),
+                  child: Obx(() => _buildTextField(
+                        controller: adminEmailController,
+                        label: 'Admin Email *',
+                        hint: 'admin@example.com',
+                        icon: Icons.email_outlined,
+                        keyboardType: TextInputType.emailAddress,
+                        onChanged: (v) => adminEmailCheck.onValueChanged(v),
+                        suffixIcon: adminEmailCheck.isChecking.value
+                            ? const Padding(
+                                padding: EdgeInsets.all(12),
+                                child: SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                ),
+                              )
+                            : (adminEmailCheck.isTaken.value
+                                ? const Icon(Icons.error_outline, color: Colors.red)
+                                : null),
+                        errorText: adminEmailCheck.isTaken.value ? 'Email already exists' : null,
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Please enter admin email';
+                          }
+                          if (!GetUtils.isEmail(value)) {
+                            return 'Please enter a valid email';
+                          }
+                          if (adminEmailCheck.isTaken.value) {
+                            return 'Email already exists';
+                          }
+                          return null;
+                        },
+                      )),
                 ),
                 const SizedBox(width: 20),
                 Expanded(
@@ -826,6 +884,8 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> with TickerProviderSt
     bool obscureText = false,
     int maxLines = 1,
     Widget? suffixIcon,
+    ValueChanged<String>? onChanged,
+    String? errorText,
     String? Function(String?)? validator,
   }) {
     return Column(
@@ -846,11 +906,13 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> with TickerProviderSt
           obscureText: obscureText,
           maxLines: maxLines,
           validator: validator,
+          onChanged: onChanged,
           decoration: InputDecoration(
             hintText: hint,
             hintStyle: TextStyle(color: Colors.grey[400]),
             prefixIcon: Icon(icon, color: Colors.grey[600], size: 22),
             suffixIcon: suffixIcon,
+            errorText: errorText,
             filled: true,
             fillColor: Colors.grey[50],
             border: OutlineInputBorder(

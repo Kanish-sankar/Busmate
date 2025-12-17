@@ -1,16 +1,19 @@
 import 'package:busmate_web/modules/SchoolAdmin/bus_management/bus_management_controller.dart';
 import 'package:busmate_web/modules/SchoolAdmin/bus_management/bus_model.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'dart:convert';
-import 'package:crypto/crypto.dart';
+import 'package:busmate_web/modules/utils/uniqueness_check_controller.dart';
 import 'student_controller.dart';
 import 'student_model.dart';
 
 class AddStudentScreenUpgraded extends StatelessWidget {
   late final StudentController studentController;
   late final BusController busController;
+  late final UniquenessCheckController credentialCheck;
 
   final _formKey = GlobalKey<FormState>();
 
@@ -24,10 +27,13 @@ class AddStudentScreenUpgraded extends StatelessWidget {
   final TextEditingController stoppingController = TextEditingController();
 
   final RxString selectedBusId = ''.obs;
+  final RxString selectedRouteId = ''.obs;
+  final RxString selectedRouteName = ''.obs;
   final RxInt notificationPreferenceByTime = 10.obs;
   final RxString notificationType = 'Voice Notification'.obs;
   final RxString language = 'English'.obs;
   final RxList<String> locationOptions = <String>[].obs;
+  final RxList<Map<String, dynamic>> routeOptions = <Map<String, dynamic>>[].obs; // [{id,name}]
 
   final bool isEdit;
   final Student? student;
@@ -52,6 +58,20 @@ class AddStudentScreenUpgraded extends StatelessWidget {
       busController = Get.put(BusController(), tag: effectiveSchoolId);
     }
 
+    final credentialTag = 'studentCredential-$effectiveSchoolId-${student?.id ?? 'new'}';
+    if (Get.isRegistered<UniquenessCheckController>(tag: credentialTag)) {
+      credentialCheck = Get.find<UniquenessCheckController>(tag: credentialTag);
+    } else {
+      credentialCheck = Get.put(
+        UniquenessCheckController(
+          UniquenessCheckType.adminusersEmailOrPhone,
+          schoolId: effectiveSchoolId,
+          authTypeGetter: () => 'email',
+        ),
+        tag: credentialTag,
+      );
+    }
+
     // Set schoolId and fetch buses
     if (schoolId.isNotEmpty) {
       studentController.schoolId = schoolId;
@@ -64,17 +84,104 @@ class AddStudentScreenUpgraded extends StatelessWidget {
             .firstWhereOrNull((bus) => bus.id == student!.assignedBusId);
         if (bus != null) {
           selectedBusId.value = bus.id;
-          locationOptions.value =
-              bus.stoppings.map((stop) => stop['name'] as String).toList();
+          // Initialize selected route if present
+          selectedRouteId.value = (student!.assignedRouteId ?? '');
+          selectedRouteName.value = (student!.assignedRouteName ?? '');
+          _loadRoutesAndStopsForBus(bus.id);
         }
       }
+    }
+  }
+
+  Future<void> _loadRoutesAndStopsForBus(String busId) async {
+    try {
+      // Load routes assigned to this bus
+      final snapshot = await FirebaseFirestore.instance
+          .collection('schooldetails')
+          .doc(schoolId)
+          .collection('routes')
+          .where('assignedBusId', isEqualTo: busId)
+          .get();
+
+      final routes = snapshot.docs
+          .map((d) => {
+                'id': d.id,
+                'name': (d.data()['routeName'] as String?) ?? 'Unnamed Route',
+                'data': d.data(),
+              })
+          .toList();
+
+      routeOptions.value = routes;
+
+      // Auto-select if exactly one route and none selected
+      if (routeOptions.length == 1 && selectedRouteId.value.isEmpty) {
+        selectedRouteId.value = routeOptions.first['id'] as String;
+        selectedRouteName.value = routeOptions.first['name'] as String;
+      }
+
+      await _loadStopsForSelectedRoute();
+    } catch (e) {
+      routeOptions.clear();
+      locationOptions.clear();
+    }
+  }
+
+  List<String> _extractStopNamesFromRoute(Map<String, dynamic> routeData) {
+    final upStopsRaw = routeData['upStops'] as List<dynamic>?;
+    if (upStopsRaw != null && upStopsRaw.isNotEmpty) {
+      return upStopsRaw
+          .where((s) => (s is Map<String, dynamic>) && (s['isWaypoint'] != true))
+          .map((s) => (s as Map<String, dynamic>)['name']?.toString() ?? '')
+          .where((n) => n.isNotEmpty)
+          .toList();
+    }
+
+    final legacyStops = routeData['stops'] as List<dynamic>?;
+    if (legacyStops != null && legacyStops.isNotEmpty) {
+      return legacyStops
+          .map((s) => (s as Map<String, dynamic>)['name']?.toString() ?? '')
+          .where((n) => n.isNotEmpty)
+          .toList();
+    }
+
+    return [];
+  }
+
+  Future<void> _loadStopsForSelectedRoute() async {
+    locationOptions.clear();
+
+    if (selectedRouteId.value.isEmpty) {
+      return;
+    }
+
+    try {
+      final routeDoc = await FirebaseFirestore.instance
+          .collection('schooldetails')
+          .doc(schoolId)
+          .collection('routes')
+          .doc(selectedRouteId.value)
+          .get();
+
+      final data = routeDoc.data();
+      if (data == null) {
+        return;
+      }
+
+      selectedRouteName.value = (data['routeName'] as String?) ?? selectedRouteName.value;
+      locationOptions.value = _extractStopNamesFromRoute(data);
+    } catch (e) {
+      locationOptions.clear();
     }
   }
 
   Future<void> _saveStudent() async {
     if (_formKey.currentState!.validate()) {
       try {
+        final String credential = credentialController.text.trim();
+        final String password = passwordController.text.trim();
+
         if (isEdit && student != null) {
+          // EDITING EXISTING STUDENT
           // Get driver ID from the selected bus if bus has a driver
           String? driverId;
           if (selectedBusId.value.isNotEmpty) {
@@ -85,20 +192,11 @@ class AddStudentScreenUpgraded extends StatelessWidget {
             }
           }
           
-          // Check if password was changed
-          String finalPassword = student!.password; // Keep old password by default
-          if (passwordController.text.isNotEmpty && passwordController.text != student!.password) {
-            // Password was changed, hash it locally
-            final bytes = utf8.encode(passwordController.text);
-            final digest = sha256.convert(bytes);
-            finalPassword = digest.toString();
-          }
-          
-          // Update existing student
+          // Update existing student (no password in Student model anymore)
           final updatedStudent = Student(
             id: student!.id,
-            email: credentialController.text.trim(),
-            password: finalPassword, // Use hashed password
+            email: credential,
+            password: '', // Password no longer stored
             name: nameController.text.trim(),
             rollNumber: rollNumberController.text.trim(),
             studentClass: classController.text.trim(),
@@ -110,34 +208,35 @@ class AddStudentScreenUpgraded extends StatelessWidget {
             languagePreference: language.value,
             assignedBusId:
                 selectedBusId.value.isNotEmpty ? selectedBusId.value : null,
-            assignedDriverId: driverId, // Automatically assign driver from bus
+            assignedRouteId:
+              selectedRouteId.value.isNotEmpty ? selectedRouteId.value : null,
+            assignedRouteName:
+              selectedRouteName.value.isNotEmpty ? selectedRouteName.value : null,
+            assignedDriverId: driverId,
             schoolId: schoolId,
           );
           await studentController.updateStudent(student!.id, updatedStudent);
           
-          // Also update in adminusers collection for mobile app
+          // Update metadata in adminusers (no password)
+          final adminUpdate = <String, dynamic>{
+            'email': credential,
+            'name': nameController.text.trim(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          };
+
           await FirebaseFirestore.instance
               .collection('adminusers')
               .doc(student!.id)
-              .update({
-            'email': credentialController.text.trim(),
-            'password': finalPassword,
-            'name': nameController.text.trim(),
-            'updatedAt': FieldValue.serverTimestamp(),
-          });
+              .update(adminUpdate);
           
           // Handle bus assignment changes
           final oldBusId = student!.assignedBusId;
           final newBusId = selectedBusId.value.isNotEmpty ? selectedBusId.value : null;
           
-          // If bus changed, update the bus student lists
           if (oldBusId != newBusId) {
-            // Remove from old bus if there was one
             if (oldBusId != null && oldBusId.isNotEmpty) {
               await busController.removeStudentFromBus(oldBusId, student!.id);
             }
-            
-            // Add to new bus if there is one
             if (newBusId != null && newBusId.isNotEmpty) {
               await busController.addStudentToBus(newBusId, student!.id);
             }
@@ -151,19 +250,56 @@ class AddStudentScreenUpgraded extends StatelessWidget {
             snackPosition: SnackPosition.BOTTOM,
           );
         } else {
-          // Register new student - NO Firebase Auth, direct Firestore storage
-          String credential = credentialController.text.trim();
-          String password = passwordController.text;
+          // CREATING NEW STUDENT with Firebase Authentication
           
-          // Hash the password locally using SHA-256
-          final bytes = utf8.encode(password);
-          final digest = sha256.convert(bytes);
-          String hashedPassword = digest.toString();
+          // Check if email already exists
+          final existingQuery = FirebaseFirestore.instance
+              .collection('adminusers')
+              .where('email', isEqualTo: credential)
+              .where('schoolId', isEqualTo: schoolId)
+              .limit(1);
 
-          // Generate a unique student ID (Firestore will create it)
-          String studentUid = studentController.studentCollection.doc().id;
+          final existingDocs = await existingQuery.get();
+          if (existingDocs.docs.isNotEmpty) {
+            Get.snackbar(
+              'Duplicate Email',
+              'This email is already registered: "$credential"',
+              backgroundColor: Colors.red[100],
+              colorText: Colors.red[900],
+              snackPosition: SnackPosition.BOTTOM,
+            );
+            return;
+          }
 
-          // Get driver ID from the selected bus if bus has a driver
+          // Show loading
+          Get.dialog(
+            const Center(child: CircularProgressIndicator()),
+            barrierDismissible: false,
+          );
+
+          // Create Firebase Auth account using secondary app
+          final secondaryApp = await Firebase.initializeApp(
+            name: 'SecondaryApp-${DateTime.now().millisecondsSinceEpoch}',
+            options: Firebase.app().options,
+          );
+
+          late final String studentUid;
+          try {
+            final secondaryAuth = FirebaseAuth.instanceFor(app: secondaryApp);
+            
+            // Create with email/password
+            final userCredential = await secondaryAuth.createUserWithEmailAndPassword(
+              email: credential,
+              password: password,
+            );
+            
+            studentUid = userCredential.user!.uid;
+            await secondaryAuth.signOut();
+          } finally {
+            await secondaryApp.delete();
+          }
+
+          // Get driver ID from the selected bus
           String? driverId;
           if (selectedBusId.value.isNotEmpty) {
             final selectedBus = busController.buses
@@ -173,10 +309,11 @@ class AddStudentScreenUpgraded extends StatelessWidget {
             }
           }
 
+          // Create student metadata doc (no password)
           final newStudent = Student(
             id: studentUid,
-            email: credential, // Store credential (can be anything - roll number, phone, etc.)
-            password: hashedPassword, // Store HASHED password, never plain text!
+            email: credential,
+            password: '', // No password stored
             name: nameController.text.trim(),
             rollNumber: rollNumberController.text.trim(),
             studentClass: classController.text.trim(),
@@ -188,25 +325,40 @@ class AddStudentScreenUpgraded extends StatelessWidget {
             languagePreference: language.value,
             assignedBusId:
                 selectedBusId.value.isNotEmpty ? selectedBusId.value : null,
-            assignedDriverId: driverId, // Automatically assign driver from bus
+            assignedRouteId:
+              selectedRouteId.value.isNotEmpty ? selectedRouteId.value : null,
+            assignedRouteName:
+              selectedRouteName.value.isNotEmpty ? selectedRouteName.value : null,
+            assignedDriverId: driverId,
             schoolId: schoolId,
           );
 
           await studentController.addStudent(newStudent);
 
-          // Also save to adminusers collection for mobile app authentication
-          await FirebaseFirestore.instance
-              .collection('adminusers')
-              .doc(studentUid)
-              .set({
-            'email': credential,
-            'password': hashedPassword,
+          // Create adminusers doc for custom claims (NO PASSWORD)
+          final adminUserData = <String, dynamic>{
             'role': 'student',
             'schoolId': schoolId,
             'studentId': studentUid,
             'name': nameController.text.trim(),
+            'email': credential,
             'createdAt': FieldValue.serverTimestamp(),
-          });
+          };
+
+          await FirebaseFirestore.instance
+              .collection('adminusers')
+              .doc(studentUid)
+              .set(adminUserData);
+
+          // Set custom claims via Cloud Function
+          try {
+            final callable = FirebaseFunctions.instance.httpsCallable('setUserClaims');
+            await callable.call({'uid': studentUid});
+            print('✅ Custom claims set for student: $studentUid');
+          } catch (claimsError) {
+            print('⚠️ Failed to set custom claims (non-critical): $claimsError');
+            // Continue - user can still login, claims will be set on first login
+          }
 
           // Add student to bus
           if (selectedBusId.value.isNotEmpty) {
@@ -214,15 +366,17 @@ class AddStudentScreenUpgraded extends StatelessWidget {
                 selectedBusId.value, newStudent.id);
           }
 
+          Get.back(); // Close loading dialog
+          Get.back(); // Close form
+
           Get.snackbar(
             'Success',
-            'Student added successfully',
+            'Student created successfully. Email: $credential',
             backgroundColor: Colors.green[100],
             colorText: Colors.green[900],
             snackPosition: SnackPosition.BOTTOM,
           );
         }
-        Get.back();
       } catch (e, stackTrace) {
         // Close loading dialog if it's still open
         if (Get.isDialogOpen ?? false) {
@@ -234,7 +388,7 @@ class AddStudentScreenUpgraded extends StatelessWidget {
         
         Get.snackbar(
           'Error',
-          'Failed to save student: $e',
+          'Failed to save student: ${e.toString()}',
           backgroundColor: Colors.red[100],
           colorText: Colors.red[900],
           snackPosition: SnackPosition.BOTTOM,
@@ -323,11 +477,12 @@ class AddStudentScreenUpgraded extends StatelessWidget {
 
       if (student!.assignedBusId?.isNotEmpty == true) {
         selectedBusId.value = student!.assignedBusId!;
-        final bus = busController.buses
-            .firstWhereOrNull((bus) => bus.id == student!.assignedBusId);
-        if (bus != null) {
-          locationOptions.value =
-              bus.stoppings.map((stop) => stop['name'] as String).toList();
+        selectedRouteId.value = student!.assignedRouteId ?? '';
+        selectedRouteName.value = student!.assignedRouteName ?? '';
+
+        // Load routes/stops (best-effort; avoid blocking build)
+        if (routeOptions.isEmpty) {
+          Future.microtask(() => _loadRoutesAndStopsForBus(selectedBusId.value));
         }
       }
 
@@ -431,33 +586,61 @@ class AddStudentScreenUpgraded extends StatelessWidget {
               _buildSectionCard(
                 title: 'Login Credentials',
                 children: [
-                  TextFormField(
-                    controller: credentialController,
-                    decoration: InputDecoration(
-                      labelText: 'Credential (Email/Phone/Roll No/Code)',
-                      hintText: 'Enter any unique identifier',
-                      prefixIcon: const Icon(Icons.badge),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      filled: true,
-                      fillColor: Colors.grey[50],
-                      helperText: 'Can be email, phone number, roll number, or any unique code',
-                      helperMaxLines: 2,
-                    ),
-                    validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
-                        return 'Credential is required';
-                      }
-                      return null;
-                    },
-                  ),
+                  Obx(() => TextFormField(
+                        controller: credentialController,
+                        keyboardType: TextInputType.emailAddress,
+                        onChanged: (v) => credentialCheck.onValueChanged(
+                          v,
+                          excludeDocId: (isEdit && student != null) ? student!.id : null,
+                        ),
+                        decoration: InputDecoration(
+                          labelText: 'Email Address',
+                          hintText: 'Enter email address',
+                          prefixIcon: const Icon(Icons.email),
+                          suffixIcon: credentialCheck.isChecking.value
+                              ? const Padding(
+                                  padding: EdgeInsets.all(12),
+                                  child: SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  ),
+                                )
+                              : (credentialCheck.isTaken.value
+                                  ? const Icon(Icons.error_outline, color: Colors.red)
+                                  : (credentialController.text.trim().isNotEmpty
+                                      ? const Icon(Icons.check_circle, color: Colors.green)
+                                      : null)),
+                          errorText: credentialCheck.isTaken.value
+                              ? 'This email is already registered'
+                              : null,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          filled: true,
+                          fillColor: Colors.grey[50],
+                          helperText: 'Student will login using this email',
+                          helperMaxLines: 2,
+                        ),
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Email is required';
+                          }
+                          if (credentialCheck.isTaken.value) {
+                            return 'This email is already registered';
+                          }
+                          if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
+                            return 'Please enter a valid email address';
+                          }
+                          return null;
+                        },
+                      )),
                   const SizedBox(height: 16),
                   Obx(() => TextFormField(
                         controller: passwordController,
                         decoration: InputDecoration(
                           labelText: 'Password',
-                          hintText: 'Enter password',
+                          hintText: 'Enter password (min 6 characters)',
                           prefixIcon: const Icon(Icons.lock),
                           suffixIcon: IconButton(
                             icon: Icon(
@@ -474,7 +657,7 @@ class AddStudentScreenUpgraded extends StatelessWidget {
                           ),
                           filled: true,
                           fillColor: Colors.grey[50],
-                          helperText: 'Can be numbers, letters, DOB, or any combination',
+                          helperText: 'Student will login using this password.',
                           helperMaxLines: 2,
                         ),
                         obscureText: !passwordVisible.value,
@@ -619,19 +802,17 @@ class AddStudentScreenUpgraded extends StatelessWidget {
                           selectedBusId.value = value;
                           stoppingController.text = '';
 
-                          try {
-                            final selectedBus = busController.buses
-                                .firstWhere((bus) => bus.id == value);
-                            locationOptions.value = selectedBus.stoppings
-                                .map((stop) => stop['name'] as String)
-                                .toList()
-                                .cast<String>();
-                          } catch (e) {
-                            locationOptions.clear();
-                            Get.snackbar('Error', 'Failed to fetch stoppings: $e');
-                          }
+                          selectedRouteId.value = '';
+                          selectedRouteName.value = '';
+                          routeOptions.clear();
+                          locationOptions.clear();
+
+                          await _loadRoutesAndStopsForBus(value);
                         } else {
                           selectedBusId.value = '';
+                          selectedRouteId.value = '';
+                          selectedRouteName.value = '';
+                          routeOptions.clear();
                           locationOptions.clear();
                         }
                       },
@@ -644,6 +825,66 @@ class AddStudentScreenUpgraded extends StatelessWidget {
                     );
                   }),
                   const SizedBox(height: 16),
+
+                  // Route selection (required when multiple routes exist)
+                  Obx(() {
+                    if (selectedBusId.value.isEmpty) {
+                      return const SizedBox.shrink();
+                    }
+
+                    if (routeOptions.isEmpty) {
+                      return TextFormField(
+                        enabled: false,
+                        decoration: InputDecoration(
+                          labelText: 'Route',
+                          hintText: 'No routes assigned to this bus',
+                          prefixIcon: const Icon(Icons.route),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          filled: true,
+                          fillColor: Colors.grey[50],
+                        ),
+                      );
+                    }
+
+                    return DropdownButtonFormField<String>(
+                      decoration: InputDecoration(
+                        labelText: 'Route',
+                        prefixIcon: const Icon(Icons.route),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        filled: true,
+                        fillColor: Colors.grey[50],
+                      ),
+                      value: selectedRouteId.value.isNotEmpty ? selectedRouteId.value : null,
+                      items: routeOptions.map((r) {
+                        return DropdownMenuItem<String>(
+                          value: r['id'] as String,
+                          child: Text(r['name'] as String),
+                        );
+                      }).toList(),
+                      onChanged: routeOptions.length <= 1
+                          ? null
+                          : (value) async {
+                              if (value == null) return;
+                              selectedRouteId.value = value;
+                              final selected = routeOptions.firstWhere((r) => r['id'] == value);
+                              selectedRouteName.value = selected['name'] as String;
+                              stoppingController.text = '';
+                              await _loadStopsForSelectedRoute();
+                            },
+                      validator: (value) {
+                        if (routeOptions.length > 1 && (value == null || value.isEmpty)) {
+                          return 'Please select a route';
+                        }
+                        return null;
+                      },
+                    );
+                  }),
+                  const SizedBox(height: 16),
+
                   Obx(() {
                     final items = locationOptions.map((location) {
                       return DropdownMenuItem(
@@ -657,7 +898,11 @@ class AddStudentScreenUpgraded extends StatelessWidget {
                         controller: stoppingController,
                         decoration: InputDecoration(
                           labelText: 'Stopping',
-                          hintText: 'Select a bus first',
+                          hintText: selectedBusId.value.isEmpty
+                              ? 'Select a bus first'
+                              : (routeOptions.length > 1 && selectedRouteId.value.isEmpty)
+                                  ? 'Select a route first'
+                                  : 'No stops available',
                           prefixIcon: const Icon(Icons.location_on),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(8),
@@ -796,34 +1041,36 @@ class AddStudentScreenUpgraded extends StatelessWidget {
               SizedBox(
                 width: double.infinity,
                 height: 50,
-                child: ElevatedButton(
-                  onPressed: _saveStudent,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green[700],
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    elevation: 2,
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        isEdit ? Icons.update : Icons.add,
-                        color: Colors.white,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        isEdit ? 'Update Student' : 'Add Student',
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white,
+                child: Obx(() => ElevatedButton(
+                      onPressed: (credentialCheck.isChecking.value || credentialCheck.isTaken.value)
+                          ? null
+                          : _saveStudent,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green[700],
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
                         ),
+                        elevation: 2,
                       ),
-                    ],
-                  ),
-                ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            isEdit ? Icons.update : Icons.add,
+                            color: Colors.white,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            isEdit ? 'Update Student' : 'Add Student',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )),
               ),
               const SizedBox(height: 24),
             ],

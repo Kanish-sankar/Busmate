@@ -72,43 +72,54 @@ class StopLocation extends GetView<StoplocationController> {
                                   controller.locationLength.value,
                                   (i) => SearchableDropdownMenuItem(
                                     value: i,
-                                    label: controller.busDetail.value
-                                            ?.stoppings[i].name ??
-                                        '',
+                                    label: (controller.availableStops.isNotEmpty
+                                        ? controller.availableStops[i].name
+                                        : (controller.busDetail.value
+                                                ?.stoppings[i].name ??
+                                            '')),
                                     child: Text(
-                                        controller.busDetail.value?.stoppings[i]
-                                                .name ??
-                                            '',
+                                        controller.availableStops.isNotEmpty
+                                            ? controller.availableStops[i].name
+                                            : (controller.busDetail.value
+                                                    ?.stoppings[i].name ??
+                                                ''),
                                         style: size12TextStyle()),
                                   ),
                                 ),
                                 onChanged: (int? value) async {
                                   if (value != null) {
-                                    final studentId = GetStorage().read('studentId');
-                                    final schoolId = GetStorage().read('studentSchoolId');
-                                    
+                                    final studentId =
+                                        GetStorage().read('studentId');
+                                    final schoolId =
+                                        GetStorage().read('studentSchoolId');
+
                                     if (studentId != null && schoolId != null) {
                                       // Check which collection has the student
-                                      DocumentSnapshot schoolsDoc = await FirebaseFirestore.instance
-                                          .collection('schools')
-                                          .doc(schoolId)
-                                          .collection('students')
-                                          .doc(studentId)
-                                          .get();
-                                      
+                                      DocumentSnapshot schoolsDoc =
+                                          await FirebaseFirestore.instance
+                                              .collection('schools')
+                                              .doc(schoolId)
+                                              .collection('students')
+                                              .doc(studentId)
+                                              .get();
+
+                                      final stop =
+                                          controller.availableStops.isNotEmpty
+                                              ? controller.availableStops[value]
+                                              : controller.busDetail.value!
+                                                  .stoppings[value];
+
                                       final updateData = {
-                                        'stopping': controller.busDetail.value!
-                                            .stoppings[value].name,
+                                        'stopping': stop.name,
                                         'stopLocation': {
-                                          'latitude': controller.busDetail.value!
-                                              .stoppings[value].latitude,
-                                          'longitude': controller.busDetail.value!
-                                              .stoppings[value].longitude,
+                                          'latitude': stop.latitude,
+                                          'longitude': stop.longitude,
                                         }
                                       };
-                                      
+
                                       if (schoolsDoc.exists) {
-                                        await schoolsDoc.reference.update(updateData);
+                                        await schoolsDoc.reference
+                                            .update(updateData);
                                       } else {
                                         await FirebaseFirestore.instance
                                             .collection('schooldetails')

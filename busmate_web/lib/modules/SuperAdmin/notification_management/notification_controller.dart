@@ -11,6 +11,15 @@ class NotificationController extends GetxController {
   final RxList<NotificationModel> notifications = <NotificationModel>[].obs;
   final RxBool isLoading = false.obs;
 
+  Future<String> _requireIdToken() async {
+    final firebaseUser = Get.find<AuthController>().user.value;
+    final idToken = await firebaseUser?.getIdToken();
+    if (idToken == null || idToken.isEmpty) {
+      throw Exception('Not authenticated');
+    }
+    return idToken;
+  }
+
   @override
   void onInit() {
     super.onInit();
@@ -91,6 +100,7 @@ class NotificationController extends GetxController {
       String schoolId, String title, String body) async {
     final url = Uri.parse('https://notifyallstudents-gnxzq4evda-uc.a.run.app');
     try {
+      final idToken = await _requireIdToken();
       final requestBody = {
         "schoolId": schoolId,
         "title": title,
@@ -99,7 +109,10 @@ class NotificationController extends GetxController {
       print('Sending to notifyAllStudents: $requestBody');
       final response = await http.post(
         url,
-        headers: {'Content-Type': 'application/json'},
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $idToken',
+        },
         body: json.encode(requestBody),
       );
       print(
@@ -119,6 +132,7 @@ class NotificationController extends GetxController {
       String schoolId, String title, String body) async {
     final url = Uri.parse('https://notifyalldrivers-gnxzq4evda-uc.a.run.app');
     try {
+      final idToken = await _requireIdToken();
       final requestBody = {
         "schoolId": schoolId,
         "title": title,
@@ -127,7 +141,10 @@ class NotificationController extends GetxController {
       print('Sending to notifyAllDrivers: $requestBody');
       final response = await http.post(
         url,
-        headers: {'Content-Type': 'application/json'},
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $idToken',
+        },
         body: json.encode(requestBody),
       );
       print(

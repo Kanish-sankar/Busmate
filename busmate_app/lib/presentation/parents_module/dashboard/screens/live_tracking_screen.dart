@@ -34,7 +34,6 @@ class LiveTrackingScreen extends GetView<DashboardController> {
   Widget build(BuildContext context) {
     return GetBuilder<DashboardController>(
       builder: (controller) {
-        log("Remaining stops: ${controller.busStatus.value?.remainingStops.length.toString() ?? "0"}");
         return SafeArea(
           child: Scaffold(
             backgroundColor:
@@ -73,110 +72,124 @@ class LiveTrackingScreen extends GetView<DashboardController> {
                                 children: [
                                   Obx(
                                     () {
-                                      final busStatus = controller.busStatus.value;
-                                      final status = busStatus?.currentStatus ?? "InActive";
-                                      
+                                      final busStatus =
+                                          controller.busStatus.value;
+                                      final status = busStatus?.currentStatus ??
+                                          "InActive";
+
                                       // Check if bus is truly online (not stale data > 5 minutes)
                                       bool isActuallyOnline = false;
                                       if (busStatus != null) {
                                         final now = DateTime.now();
-                                        final difference = now.difference(busStatus.lastUpdated);
-                                        isActuallyOnline = difference.inMinutes < 5;
+                                        final difference = now
+                                            .difference(busStatus.lastUpdated);
+                                        isActuallyOnline =
+                                            difference.inMinutes < 5;
                                       }
-                                      
-                                      final isActive = isActuallyOnline && (status.toLowerCase() == 'moving' || status == 'Active');
+
+                                      // Use trip-aware active check: bus is active only if running student's trip
+                                      final isActive = isActuallyOnline &&
+                                          controller.isBusActiveForStudent;
                                       return Container(
-                                      width: 60.w,
-                                      height: 30.h,
-                                      decoration: BoxDecoration(
-                                        color: isActive
-                                            ? Colors.white
-                                            : Colors.grey,
-                                        borderRadius: BorderRadius.only(
-                                          topLeft: Radius.circular(20.r),
-                                          bottomLeft: Radius.circular(20.r),
-                                        ),
-                                        border: Border.all(
+                                        width: 60.w,
+                                        height: 30.h,
+                                        decoration: BoxDecoration(
                                           color: isActive
-                                              ? AppColors.yellow
-                                              : AppColors.shadow,
-                                          width: 2,
+                                              ? Colors.white
+                                              : Colors.grey,
+                                          borderRadius: BorderRadius.only(
+                                            topLeft: Radius.circular(20.r),
+                                            bottomLeft: Radius.circular(20.r),
+                                          ),
+                                          border: Border.all(
+                                            color: isActive
+                                                ? AppColors.yellow
+                                                : AppColors.shadow,
+                                            width: 2,
+                                          ),
                                         ),
-                                      ),
-                                      child: SingleChildScrollView(
-                                        scrollDirection: Axis.horizontal,
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(
-                                              Icons.circle,
-                                              color: Colors
-                                                  .green, // Fixed green color for active
-                                              size: 10.sp,
-                                            ),
-                                            SizedBox(width: 2.w),
-                                            Text(
-                                              "active".tr,
-                                              style: TextStyle(fontSize: 12.sp),
-                                            )
-                                          ],
+                                        child: SingleChildScrollView(
+                                          scrollDirection: Axis.horizontal,
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Icons.circle,
+                                                color: Colors
+                                                    .green, // Fixed green color for active
+                                                size: 10.sp,
+                                              ),
+                                              SizedBox(width: 2.w),
+                                              Text(
+                                                "active".tr,
+                                                style:
+                                                    TextStyle(fontSize: 12.sp),
+                                              )
+                                            ],
+                                          ),
                                         ),
-                                      ),
-                                    );
+                                      );
                                     },
                                   ),
                                   Obx(
                                     () {
-                                      final busStatus = controller.busStatus.value;
-                                      final status = busStatus?.currentStatus ?? "InActive";
-                                      
+                                      final busStatus =
+                                          controller.busStatus.value;
+                                      final status = busStatus?.currentStatus ??
+                                          "InActive";
+
                                       // Check if bus is truly online (not stale data > 5 minutes)
                                       bool isActuallyOnline = false;
                                       if (busStatus != null) {
                                         final now = DateTime.now();
-                                        final difference = now.difference(busStatus.lastUpdated);
-                                        isActuallyOnline = difference.inMinutes < 5;
+                                        final difference = now
+                                            .difference(busStatus.lastUpdated);
+                                        isActuallyOnline =
+                                            difference.inMinutes < 5;
                                       }
-                                      
-                                      final isActive = isActuallyOnline && (status.toLowerCase() == 'moving' || status == 'Active');
+
+                                      // Use trip-aware active check: bus is active only if running student's trip
+                                      final isActive = isActuallyOnline &&
+                                          controller.isBusActiveForStudent;
                                       return Container(
-                                      width: 64.w,
-                                      height: 30.h,
-                                      decoration: BoxDecoration(
-                                        color: !isActive
-                                            ? Colors.white
-                                            : Colors.grey,
-                                        borderRadius: BorderRadius.only(
-                                          topRight: Radius.circular(20.r),
-                                          bottomRight: Radius.circular(20.r),
-                                        ),
-                                        border: Border.all(
+                                        width: 64.w,
+                                        height: 30.h,
+                                        decoration: BoxDecoration(
                                           color: !isActive
-                                              ? AppColors.yellow
-                                              : AppColors.shadow,
-                                          width: 2,
+                                              ? Colors.white
+                                              : Colors.grey,
+                                          borderRadius: BorderRadius.only(
+                                            topRight: Radius.circular(20.r),
+                                            bottomRight: Radius.circular(20.r),
+                                          ),
+                                          border: Border.all(
+                                            color: !isActive
+                                                ? AppColors.yellow
+                                                : AppColors.shadow,
+                                            width: 2,
+                                          ),
                                         ),
-                                      ),
-                                      child: SingleChildScrollView(
-                                        scrollDirection: Axis.horizontal,
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(
-                                              Icons.circle,
-                                              color: Colors
-                                                  .red, // Fixed red color for inactive
-                                              size: 10.sp,
-                                            ),
-                                            SizedBox(width: 2.w),
-                                            Text(
-                                              "inactive".tr,
-                                              style: TextStyle(fontSize: 12.sp),
-                                            ),
-                                          ],
+                                        child: SingleChildScrollView(
+                                          scrollDirection: Axis.horizontal,
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Icons.circle,
+                                                color: Colors
+                                                    .red, // Fixed red color for inactive
+                                                size: 10.sp,
+                                              ),
+                                              SizedBox(width: 2.w),
+                                              Text(
+                                                "inactive".tr,
+                                                style:
+                                                    TextStyle(fontSize: 12.sp),
+                                              ),
+                                            ],
+                                          ),
                                         ),
-                                      ),
-                                    );
+                                      );
                                     },
                                   ),
                                 ],
@@ -201,11 +214,19 @@ class LiveTrackingScreen extends GetView<DashboardController> {
                       child: Obx(() {
                         final status = controller.busStatus.value;
                         final busDetail = controller.busDetail.value;
-                        
+                        final currentStops =
+                            controller.getCurrentTripStopsForDisplay();
+
                         // Show map with bus details even if no active trip
-                        if (status == null && busDetail != null && busDetail.stoppings.isNotEmpty) {
+                        if (status == null &&
+                            ((currentStops.isNotEmpty) ||
+                                (busDetail != null &&
+                                    busDetail.stoppings.isNotEmpty))) {
                           // Show map with bus route but no live tracking
-                          final firstStop = busDetail.stoppings.first;
+                          final stopsToShow = currentStops.isNotEmpty
+                              ? currentStops
+                              : busDetail!.stoppings;
+                          final firstStop = stopsToShow.first;
                           return Column(
                             children: [
                               Container(
@@ -214,7 +235,8 @@ class LiveTrackingScreen extends GetView<DashboardController> {
                                 child: Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
-                                    Icon(Icons.info_outline, color: Colors.white, size: 20.sp),
+                                    Icon(Icons.info_outline,
+                                        color: Colors.white, size: 20.sp),
                                     SizedBox(width: 8.w),
                                     Text(
                                       "No Active Trip - Showing Route",
@@ -232,95 +254,120 @@ class LiveTrackingScreen extends GetView<DashboardController> {
                                   mapController: controller.mapController,
                                   options: MapOptions(
                                     initialZoom: 13,
-                                    initialCenter: LatLng(firstStop.latitude, firstStop.longitude),
+                                    initialCenter: LatLng(firstStop.latitude,
+                                        firstStop.longitude),
                                     keepAlive: true,
                                   ),
                                   children: [
                                     TileLayer(
-                                      urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                                      userAgentPackageName: 'com.jupenta.busmate',
+                                      urlTemplate:
+                                          'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                      userAgentPackageName:
+                                          'com.jupenta.busmate',
                                       maxNativeZoom: 19,
                                       maxZoom: 19,
                                     ),
                                     // Show stop markers
                                     MarkerLayer(
-                                      markers: busDetail.stoppings.map((stop) => Marker(
-                                        width: 100.sp,
-                                        height: 70.sp,
-                                        point: LatLng(stop.latitude, stop.longitude),
-                                        child: Column(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Container(
-                                              padding: EdgeInsets.symmetric(
-                                                horizontal: 8.w,
-                                                vertical: 4.h,
-                                              ),
-                                              constraints: BoxConstraints(
-                                                maxWidth: 100.sp,
-                                              ),
-                                              decoration: BoxDecoration(
-                                                color: Colors.white,
-                                                borderRadius: BorderRadius.circular(8.r),
-                                                boxShadow: [
-                                                  BoxShadow(
-                                                    color: Colors.black.withOpacity(0.3),
-                                                    blurRadius: 6,
-                                                    offset: const Offset(0, 2),
-                                                  ),
-                                                ],
-                                              ),
-                                              child: Text(
-                                                stop.name,
-                                                style: TextStyle(
-                                                  fontSize: 9.sp,
-                                                  fontWeight: FontWeight.bold,
-                                                  color: AppColors.darkteal,
+                                      markers: stopsToShow
+                                          .map((stop) => Marker(
+                                                width: 100.sp,
+                                                height: 70.sp,
+                                                point: LatLng(stop.latitude,
+                                                    stop.longitude),
+                                                child: Column(
+                                                  mainAxisSize:
+                                                      MainAxisSize.min,
+                                                  children: [
+                                                    Container(
+                                                      padding:
+                                                          EdgeInsets.symmetric(
+                                                        horizontal: 8.w,
+                                                        vertical: 4.h,
+                                                      ),
+                                                      constraints:
+                                                          BoxConstraints(
+                                                        maxWidth: 100.sp,
+                                                      ),
+                                                      decoration: BoxDecoration(
+                                                        color: Colors.white,
+                                                        borderRadius:
+                                                            BorderRadius
+                                                                .circular(8.r),
+                                                        boxShadow: [
+                                                          BoxShadow(
+                                                            color: Colors.black
+                                                                .withOpacity(
+                                                                    0.3),
+                                                            blurRadius: 6,
+                                                            offset:
+                                                                const Offset(
+                                                                    0, 2),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                      child: Text(
+                                                        stop.name,
+                                                        style: TextStyle(
+                                                          fontSize: 9.sp,
+                                                          fontWeight:
+                                                              FontWeight.bold,
+                                                          color: AppColors
+                                                              .darkteal,
+                                                        ),
+                                                        textAlign:
+                                                            TextAlign.center,
+                                                        maxLines: 2,
+                                                        overflow: TextOverflow
+                                                            .ellipsis,
+                                                      ),
+                                                    ),
+                                                    SizedBox(height: 2.h),
+                                                    Icon(
+                                                      Icons.location_on,
+                                                      size: 30.sp,
+                                                      color: AppColors.red,
+                                                    ),
+                                                  ],
                                                 ),
-                                                textAlign: TextAlign.center,
-                                                maxLines: 2,
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                            ),
-                                            SizedBox(height: 2.h),
-                                            Icon(
-                                              Icons.location_on,
-                                              size: 30.sp,
-                                              color: AppColors.red,
-                                            ),
-                                          ],
-                                        ),
-                                      )).toList(),
+                                              ))
+                                          .toList(),
                                     ),
                                     // Show route polyline
                                     Obx(() {
-                                      final routePoints = controller.routePolyline;
+                                      final routePoints =
+                                          controller.routePolyline;
                                       if (routePoints.isEmpty) {
                                         // Generate simple polyline from stops if not available
-                                        final polylinePoints = busDetail.stoppings
-                                            .map((stop) => LatLng(stop.latitude, stop.longitude))
+                                        final polylinePoints = stopsToShow
+                                            .map((stop) => LatLng(
+                                                stop.latitude, stop.longitude))
                                             .toList();
                                         return PolylineLayer(
                                           polylines: [
                                             Polyline(
                                               points: polylinePoints,
                                               strokeWidth: 4.0,
-                                              color: Colors.blue.withOpacity(0.7),
+                                              color:
+                                                  Colors.blue.withOpacity(0.7),
                                               borderStrokeWidth: 2.0,
-                                              borderColor: Colors.white.withOpacity(0.5),
+                                              borderColor:
+                                                  Colors.white.withOpacity(0.5),
                                             ),
                                           ],
                                         );
                                       }
-                                      
+
                                       return PolylineLayer(
                                         polylines: [
                                           Polyline(
+                                            
                                             points: routePoints,
                                             strokeWidth: 4.0,
                                             color: Colors.blue.withOpacity(0.7),
                                             borderStrokeWidth: 2.0,
-                                            borderColor: Colors.white.withOpacity(0.5),
+                                            borderColor:
+                                                Colors.white.withOpacity(0.5),
                                           ),
                                         ],
                                       );
@@ -331,7 +378,7 @@ class LiveTrackingScreen extends GetView<DashboardController> {
                             ],
                           );
                         }
-                        
+
                         // Show "no active trip" message if no bus status and no bus details
                         if (status == null) {
                           return Center(
@@ -371,7 +418,8 @@ class LiveTrackingScreen extends GetView<DashboardController> {
                           children: [
                             if (status.currentSegment != null)
                               Padding(
-                                padding: const EdgeInsets.only(top: 8.0, bottom: 4.0),
+                                padding: const EdgeInsets.only(
+                                    top: 8.0, bottom: 4.0),
                                 child: Text(
                                   "Segment: ${status.currentSegment}",
                                   style: const TextStyle(
@@ -400,9 +448,9 @@ class LiveTrackingScreen extends GetView<DashboardController> {
                                       LatLng(status.latitude, status.longitude),
                                   keepAlive: true,
                                   onMapReady: () {
-                                    print('🗺️ Map is ready!');
                                     // Center on bus if it has a valid location
-                                    if (status.latitude != 0.0 && status.longitude != 0.0) {
+                                    if (status.latitude != 0.0 &&
+                                        status.longitude != 0.0) {
                                       controller.mapController.move(
                                         LatLng(
                                             status.latitude, status.longitude),
@@ -424,95 +472,105 @@ class LiveTrackingScreen extends GetView<DashboardController> {
                                   // Optimized marker layer
                                   MarkerLayer(
                                     markers: () {
-                                      print('🗺️ Building markers...');
-                                      print('   remainingStops: ${status.remainingStops.length}');
-                                      print('   busDetail stops: ${controller.busDetail.value?.stoppings.length ?? 0}');
-                                      
                                       final List<Marker> markers = [];
-                                      
+
                                       // 1. Add bus marker
                                       markers.add(
-                                      Marker(
-                                        point: LatLng(
-                                            status.latitude, status.longitude),
-                                        width: 70.sp,
-                                        height: 70.sp,
-                                        child: RepaintBoundary(
-                                          child: Transform.rotate(
-                                            angle: (status.currentLocation[
-                                                        'heading'] ??
-                                                    0.0) *
-                                                (3.14159 / 180),
-                                            child: Stack(
-                                              alignment: Alignment.center,
-                                              children: [
-                                                // Drop shadow
-                                                Container(
-                                                  width: 50.sp,
-                                                  height: 50.sp,
-                                                  decoration: BoxDecoration(
-                                                    shape: BoxShape.circle,
-                                                    boxShadow: [
-                                                      BoxShadow(
-                                                        color: Colors.black.withOpacity(0.4),
-                                                        blurRadius: 8,
-                                                        spreadRadius: 2,
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ),
-                                                // Main marker circle
-                                                Container(
-                                                  width: 50.sp,
-                                                  height: 50.sp,
-                                                  decoration: BoxDecoration(
-                                                    color: (status.currentStatus.toLowerCase() == 'moving' || 
-                                                           status.currentStatus == 'Active')
-                                                        ? Colors.green
-                                                        : Colors.orange,
-                                                    shape: BoxShape.circle,
-                                                    border: Border.all(
-                                                      color: Colors.white,
-                                                      width: 3,
-                                                    ),
-                                                    boxShadow: [
-                                                      BoxShadow(
-                                                        color: Colors.black.withOpacity(0.2),
-                                                        blurRadius: 6,
-                                                        offset: const Offset(0, 3),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                  child: Center(
-                                                    child: Icon(
-                                                      Icons.directions_bus_rounded,
-                                                      color: Colors.white,
-                                                      size: 28.sp,
+                                        Marker(
+                                          point: LatLng(status.latitude,
+                                              status.longitude),
+                                          width: 70.sp,
+                                          height: 70.sp,
+                                          child: RepaintBoundary(
+                                            child: Transform.rotate(
+                                              angle: (status.currentLocation[
+                                                          'heading'] ??
+                                                      0.0) *
+                                                  (3.14159 / 180),
+                                              child: Stack(
+                                                alignment: Alignment.center,
+                                                children: [
+                                                  // Drop shadow
+                                                  Container(
+                                                    width: 50.sp,
+                                                    height: 50.sp,
+                                                    decoration: BoxDecoration(
+                                                      shape: BoxShape.circle,
+                                                      boxShadow: [
+                                                        BoxShadow(
+                                                          color: Colors.black
+                                                              .withOpacity(0.4),
+                                                          blurRadius: 8,
+                                                          spreadRadius: 2,
+                                                        ),
+                                                      ],
                                                     ),
                                                   ),
-                                                ),
-                                              ],
+                                                  // Main marker circle
+                                                  Container(
+                                                    width: 50.sp,
+                                                    height: 50.sp,
+                                                    decoration: BoxDecoration(
+                                                      color: (status.currentStatus
+                                                                      .toLowerCase() ==
+                                                                  'moving' ||
+                                                              status.currentStatus ==
+                                                                  'Active')
+                                                          ? Colors.green
+                                                          : Colors.orange,
+                                                      shape: BoxShape.circle,
+                                                      border: Border.all(
+                                                        color: Colors.white,
+                                                        width: 3,
+                                                      ),
+                                                      boxShadow: [
+                                                        BoxShadow(
+                                                          color: Colors.black
+                                                              .withOpacity(0.2),
+                                                          blurRadius: 6,
+                                                          offset: const Offset(
+                                                              0, 3),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                    child: Center(
+                                                      child: Icon(
+                                                        Icons
+                                                            .directions_bus_rounded,
+                                                        color: Colors.white,
+                                                        size: 28.sp,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
                                             ),
                                           ),
                                         ),
-                                      ),
                                       );
-                                      
-                                      // 2. Add ALL stop markers from busDetail (always show all stops)
-                                      final stops = controller.busDetail.value?.stoppings ?? [];
-                                      print('   Adding ${stops.length} stop markers to map');
-                                      for (var i = 0; i < stops.length; i++) {
-                                        final stop = stops[i];
+
+                                      // 2. Add stop markers for the CURRENT trip (schedule cache)
+                                      // Fallback to busDetail only if schedule stops are unavailable.
+                                      final stops = controller
+                                          .getCurrentTripStopsForDisplay()
+                                          .cast<dynamic>();
+                                      final fallbackStops = controller
+                                              .busDetail.value?.stoppings ??
+                                          [];
+                                      final stopsToShow = stops.isNotEmpty
+                                          ? stops
+                                          : fallbackStops;
+                                      for (var i = 0;
+                                          i < stopsToShow.length;
+                                          i++) {
+                                        final stop = stopsToShow[i];
                                         final lat = stop.latitude;
                                         final lng = stop.longitude;
-                                        print('   - Adding stop: ${stop.name} at ($lat, $lng)');
-                                        
                                         // Skip stops with invalid coordinates
                                         if (lat == 0.0 && lng == 0.0) {
-                                          print('   ⚠️ WARNING: Stop "${stop.name}" has invalid coordinates (0, 0) - SKIPPING');
                                           continue;
                                         }
-                                        
+
                                         markers.add(
                                           Marker(
                                             width: 100.sp,
@@ -523,7 +581,8 @@ class LiveTrackingScreen extends GetView<DashboardController> {
                                                 mainAxisSize: MainAxisSize.min,
                                                 children: [
                                                   Container(
-                                                    padding: EdgeInsets.symmetric(
+                                                    padding:
+                                                        EdgeInsets.symmetric(
                                                       horizontal: 8.w,
                                                       vertical: 4.h,
                                                     ),
@@ -532,12 +591,16 @@ class LiveTrackingScreen extends GetView<DashboardController> {
                                                     ),
                                                     decoration: BoxDecoration(
                                                       color: Colors.white,
-                                                      borderRadius: BorderRadius.circular(8.r),
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                              8.r),
                                                       boxShadow: [
                                                         BoxShadow(
-                                                          color: Colors.black.withOpacity(0.3),
+                                                          color: Colors.black
+                                                              .withOpacity(0.3),
                                                           blurRadius: 6,
-                                                          offset: const Offset(0, 2),
+                                                          offset: const Offset(
+                                                              0, 2),
                                                         ),
                                                       ],
                                                     ),
@@ -545,12 +608,16 @@ class LiveTrackingScreen extends GetView<DashboardController> {
                                                       stop.name,
                                                       style: TextStyle(
                                                         fontSize: 9.sp,
-                                                        fontWeight: FontWeight.bold,
-                                                        color: AppColors.darkteal,
+                                                        fontWeight:
+                                                            FontWeight.bold,
+                                                        color:
+                                                            AppColors.darkteal,
                                                       ),
-                                                      textAlign: TextAlign.center,
+                                                      textAlign:
+                                                          TextAlign.center,
                                                       maxLines: 2,
-                                                      overflow: TextOverflow.ellipsis,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
                                                     ),
                                                   ),
                                                   SizedBox(height: 2.h),
@@ -565,21 +632,17 @@ class LiveTrackingScreen extends GetView<DashboardController> {
                                           ),
                                         );
                                       }
-                                      
-                                      print('   Total markers: ${markers.length}');
                                       return markers;
                                     }(),
                                   ),
-                                  
+
                                   // Polyline layer showing route
                                   Obx(() {
-                                    final routePoints = controller.routePolyline;
+                                    final routePoints =
+                                        controller.routePolyline;
                                     if (routePoints.isEmpty) {
-                                      print('⚠️ No route polyline points available');
                                       return const SizedBox.shrink();
                                     }
-                                    
-                                    print('🗺️ Drawing polyline with ${routePoints.length} points');
                                     return PolylineLayer(
                                       polylines: [
                                         Polyline(
@@ -587,7 +650,8 @@ class LiveTrackingScreen extends GetView<DashboardController> {
                                           strokeWidth: 4.0,
                                           color: Colors.blue.withOpacity(0.7),
                                           borderStrokeWidth: 2.0,
-                                          borderColor: Colors.white.withOpacity(0.5),
+                                          borderColor:
+                                              Colors.white.withOpacity(0.5),
                                         ),
                                       ],
                                     );
@@ -603,7 +667,7 @@ class LiveTrackingScreen extends GetView<DashboardController> {
                     Obx(
                       () => busInfoBox(
                         "businfo".tr,
-                        "${'number'.tr}: ${controller.busDetail.value?.busVehicleNo ?? 'N/A'}\n${'route'.tr}: ${controller.busDetail.value?.routeName ?? 'N/A'}",
+                        "${'number'.tr}: ${controller.busDetail.value?.busVehicleNo ?? 'N/A'}\n${'route'.tr}: ${controller.currentTripRouteName.value.isNotEmpty ? controller.currentTripRouteName.value : (controller.busStatus.value?.routeName ?? controller.busDetail.value?.routeName ?? 'N/A')}",
                       ),
                     ),
                     const DottedLine(
@@ -622,39 +686,57 @@ class LiveTrackingScreen extends GetView<DashboardController> {
                     ),
                     // Add a progress indicator showing completed stops vs total stops
                     Obx(() {
-                      final totalStops =
-                          controller.busDetail.value?.stoppings.length ?? 0;
+                      final totalStops = controller
+                              .currentTripStopsPickupOrder.isNotEmpty
+                          ? controller.currentTripStopsPickupOrder.length
+                          : (controller.busDetail.value?.stoppings.length ?? 0);
                       final remainingStops =
                           controller.busStatus.value?.remainingStops.length ??
                               0;
                       final busStatus = controller.busStatus.value;
                       final busDetail = controller.busDetail.value;
                       final speed = busStatus?.currentSpeed ?? 0.0;
-                      
+
                       // Check if bus is truly online (not stale data > 5 minutes)
                       bool isActuallyOnline = false;
                       if (busStatus != null) {
                         final now = DateTime.now();
-                        final difference = now.difference(busStatus.lastUpdated);
+                        final difference =
+                            now.difference(busStatus.lastUpdated);
                         isActuallyOnline = difference.inMinutes < 5;
                       }
-                      
+
                       final isMoving = isActuallyOnline && (speed > 2.0);
-                      
+
                       // Get trip direction from RTDB (tripDirection is the actual current trip)
-                      final tripDirection = busStatus?.tripDirection ?? "pickup";
-                      
-                      // Get all stops from busDetail (static data, always in pickup order)
-                      final allStopsPickupOrder = busDetail?.stoppings ?? [];
-                      
+                      final tripDirection =
+                          busStatus?.tripDirection ?? "pickup";
+
+                      // Get student's assigned route to show only relevant stops
+                      final studentRouteId =
+                          controller.student.value?.assignedRouteId;
+
+                      // Prefer current trip stops from schedule cache (always in pickup order)
+                      // Filter to student's route if multi-route bus
+                      List<Stoppings> allStopsPickupOrder;
+                      if (controller.currentTripStopsPickupOrder.isNotEmpty) {
+                        allStopsPickupOrder =
+                            controller.currentTripStopsPickupOrder;
+                      } else if (busDetail?.stoppings != null) {
+                        allStopsPickupOrder = busDetail!.stoppings;
+                      } else {
+                        allStopsPickupOrder = [];
+                      }
+
                       // Reverse stops if this is a drop route
-                      final allStops = tripDirection == "drop" 
-                          ? allStopsPickupOrder.reversed.toList() 
+                      final allStops = tripDirection == "drop"
+                          ? allStopsPickupOrder.reversed.toList()
                           : allStopsPickupOrder;
-                      
+
                       final remainingStopsList =
                           busStatus?.remainingStops ?? [];
-                      final routeType = tripDirection; // Use tripDirection instead of busRouteType
+                      final routeType =
+                          tripDirection; // Use tripDirection instead of busRouteType
 
                       // Calculate completed stops based on route type
                       int completedStops = 0;

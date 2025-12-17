@@ -1,6 +1,7 @@
 // File: lib/controllers/auth_controller.dart
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'dart:convert';
@@ -133,6 +134,9 @@ class AuthController extends GetxController {
       
       print('✅ Found admin - Role: $role, Email: ${adminEmail.value}');
 
+      // Ensure custom claims are set before proceeding
+      await _ensureCustomClaims(user.value!, role, adminData['schoolId']);
+
       if (role == 'superior') {
         // Superior Admin - Full Access
         userRole.value = UserRole.superior;
@@ -177,6 +181,46 @@ class AuthController extends GetxController {
       Get.snackbar('Error', 'Failed to fetch admin data: ${e.toString()}');
       await _auth.signOut();
       Get.offAllNamed(Routes.LOGIN);
+    }
+  }
+
+  /// Ensures custom claims are set for the user
+  Future<void> _ensureCustomClaims(User user, String role, String? schoolId) async {
+    try {
+      print('🔑 Checking custom claims for ${user.email}...');
+      
+      // Get current token and check if claims exist
+      final idTokenResult = await user.getIdTokenResult();
+      final claims = idTokenResult.claims;
+      
+      if (claims?['role'] != null && claims?['role'] == role) {
+        print('✅ Custom claims already set: role=${claims!['role']}, schoolId=${claims['schoolId']}');
+        return;
+      }
+
+      print('⚠️ Custom claims missing or outdated. Setting claims via Cloud Function...');
+      
+      // Call setUserClaims Cloud Function (callable function)
+      try {
+        final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
+            .httpsCallable('setUserClaims');
+        
+        final result = await callable.call({'uid': user.uid});
+        
+        print('✅ Custom claims set successfully: ${result.data}');
+        
+        // Force token refresh to get new claims
+        await user.getIdToken(true);
+        print('✅ Token refreshed with new claims');
+        
+        // Verify claims were set
+        final newTokenResult = await user.getIdTokenResult(true);
+        print('🔍 New claims: ${newTokenResult.claims}');
+      } catch (e) {
+        print('❌ Error calling setUserClaims Cloud Function: $e');
+      }
+    } catch (e) {
+      print('❌ Error in _ensureCustomClaims: $e');
     }
   }
 

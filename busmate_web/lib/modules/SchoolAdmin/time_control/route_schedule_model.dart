@@ -7,6 +7,11 @@ class RouteSchedule {
   final String busVehicleNo;
   final String routeName;
   final String direction; // 'pickup' or 'drop'
+
+  // Optional reference to a Route Management route doc (schooldetails/{schoolId}/routes/{routeId})
+  // Used to support multiple routes per bus in admin UI.
+  final String? routeRefId;
+  final String? routeRefName;
   
   // Schedule configuration
   final List<int> daysOfWeek; // [1,2,3,4,5] = Mon-Fri, [6] = Sat, [7] = Sun
@@ -35,6 +40,8 @@ class RouteSchedule {
     required this.busVehicleNo,
     required this.routeName,
     required this.direction,
+    this.routeRefId,
+    this.routeRefName,
     required this.daysOfWeek,
     required this.startTime,
     required this.endTime,
@@ -86,6 +93,8 @@ class RouteSchedule {
       busVehicleNo: data['busVehicleNo'] ?? '',
       routeName: data['routeName'] ?? '',
       direction: data['direction'] ?? 'pickup',
+      routeRefId: data['routeRefId'] as String?,
+      routeRefName: data['routeRefName'] as String?,
       daysOfWeek: List<int>.from(data['daysOfWeek'] ?? [1, 2, 3, 4, 5]),
       startTime: data['startTime'] ?? '07:00',
       endTime: data['endTime'] ?? '09:00',
@@ -108,6 +117,8 @@ class RouteSchedule {
       'busVehicleNo': busVehicleNo,
       'routeName': routeName,
       'direction': direction,
+      'routeRefId': routeRefId,
+      'routeRefName': routeRefName,
       'daysOfWeek': daysOfWeek,
       'startTime': startTime,
       'endTime': endTime,
@@ -128,6 +139,8 @@ class RouteSchedule {
     String? busVehicleNo,
     String? routeName,
     String? direction,
+    String? routeRefId,
+    String? routeRefName,
     List<int>? daysOfWeek,
     String? startTime,
     String? endTime,
@@ -146,6 +159,8 @@ class RouteSchedule {
       busVehicleNo: busVehicleNo ?? this.busVehicleNo,
       routeName: routeName ?? this.routeName,
       direction: direction ?? this.direction,
+      routeRefId: routeRefId ?? this.routeRefId,
+      routeRefName: routeRefName ?? this.routeRefName,
       daysOfWeek: daysOfWeek ?? this.daysOfWeek,
       startTime: startTime ?? this.startTime,
       endTime: endTime ?? this.endTime,

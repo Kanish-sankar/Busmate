@@ -21,7 +21,7 @@ class BusLocationService {
       print('Error streaming bus locations: $error');
       return null;
     }).where((event) => event != null).map((event) {
-      final data = event!.snapshot.value as Map<dynamic, dynamic>?;
+      final data = event.snapshot.value as Map<dynamic, dynamic>?;
       if (data == null) return <String, BusLocation>{};
 
       final Map<String, BusLocation> locations = {};
@@ -44,7 +44,7 @@ class BusLocationService {
       print('Error streaming bus location: $error');
       return null;
     }).where((event) => event != null).map((event) {
-      final data = event!.snapshot.value as Map<dynamic, dynamic>?;
+      final data = event.snapshot.value as Map<dynamic, dynamic>?;
       if (data == null) return null;
       return BusLocation.fromRealtimeDb(busId, schoolId, data);
     });
@@ -180,7 +180,7 @@ class BusLocationService {
       print('Error streaming connection state: $error');
       return null;
     }).where((event) => event != null).map((event) {
-      return event!.snapshot.value as bool? ?? false;
+      return event.snapshot.value as bool? ?? false;
     });
   }
 }

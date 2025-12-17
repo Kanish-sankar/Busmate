@@ -2,6 +2,7 @@
 import 'dart:convert';
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -50,10 +51,17 @@ class AddSchoolScreen extends StatelessWidget {
         Uri.parse('https://sendcredentialemail-gnxzq4evda-uc.a.run.app');
 
     try {
+      final currentUser = FirebaseAuth.instance.currentUser;
+      final idToken = await currentUser?.getIdToken();
+      if (idToken == null || idToken.isEmpty) {
+        throw Exception('Not authenticated');
+      }
+
       final response = await http.post(
         url,
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': 'Bearer $idToken',
         },
         body: json.encode({
           'email': email,
@@ -124,10 +132,19 @@ jupentaindia@gmail.com | +918610078332
       String schoolUid = tempDocRef.id;
 
       // Call the Firebase Function to create the user, including schoolId.
+      final currentUser = FirebaseAuth.instance.currentUser;
+      final idToken = await currentUser?.getIdToken();
+      if (idToken == null || idToken.isEmpty) {
+        throw Exception('Not authenticated');
+      }
+
       final response = await http
           .post(
             Uri.parse("https://createschooluser-gnxzq4evda-uc.a.run.app"),
-            headers: {"Content-Type": "application/json"},
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": "Bearer $idToken",
+            },
             body: jsonEncode({
               "email": email,
               "password": password,

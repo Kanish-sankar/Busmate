@@ -72,9 +72,15 @@ class _BusSimulatorScreenState extends State<BusSimulatorScreen> {
     required String routeId,
     required String direction,
     required List<Map<String, dynamic>> stopNames, // Pass actual stop data with names
+    required String scheduleStartTime, // Schedule's start time for consistent tripId
+    required String scheduleEndTime, // Schedule's end time for isWithinTripWindow calculation
   }) async {
     try {
       print('📝 Creating bus data in Realtime Database for $busId');
+      
+      // Find the bus object from availableBuses
+      final bus = availableBuses.firstWhere((b) => b.id == busId, 
+        orElse: () => throw Exception('Bus not found'));
       
       // Convert route to stop format with ACTUAL stop names (without ETAs - let Firebase Function calculate them)
       final stops = route.asMap().entries.map((entry) {
@@ -96,6 +102,19 @@ class _BusSimulatorScreenState extends State<BusSimulatorScreen> {
         };
       }).toList();
 
+      // Generate tripId using SCHEDULE START TIME (not current time)
+      // CRITICAL: Must match Cloud Function's tripId format for student queries
+      final now = DateTime.now();
+      final dateKey = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+      final tripId = '${routeId}_${dateKey}_${scheduleStartTime.replaceAll(':', '')}';
+      
+      print('🆔 Generated tripId using schedule time: $tripId (schedule: $scheduleStartTime)');
+      
+      // Calculate if current time is within schedule window
+      final currentTimeStr = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+      final isWithinWindow = _isTimeWithinSchedule(currentTimeStr, scheduleStartTime, scheduleEndTime);
+      print('⏰ Time check: Current=$currentTimeStr, Start=$scheduleStartTime, End=$scheduleEndTime, Within=$isWithinWindow');
+      
       // Create/update bus data in Realtime Database
       await FirebaseDatabase.instance
           .ref('bus_locations/${widget.schoolId}/$busId')
@@ -105,17 +124,50 @@ class _BusSimulatorScreenState extends State<BusSimulatorScreen> {
         'speed': 0,
         'source': 'web_simulator',
         'isActive': true, // Must be true for Firebase Function to process
+        'isWithinTripWindow': isWithinWindow, // Calculate based on schedule times
         'activeRouteId': routeId, // Set active route for Firebase Function
+        'currentTripId': tripId, // CRITICAL: Match with students for notifications
         'tripDirection': direction, // 'pickup' or 'drop'
+        'routeName': '${bus.busVehicleNo} - ${direction == "pickup" ? "Morning Pickup" : "Evening Drop"}',
+        'scheduleStartTime': scheduleStartTime, // Use schedule's start time, not current time
+        'scheduleEndTime': scheduleEndTime, // Store end time for reference
+        'tripStartedAt': now.millisecondsSinceEpoch,
         'remainingStops': stops,
         'totalStops': stops.length,
         'stopsPassedCount': 0,
         'lastRecalculationAt': 0,
         'lastETACalculation': 0, // Set to 0 to force initial calculation
-        'startTime': DateTime.now().millisecondsSinceEpoch,
+        'startTime': now.millisecondsSinceEpoch,
       });
-
+      
       print('✅ Bus data created in Realtime Database for $busId with ${stops.length} stops ($direction route)');
+      
+      // CRITICAL: Reset students when manually starting simulation
+      // This ensures student.currentTripId matches bus.currentTripId for notification query
+      print('👥 Resetting students to match trip $tripId...');
+      final studentsSnapshot = await FirebaseFirestore.instance
+          .collection('schooldetails')
+          .doc(widget.schoolId)
+          .collection('students')
+          .where('assignedBusId', isEqualTo: busId)
+          .get();
+      
+      if (studentsSnapshot.docs.isNotEmpty) {
+        final batch = FirebaseFirestore.instance.batch();
+        for (var doc in studentsSnapshot.docs) {
+          batch.update(doc.reference, {
+            'notified': false,
+            'currentTripId': tripId, // MUST MATCH bus.currentTripId for query to work!
+            'tripStartedAt': DateTime.now().millisecondsSinceEpoch,
+            'lastNotifiedRoute': routeId,
+            'lastNotifiedAt': null,
+          });
+        }
+        await batch.commit();
+        print('✅ Reset ${studentsSnapshot.docs.length} students with matching tripId');
+      } else {
+        print('⚠️ No students assigned to bus $busId');
+      }
       print('⏳ Initial ETA calculation will happen on first GPS update...');
     } catch (e) {
       print('❌ Error creating bus data: $e');
@@ -436,6 +488,7 @@ class _BusSimulatorScreenState extends State<BusSimulatorScreen> {
       final routeId = routeDoc.id;
       final routeData = routeDoc.data();
       final stoppings = routeData['stops'] as List<dynamic>? ?? routeData['stoppings'] as List<dynamic>? ?? [];
+      final scheduleStartTime = routeData['startTime'] as String? ?? ''; // Get schedule's start time
       final routeName = routeData['routeName'] as String? ?? 'Unknown Route';
       
       // Use actual route stops if available, otherwise generate test route
@@ -503,12 +556,15 @@ class _BusSimulatorScreenState extends State<BusSimulatorScreen> {
       );
 
       // Create initial bus data in Realtime Database for Firebase Function
+      final scheduleEndTime = routeData['endTime'] as String? ?? '23:59'; // Get schedule's end time
       await _createInitialBusData(
         busId: bus.id, // Use bus document ID
         route: route,
         routeId: routeId,
         direction: routeType,
         stopNames: stoppings.cast<Map<String, dynamic>>(), // Pass full stop data with names
+        scheduleStartTime: scheduleStartTime, // Pass schedule start time for tripId generation
+        scheduleEndTime: scheduleEndTime, // Pass schedule end time for isWithinTripWindow calculation
       );
 
       // Extract stop names for display in simulator
@@ -575,6 +631,36 @@ class _BusSimulatorScreenState extends State<BusSimulatorScreen> {
       colorText: Colors.red[900],
       icon: const Icon(Icons.stop_circle, color: Colors.red),
     );
+  }
+
+  /// Check if current time is within schedule window (startTime <= current <= endTime)
+  bool _isTimeWithinSchedule(String currentTime, String startTime, String endTime) {
+    try {
+      // Parse times as HH:mm format
+      final current = _parseTimeToMinutes(currentTime);
+      final start = _parseTimeToMinutes(startTime);
+      final end = _parseTimeToMinutes(endTime);
+      
+      // Handle overnight schedules (e.g., 23:00 to 01:00)
+      if (end < start) {
+        // Overnight: current >= start OR current <= end
+        return current >= start || current <= end;
+      } else {
+        // Same day: start <= current <= end
+        return current >= start && current <= end;
+      }
+    } catch (e) {
+      print('⚠️ Error parsing schedule times: $e');
+      return false; // Default to false if parsing fails
+    }
+  }
+
+  /// Convert HH:mm time string to minutes since midnight for easy comparison
+  int _parseTimeToMinutes(String time) {
+    final parts = time.split(':');
+    final hours = int.parse(parts[0]);
+    final minutes = int.parse(parts[1]);
+    return hours * 60 + minutes;
   }
 }
 

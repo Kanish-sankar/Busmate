@@ -390,7 +390,13 @@ class _RoutesListScreenState extends State<RoutesListScreen> {
           .add({
         'routeName': routeName,
         'assignedBusId': null,
+        // Legacy (some screens still read `stops`)
         'stops': [],
+        // New schema used by RouteController
+        'upStops': [],
+        'downStops': [],
+        'upDistance': 0,
+        'downDistance': 0,
         'totalDistance': 0,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 
@@ -28,22 +29,9 @@ import 'package:latlong2/latlong.dart';
 /// Total API calls per complete route: ~16 calls (4 initial + 3×4 updates)
 /// ═══════════════════════════════════════════════════════════════════════════
 class OlaDistanceMatrixService {
-  // OLA Maps API key from https://maps.olakrutrim.com/
-  static const String _apiKey = 'c8mw89lGYQ05uglqqr7Val5eUTMRTPqgwMNS6F7h';
-  static const String _baseUrl = 'https://api.olamaps.io/routing/v1/distanceMatrix';
-  
-  // Use Firebase Cloud Function as proxy to avoid CORS (works in web browser!)
-  static const bool _useCloudFunctionProxy = false;  // Cloud Function needs fixing - using direct call
+  // Use Firebase Cloud Function as proxy to avoid CORS and keep the Ola key server-side.
+  static const bool _useCloudFunctionProxy = true;
   static const String _cloudFunctionUrl = 'https://us-central1-busmate-b80e8.cloudfunctions.net/olaDistanceMatrix';
-  
-  /// Validate API key before making requests
-  static bool _isApiKeyValid() {
-    if (_apiKey == 'YOUR_OLA_MAPS_API_KEY' || _apiKey.isEmpty) {
-      print('ERROR: OLA Maps API key not configured. Please set your API key in ola_distance_matrix_service.dart');
-      return false;
-    }
-    return true;
-  }
 
   /// Calculate ETAs for all stops from current bus location (OPTIMIZED - Single API Call)
   /// Sends ALL stops + waypoints in ONE API call for maximum efficiency
@@ -58,10 +46,6 @@ class OlaDistanceMatrixService {
     required List<LatLng> stops,
     List<List<LatLng>>? waypointsPerStop, // Waypoints for each stop (empty list if no waypoints)
   }) async {
-    if (!_isApiKeyValid()) {
-      throw Exception('OLA Maps API key not configured');
-    }
-    
     if (stops.isEmpty) return {};
     
     // Build destinations array: [waypoint1, waypoint2, stop1, waypoint3, stop2, ...]
@@ -152,20 +136,21 @@ class OlaDistanceMatrixService {
     };
     
     try {
-      // Use Cloud Function proxy for web (avoids CORS) or direct API for mobile
-      const url = _useCloudFunctionProxy ? _cloudFunctionUrl : _baseUrl;
+      // Use Cloud Function proxy for web (avoids CORS + keeps key off the client)
+      const url = _cloudFunctionUrl;
+
+      final currentUser = FirebaseAuth.instance.currentUser;
+      final idToken = await currentUser?.getIdToken();
+      if (idToken == null || idToken.isEmpty) {
+        throw Exception('Not authenticated');
+      }
       
       final response = await http.post(
         Uri.parse(url),
-        headers: _useCloudFunctionProxy 
-          ? {
-              'Content-Type': 'application/json',
-            }
-          : {
-              'Authorization': 'Bearer $_apiKey',
-              'Content-Type': 'application/json',
-              'X-Request-Id': DateTime.now().millisecondsSinceEpoch.toString(),
-            },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $idToken',
+        },
         body: jsonEncode(requestBody),
       ).timeout(
         const Duration(seconds: 10),

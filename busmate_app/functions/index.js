@@ -1,11 +1,263 @@
 const { onSchedule } = require("firebase-functions/v2/scheduler");
-const { onRequest } = require("firebase-functions/v2/https");
+const { onRequest, onCall, HttpsError } = require("firebase-functions/v2/https");
 const functions = require("firebase-functions/v2");
+const { defineSecret, defineString } = require("firebase-functions/params");
 const admin = require("firebase-admin");
-const fetch = require("node-fetch");
-const nodemailer = require('nodemailer');
+const crypto = require("crypto");
 
 admin.initializeApp();
+
+// Secrets (Firebase Secret Manager):
+// Set these via `firebase functions:secrets:set <NAME>`
+const GMAIL_USER = defineSecret("GMAIL_USER");
+const GMAIL_APP_PASSWORD = defineSecret("GMAIL_APP_PASSWORD");
+const OLA_MAPS_API_KEY = defineSecret("OLA_MAPS_API_KEY");
+
+// Runtime flags (configured via Firebase Functions params)
+const ENABLE_DEBUG_ENDPOINTS = defineString("ENABLE_DEBUG_ENDPOINTS", { default: "false" });
+const ENABLE_LEGACY_STUDENTLOGIN = defineString("ENABLE_LEGACY_STUDENTLOGIN", { default: "false" });
+
+function getSecretValue(secretParam, envFallbackName) {
+  const fromEnv = envFallbackName ? process.env[envFallbackName] : undefined;
+  if (fromEnv) return fromEnv;
+  return secretParam.value();
+}
+
+function getRoleFromClaims(decoded) {
+  return String(decoded?.role || "").trim().toLowerCase();
+}
+
+function isSuperiorRole(role) {
+  return role === "superior";
+}
+
+function isSchoolAdminRole(role) {
+  return role === "schooladmin" || role === "school_admin";
+}
+
+function isRegionalAdminRole(role) {
+  return role === "regionaladmin";
+}
+
+async function requireFirebaseAuth(req) {
+  const header = String(req.get("authorization") || "");
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  if (!match) {
+    const err = new Error("Missing Authorization: Bearer <Firebase ID token>");
+    err.statusCode = 401;
+    throw err;
+  }
+
+  try {
+    return await admin.auth().verifyIdToken(match[1]);
+  } catch (e) {
+    const err = new Error("Invalid/expired Firebase ID token");
+    err.statusCode = 401;
+    throw err;
+  }
+}
+
+function assertSameSchoolIfNotSuperior(decoded, targetSchoolId) {
+  const role = getRoleFromClaims(decoded);
+  if (isSuperiorRole(role)) return;
+  const callerSchoolId = String(decoded?.schoolId || "");
+  if (!callerSchoolId || !targetSchoolId || callerSchoolId !== targetSchoolId) {
+    const err = new Error("Forbidden (school scope mismatch)");
+    err.statusCode = 403;
+    throw err;
+  }
+}
+
+let _mailTransporter;
+function getMailTransporter() {
+  if (_mailTransporter) return _mailTransporter;
+  const nodemailer = require("nodemailer");
+  const user = getSecretValue(GMAIL_USER, "GMAIL_USER");
+  const pass = getSecretValue(GMAIL_APP_PASSWORD, "GMAIL_APP_PASSWORD");
+  if (!user || !pass) {
+    throw new Error(
+      "Email secrets not configured. Set GMAIL_USER and GMAIL_APP_PASSWORD via Secret Manager."
+    );
+  }
+  _mailTransporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: {
+      user,
+      pass,
+    },
+  });
+  return _mailTransporter;
+}
+
+// ONE-TIME / DEBUG: bulk-claim fixer.
+// Not deployed unless ENABLE_DEBUG_ENDPOINTS=true.
+if (ENABLE_DEBUG_ENDPOINTS.value() === "true") {
+  exports.fixAllUserClaims = onRequest(
+    {
+      region: "us-central1",
+      cors: true,
+    },
+    async (req, res) => {
+      const db = admin.firestore();
+
+      try {
+        const decoded = await requireFirebaseAuth(req);
+        if (!isSuperiorRole(getRoleFromClaims(decoded))) {
+          return res.status(403).json({ error: "Forbidden" });
+        }
+
+        console.log("[fixAllUserClaims] Starting bulk claims update...");
+        const usersSnapshot = await db.collection("adminusers").get();
+        const results = [];
+
+        for (const doc of usersSnapshot.docs) {
+          const userData = doc.data();
+          const uid = doc.id;
+          const role = userData.role;
+          const schoolId = userData.schoolId;
+          const assignedBusId = userData.assignedBusId;
+          const assignedRouteId = userData.assignedRouteId;
+          const email = userData.email || "unknown";
+
+          if (!role || !schoolId) {
+            results.push({ uid, email, status: "skipped", reason: "missing role or schoolId" });
+            continue;
+          }
+
+          const claims = { role: String(role).trim().toLowerCase(), schoolId: String(schoolId).trim() };
+          if (assignedBusId) claims.assignedBusId = assignedBusId;
+          if (assignedRouteId) claims.assignedRouteId = assignedRouteId;
+
+          try {
+            await admin.auth().setCustomUserClaims(uid, claims);
+            results.push({ uid, email, status: "success", claims });
+          } catch (error) {
+            console.error(`[fixAllUserClaims] ❌ Failed for ${email}:`, error);
+            results.push({ uid, email, status: "error", error: error.message });
+          }
+        }
+
+        const summary = {
+          message: "Claims update complete. Users must log out and back in to get fresh tokens.",
+          total: usersSnapshot.docs.length,
+          success: results.filter((r) => r.status === "success").length,
+          skipped: results.filter((r) => r.status === "skipped").length,
+          failed: results.filter((r) => r.status === "error").length,
+          results,
+        };
+
+        return res.json(summary);
+      } catch (error) {
+        console.error("[fixAllUserClaims] Fatal error:", error);
+        return res.status(error.statusCode || 500).json({ error: error.message });
+      }
+    }
+  );
+}
+
+// �🔐 Set custom claims for Firebase Auth users
+// Callable function that web admin invokes after creating a new user
+// Looks up the user's metadata in `adminusers` and sets role/school claims
+exports.setUserClaims = onCall(
+  {
+    region: "us-central1",
+    invoker: "public",
+  },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "You must be signed in to call setUserClaims");
+    }
+
+    const { uid } = request.data;
+
+    if (!uid) {
+      throw new HttpsError("invalid-argument", "Missing uid parameter");
+    }
+
+    console.log(`[setUserClaims] Caller=${request.auth.uid} setting claims for uid: ${uid}`);
+
+    const db = admin.firestore();
+
+    try {
+      // Look up user metadata.
+      // Mobile app historically uses `adminusers`, while the web portal uses `admins`.
+      // Support both to avoid "permission-denied" when claims are missing.
+      let userData = null;
+      let source = null;
+
+      const adminUsersDoc = await db.collection("adminusers").doc(uid).get();
+      if (adminUsersDoc.exists) {
+        userData = adminUsersDoc.data();
+        source = "adminusers";
+      } else {
+        const adminsDoc = await db.collection("admins").doc(uid).get();
+        if (adminsDoc.exists) {
+          userData = adminsDoc.data();
+          source = "admins";
+        }
+      }
+
+      if (!userData) {
+        throw new HttpsError(
+          "not-found",
+          `No admin metadata found for uid: ${uid} (checked adminusers and admins)`
+        );
+      }
+
+      const roleRaw = String(userData.role || "");
+      const schoolIdRaw = String(userData.schoolId || "");
+      const role = roleRaw.trim().toLowerCase();
+      const schoolId = schoolIdRaw.trim();
+      const assignedBusId = userData.assignedBusId ? String(userData.assignedBusId) : null;
+      const assignedRouteId = userData.assignedRouteId ? String(userData.assignedRouteId) : null;
+
+      if (!role) {
+        throw new HttpsError("failed-precondition", `No role found for uid: ${uid}`);
+      }
+
+      // Authorization:
+      // - allow self to refresh their own claims
+      // - allow superior / school admin / regional admin to set claims for others (school-scoped)
+      const callerRole = String(request.auth.token?.role || "").trim().toLowerCase();
+      const callerSchoolId = String(request.auth.token?.schoolId || "").trim();
+      const callerIsSuperior = isSuperiorRole(callerRole);
+      const callerIsPrivileged = callerIsSuperior || isSchoolAdminRole(callerRole) || isRegionalAdminRole(callerRole);
+
+      if (request.auth.uid !== uid) {
+        if (!callerIsPrivileged) {
+          throw new HttpsError("permission-denied", "Not allowed to set claims for other users");
+        }
+        if (!callerIsSuperior && schoolId && callerSchoolId !== schoolId) {
+          throw new HttpsError("permission-denied", "School scope mismatch");
+        }
+      }
+
+      // These roles require a schoolId for scoped access rules.
+      if (["student", "driver", "schooladmin", "school_admin", "regionaladmin"].includes(role) && !schoolId) {
+        throw new HttpsError(
+          "failed-precondition",
+          `No schoolId found for uid: ${uid} (role=${role})`
+        );
+      }
+
+      // Set custom claims for Firestore security rules
+      const claims = { role, schoolId };
+      if (assignedBusId) claims.assignedBusId = assignedBusId;
+      if (assignedRouteId) claims.assignedRouteId = assignedRouteId;
+
+      await admin.auth().setCustomUserClaims(uid, claims);
+
+      console.log(
+        `[setUserClaims] Successfully set claims for ${uid} from ${source}: role=${role}, schoolId=${schoolId}`
+      );
+      
+      return { success: true, claims };
+    } catch (error) {
+      console.error(`[setUserClaims] Error setting claims for ${uid}:`, error);
+      throw new HttpsError("internal", `Failed to set claims: ${error.message}`);
+    }
+  }
+);
 
 // 🚀 MERGED & OPTIMIZED: Manages bus notifications + trip lifecycle in ONE function
 // Replaces: sendBusArrivalNotifications + resetStudentNotifiedStatus          
@@ -14,8 +266,10 @@ exports.manageBusNotifications = onSchedule(
   {
     schedule: "every 1 minutes", // Cloud Scheduler minimum interval (30 seconds not supported)
     timeZone: "Asia/Kolkata",
-    memory: "512MB", // Increased memory for batch processing
-    timeoutSeconds: 540, // Increased timeout for large batches
+    memory: "512MB", // Keep memory modest for quota
+    timeoutSeconds: 540,
+    region: "us-central1",
+    secrets: [OLA_MAPS_API_KEY],
   },
   async (event) => {
     const db = admin.firestore();
@@ -38,7 +292,9 @@ exports.manageBusNotifications = onSchedule(
       // Also check for stale GPS data and mark buses inactive if no update for 3+ minutes
       const activeBuses = [];
       const now = Date.now();
-      const STALE_THRESHOLD = 3 * 60 * 1000; // 3 minutes (3x the function interval)
+      // NOTE: Keep this comfortably larger than the Ola refresh cadence (3 min).
+      // If this is too small, buses can be marked inactive before the next Ola refresh.
+      const STALE_THRESHOLD = 10 * 60 * 1000; // 10 minutes
       const staleTime = now - STALE_THRESHOLD;
       let staleDataCount = 0;
       
@@ -119,23 +375,87 @@ exports.manageBusNotifications = onSchedule(
           continue;
         }
         
-        // 🕐 ETA DECREMENTATION FALLBACK: Only for buses with stale GPS (1+ min no update)
-        // Primary ETA calculation happens in onBusLocationUpdate (every GPS update)
-        if (busData.remainingStops && busData.remainingStops.length > 0 && busData.lastETACalculation) {
-          const timeSinceLastUpdate = Math.floor((now - busData.lastETACalculation) / 60000);
-          if (timeSinceLastUpdate >= 1) {
-            console.log(`⏱️ FALLBACK: Decrementing ETAs by ${timeSinceLastUpdate} min (stale GPS)`);
-            busData.remainingStops = busData.remainingStops.map(stop => {
-              if (stop.estimatedMinutesOfArrival !== null && stop.estimatedMinutesOfArrival !== undefined) {
-                const newETA = Math.max(0, stop.estimatedMinutesOfArrival - timeSinceLastUpdate);
-                return { ...stop, estimatedMinutesOfArrival: newETA };
+        // ✅ ETA REFRESH (NO DOUBLE-DECREMENT):
+        // Problem: ETAs were being decremented here AND in onBusLocationUpdate/findStopData.
+        // Fix: Do NOT decrement here. Instead, trigger a real Ola Maps refresh every 3 minutes
+        // for ACTIVE buses, even if GPS coordinates didn't change.
+        if (busData.isActive && busData.latitude && busData.longitude && busData.remainingStops?.length) {
+          const lastOlaAPICall = busData.lastOlaAPICall || busData.lastETACalculation || 0;
+          const minutesSinceOla = (now - lastOlaAPICall) / 60000;
+
+          if (lastOlaAPICall === 0 || minutesSinceOla >= 3) {
+            console.log(
+              `🗺️ [Scheduled ETA Refresh] Calling Ola Maps for bus ${busId} (${minutesSinceOla.toFixed(1)} min since last call)`
+            );
+            try {
+              await calculateAndUpdateETAs(
+                schoolId,
+                busId,
+                { latitude: busData.latitude, longitude: busData.longitude },
+                busData
+              );
+            } catch (e) {
+              console.error(`❌ [Scheduled ETA Refresh] Ola Maps failed for bus ${busId}:`, e);
+            }
+          } else {
+            console.log(
+              `⏭️ [Scheduled ETA Refresh] Skipping Ola Maps for bus ${busId}: ${minutesSinceOla.toFixed(1)} min since last call`
+            );
+          }
+        }
+
+        // 📉 ETA DECREMENT (ON SCHEDULE):
+        // Requirements:
+        // - ETA should update even when bus doesn't move (no coordinate change)
+        // - Must NOT double-decrement
+        // Strategy:
+        // - Decrement ONLY here (scheduled every 1 minute)
+        // - Decrement from the ORIGINAL ETA baseline (stop.originalETA)
+        // - Use whole minutes elapsed since last Ola baseline to avoid jumps due to rounding
+        if (busData.isActive && busData.remainingStops?.length) {
+          const lastOlaAPICall = busData.lastOlaAPICall || busData.lastETACalculation || 0;
+          if (lastOlaAPICall > 0) {
+            const elapsedWholeMinutes = Math.floor((now - lastOlaAPICall) / 60000);
+
+            // Only update if at least 1 minute elapsed
+            if (elapsedWholeMinutes >= 1) {
+              let anyChanged = false;
+              const decrementedStops = busData.remainingStops.map((stop) => {
+                if (stop?.estimatedMinutesOfArrival === undefined || stop?.estimatedMinutesOfArrival === null) {
+                  return stop;
+                }
+
+                const originalETA = (stop.originalETA !== undefined && stop.originalETA !== null)
+                  ? stop.originalETA
+                  : stop.estimatedMinutesOfArrival;
+
+                const newETA = Math.max(0, originalETA - elapsedWholeMinutes);
+                if (newETA !== stop.estimatedMinutesOfArrival) {
+                  anyChanged = true;
+                }
+
+                return {
+                  ...stop,
+                  originalETA,
+                  estimatedMinutesOfArrival: newETA,
+                  decremented: true,
+                };
+              });
+
+              if (anyChanged) {
+                await rtdb.ref(`bus_locations/${schoolId}/${busId}`).update({
+                  remainingStops: decrementedStops,
+                  lastETAUpdate: now,
+                });
+                console.log(
+                  `⏱️ [Scheduled ETA Decrement] Bus ${busId}: elapsed=${elapsedWholeMinutes} min since Ola baseline; updated ETAs`
+                );
+              } else {
+                console.log(
+                  `⏱️ [Scheduled ETA Decrement] Bus ${busId}: elapsed=${elapsedWholeMinutes} min; no ETA value changed`
+                );
               }
-              return stop;
-            });
-            await rtdb.ref(`bus_locations/${schoolId}/${busId}`).update({
-              remainingStops: busData.remainingStops,
-              lastETACalculation: now,
-            });
+            }
           }
         }
         
@@ -174,6 +494,9 @@ exports.handleTripTransitions = onSchedule(
     timeZone: "Asia/Kolkata",
     memory: "512MB",
     timeoutSeconds: 300,
+    region: "us-central1",
+    cpu: 0.25,
+    maxInstances: 1,
   },
   async () => {
     const db = admin.firestore();
@@ -256,11 +579,15 @@ exports.handleTripTransitions = onSchedule(
               console.log(`      Time window: ${startTime} - ${endTime}`);
               
               const tripId = buildTripId(routeId, currentDateKey, schedule.startTime || '00:00');
+              const routeRefId = schedule.routeRefId || null;
+              const routeRefName = schedule.routeRefName || null;
               
               // Update trip direction in RTDB
               await rtdb.ref(`bus_locations/${schoolId}/${busId}`).update({
                 tripDirection: scheduleDirection,
                 activeRouteId: routeId,
+                routeRefId: routeRefId,
+                routeRefName: routeRefName,
                 currentTripId: tripId,
                 routeName: schedule.routeName || 'Unknown Route',
               });
@@ -268,20 +595,26 @@ exports.handleTripTransitions = onSchedule(
               // Reset students for new direction
               const studentsRef = db.collection(`schooldetails/${schoolId}/students`);
               const studentsSnapshot = await studentsRef.where('assignedBusId', '==', busId).get();
+              const docsToReset = routeRefId
+                ? studentsSnapshot.docs.filter((d) => (d.data() || {}).assignedRouteId === routeRefId)
+                : studentsSnapshot.docs;
               
-              if (!studentsSnapshot.empty) {
+              if (docsToReset.length > 0) {
                 const batch = db.batch();
-                studentsSnapshot.forEach((doc) => {
+                docsToReset.forEach((doc) => {
                   batch.update(doc.ref, {
                     notified: false,
-                    lastNotifiedRoute: routeId,
+                    lastNotifiedRoute: routeRefId || routeId,
                     lastNotifiedAt: null,
+                    lastNotifiedTripId: null,
                     currentTripId: tripId,
                     tripStartedAt: admin.firestore.FieldValue.serverTimestamp(),
                   });
                 });
                 await batch.commit();
-                console.log(`   ✅ Updated to ${scheduleDirection} direction and reset ${studentsSnapshot.size} students`);
+                console.log(`   ✅ Updated to ${scheduleDirection} direction and reset ${docsToReset.length} students`);
+              } else {
+                console.log(`   ⚠️ No students matched for reset (bus=${busId}, routeRefId=${routeRefId || 'NULL'})`);
               }
             }
           }
@@ -289,28 +622,59 @@ exports.handleTripTransitions = onSchedule(
           // 🔄 STUDENT RESET at schedule start time (but NO auto-activation)
           if (startTime && currentTime === startTime) {
             console.log(`   🔄 SCHEDULE START MATCH! Current: ${currentTime}, Start: ${startTime}`);
-            const tripId = buildTripId(routeId, currentDateKey, schedule.startTime || '00:00');
-            
-            // Reset students to notified=false for this trip window
-            const studentsRef = db.collection(`schooldetails/${schoolId}/students`);
-            const studentsSnapshot = await studentsRef.where('assignedBusId', '==', busId).get();
-            
-            if (!studentsSnapshot.empty) {
-              const batch = db.batch();
-              studentsSnapshot.forEach((doc) => {
-                batch.update(doc.ref, {
-                  notified: false,
-                  lastNotifiedRoute: routeId,
-                  lastNotifiedAt: null,
-                  currentTripId: tripId,
-                  tripStartedAt: admin.firestore.FieldValue.serverTimestamp(),
-                });
+            // If driver tracking is already ON (isActive=true), auto-start this trip in RTDB.
+            // This solves the case where the app is backgrounded and the UI timers don't run.
+            if (busData.isActive === true) {
+              console.log(
+                `   🚀 Bus ${busId} is already active (driver tracking ON) - auto-starting trip now (background-safe)`
+              );
+              const started = await handleTripStart({
+                db,
+                rtdb,
+                schoolId,
+                busId,
+                routeId,
+                schedule,
+                busData,
+                currentDateKey,
               });
-              await batch.commit();
-              console.log(`   ✅ Reset ${studentsSnapshot.size} students to notified=false for trip ${tripId}`);
-              console.log(`   ⚠️ NOTE: Trip NOT auto-started - driver must click START TRIP to begin GPS tracking`);
+              if (started) {
+                tripsStarted++;
+                console.log(`   ✅ Auto-started trip for active bus ${busId}`);
+              } else {
+                console.log(`   ↩️ Trip already active for bus ${busId} (no changes)`);
+              }
             } else {
-              console.log(`   ⚠️ No students assigned to bus ${busId} for reset`);
+              // Driver tracking is OFF. Only reset students for this trip window.
+              const tripId = buildTripId(routeId, currentDateKey, schedule.startTime || '00:00');
+              const routeRefId = schedule.routeRefId || null;
+
+              const studentsRef = db.collection(`schooldetails/${schoolId}/students`);
+              const studentsSnapshot = await studentsRef.where('assignedBusId', '==', busId).get();
+              const docsToReset = routeRefId
+                ? studentsSnapshot.docs.filter((d) => (d.data() || {}).assignedRouteId === routeRefId)
+                : studentsSnapshot.docs;
+
+              if (docsToReset.length > 0) {
+                const batch = db.batch();
+                docsToReset.forEach((doc) => {
+                  batch.update(doc.ref, {
+                    notified: false,
+                    lastNotifiedRoute: routeRefId || routeId,
+                    lastNotifiedAt: null,
+                    lastNotifiedTripId: null,
+                    currentTripId: tripId,
+                    tripStartedAt: admin.firestore.FieldValue.serverTimestamp(),
+                  });
+                });
+                await batch.commit();
+                console.log(`   ✅ Reset ${docsToReset.length} students to notified=false for trip ${tripId}`);
+                console.log(
+                  `   ⚠️ NOTE: Driver tracking is OFF (isActive=false) - trip not started in RTDB`
+                );
+              } else {
+                console.log(`   ⚠️ No students matched for reset (bus=${busId}, routeRefId=${routeRefId || 'NULL'})`);
+              }
             }
           } else if (startTime) {
             console.log(`   ⏰ Start time check: Current=${currentTime}, Start=${startTime} (no match)`);
@@ -361,36 +725,63 @@ async function handleTripStart({ db, rtdb, schoolId, busId, routeId, schedule, b
   console.log(`🚀 Trip start detected for ${schedule.routeName || routeId} (Bus ${busId})`);
 
   const studentsRef = db.collection(`schooldetails/${schoolId}/students`);
+  const routeRefId = schedule.routeRefId || null;
+  const routeRefName = schedule.routeRefName || null;
   const studentsSnapshot = await studentsRef.where('assignedBusId', '==', busId).get();
+  const docsToReset = routeRefId
+    ? studentsSnapshot.docs.filter((d) => (d.data() || {}).assignedRouteId === routeRefId)
+    : studentsSnapshot.docs;
 
-  if (!studentsSnapshot.empty) {
+  if (docsToReset.length > 0) {
     const batch = db.batch();
-    studentsSnapshot.forEach((doc) => {
+    docsToReset.forEach((doc) => {
       batch.update(doc.ref, {
         notified: false,
-        lastNotifiedRoute: routeId,
+        lastNotifiedRoute: routeRefId || routeId,
         lastNotifiedAt: null,
+        lastNotifiedTripId: null,
         currentTripId: tripId,
         tripStartedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
     });
     await batch.commit();
-    console.log(`   🔄 Reset ${studentsSnapshot.size} students to notified=false for trip ${tripId}`);
+    console.log(`   🔄 Reset ${docsToReset.length} students to notified=false for trip ${tripId}`);
   } else {
-    console.log(`   ⚠️ No students assigned to bus ${busId} for reset`);
+    console.log(`   ⚠️ No students matched for reset (bus=${busId}, routeRefId=${routeRefId || 'NULL'})`);
   }
 
-  const stops = schedule.stops || [];
+  const stops = (schedule.stops || []).map((s) => {
+    // Ensure we don't carry ETA fields from a previous trip.
+    // ETAs are recomputed by onBusLocationUpdate / scheduled refresh.
+    if (!s || typeof s !== 'object') return s;
+    const cleaned = { ...s };
+    delete cleaned.eta;
+    delete cleaned.estimatedTimeOfArrival;
+    delete cleaned.estimatedMinutesOfArrival;
+    delete cleaned.originalETA;
+    return cleaned;
+  });
   await rtdb.ref(`bus_locations/${schoolId}/${busId}`).update({
     isActive: true,
     isWithinTripWindow: true,
     activeRouteId: routeId,
+    routeRefId: routeRefId,
+    routeRefName: routeRefName,
     tripDirection: schedule.direction || 'pickup',
     routeName: schedule.routeName || `${schedule.direction || 'Route'}`,
     scheduleStartTime: schedule.startTime,
     scheduleEndTime: schedule.endTime,
     currentTripId: tripId,
     tripStartedAt: Date.now(),
+    // Force fresh ETA baseline after trip switch.
+    // - onBusLocationUpdate will treat this as needsInitialETA
+    // - manageBusNotifications scheduled refresh will call Ola immediately (lastOlaAPICall === 0)
+    lastETACalculation: 0,
+    lastOlaAPICall: 0,
+    lastETAUpdate: 0,
+    allStudentsNotified: false,
+    noPendingStudents: false,
+    stopsPassedCount: 0,
     remainingStops: stops,
     totalStops: stops.length,
     routePolyline: schedule.routePolyline || [],
@@ -403,6 +794,16 @@ async function handleTripStart({ db, rtdb, schoolId, busId, routeId, schedule, b
 
 async function handleTripEnd({ db, rtdb, schoolId, busId, routeId, schedule, busData }) {
   const currentTripId = busData?.currentTripId || buildTripId(routeId, new Date().toISOString().split('T')[0], schedule.startTime || '00:00');
+
+  // IMPORTANT: Avoid ending the "wrong" trip at exact boundaries.
+  // If the bus has already switched to a different schedule (activeRouteId differs),
+  // skip ending this schedule to prevent overriding the new trip state.
+  if (busData?.activeRouteId && busData.activeRouteId !== routeId) {
+    console.log(
+      `   ⏭️ Skip trip end for ${routeId} because bus is currently on activeRouteId=${busData.activeRouteId}`
+    );
+    return false;
+  }
 
   if (!busData || busData.isWithinTripWindow !== true) {
     console.log(`   ℹ️ Bus ${busId} not marked active during trip end check - forcing completion for trip ${currentTripId}`);
@@ -427,12 +828,25 @@ async function handleTripEnd({ db, rtdb, schoolId, busId, routeId, schedule, bus
     console.log(`   ℹ️ No pending students for bus ${busId}`);
   }
 
+  // NOTE: Do NOT force isActive=false here.
+  // isActive represents driver tracking (Start/Stop Trip button) and the background locator.
+  // For background operation, driver tracking can remain ON between trips.
+  // We only end the current trip window + clear trip metadata.
   await rtdb.ref(`bus_locations/${schoolId}/${busId}`).update({
     isWithinTripWindow: false,
-    isActive: false,
-    currentStatus: 'InActive',
     tripEndedAt: Date.now(),
     deactivationReason: 'Trip schedule ended',
+    activeRouteId: null,
+    routeRefId: null,
+    routeRefName: null,
+    currentTripId: null,
+    routeName: null,
+    tripDirection: null,
+    scheduleStartTime: null,
+    scheduleEndTime: null,
+    remainingStops: [],
+    totalStops: 0,
+    routePolyline: [],
   });
 
   return true;
@@ -479,7 +893,6 @@ function findStopData(busStatusData, studentLocationName, studentLocation) {
   
   // Parse ETA - handle both 'eta' (string) and 'estimatedTimeOfArrival' (timestamp) fields
   let etaDate = null;
-  let calculatedETA = stop.estimatedMinutesOfArrival;
   
   if (stop.eta) {
     // eta is stored as ISO string like "2025-12-08T07:57:15.129Z"
@@ -491,24 +904,16 @@ function findStopData(busStatusData, studentLocationName, studentLocation) {
       : new Date(stop.estimatedTimeOfArrival);
   }
   
-  // 🚨 FIX: Decrement ETA based on time elapsed since last calculation
-  // This ensures ETA decreases every minute even without new GPS data
-  if (stop.lastETACalculation && calculatedETA !== null && calculatedETA !== undefined) {
-    const lastCalcTime = stop.lastETACalculation;
-    const currentTime = Date.now();
-    const minutesElapsed = Math.floor((currentTime - lastCalcTime) / 60000);
-    
-    if (minutesElapsed > 0) {
-      // Subtract elapsed time from original ETA
-      calculatedETA = Math.max(0, calculatedETA - minutesElapsed);
-      console.log(`   ⏰ ETA adjusted: ${stop.estimatedMinutesOfArrival} min - ${minutesElapsed} min elapsed = ${calculatedETA} min`);
-    }
-  }
-  
+  // ✅ IMPORTANT:
+  // Do NOT time-adjust here. ETAs are already updated in RTDB by:
+  // - onBusLocationUpdate (on GPS updates)
+  // - manageBusNotifications scheduled refresh (every ~1 min, Ola call every 3 min)
+  // Time-adjusting here caused DOUBLE DECREMENT.
+
   return {
     name: stop.name,
-    estimatedMinutesOfArrival: calculatedETA,
-    originalETA: stop.estimatedMinutesOfArrival,
+    estimatedMinutesOfArrival: stop.estimatedMinutesOfArrival,
+    originalETA: stop.originalETA !== undefined ? stop.originalETA : stop.estimatedMinutesOfArrival,
     eta: etaDate,
   };
 }
@@ -665,291 +1070,381 @@ function buildTripId(routeId, dateKey, startTime) {
   return `${safeRouteId}_${safeDate}_${safeStart}`;
 }
 
-// 🧪 TESTING ENDPOINT: Manually start a trip (bypasses time check)
-exports.manualStartTrip = onRequest(
-  { cors: true, region: "us-central1" },
+// 🧪 DEBUG ENDPOINT: Manually start a trip (bypasses time check)
+// Not deployed unless ENABLE_DEBUG_ENDPOINTS=true.
+if (ENABLE_DEBUG_ENDPOINTS.value() === "true") {
+  exports.manualStartTrip = onRequest(
+    { cors: true, region: "us-central1" },
+    async (req, res) => {
+      try {
+        const decoded = await requireFirebaseAuth(req);
+        const role = getRoleFromClaims(decoded);
+        if (!isSuperiorRole(role) && !isSchoolAdminRole(role) && !isRegionalAdminRole(role)) {
+          return res.status(403).json({ success: false, error: "Forbidden" });
+        }
+
+        const { schoolId, busId, scheduleId } = req.body;
+
+        if (!schoolId || !busId || !scheduleId) {
+          return res.status(400).json({
+            success: false,
+            error: "schoolId, busId, and scheduleId required",
+          });
+        }
+
+        assertSameSchoolIfNotSuperior(decoded, schoolId);
+
+        const db = admin.firestore();
+        const rtdb = admin.database();
+        const currentDateKey = new Date().toISOString().split("T")[0];
+
+        const scheduleDoc = await db
+          .collection("schools")
+          .doc(schoolId)
+          .collection("route_schedules")
+          .doc(scheduleId)
+          .get();
+
+        if (!scheduleDoc.exists) {
+          return res.status(404).json({ success: false, error: "Schedule not found" });
+        }
+
+        const schedule = scheduleDoc.data();
+        const busSnapshot = await rtdb.ref(`bus_locations/${schoolId}/${busId}`).once("value");
+        const busData = busSnapshot.val() || {};
+
+        await handleTripStart({
+          db,
+          rtdb,
+          schoolId,
+          busId,
+          routeId: scheduleId,
+          schedule,
+          busData,
+          currentDateKey,
+        });
+
+        return res.status(200).json({
+          success: true,
+          message: `Trip started for ${schedule.routeName}`,
+          tripId: buildTripId(scheduleId, currentDateKey, schedule.startTime || "00:00"),
+        });
+      } catch (error) {
+        console.error("Manual trip start error:", error);
+        return res.status(error.statusCode || 500).json({ success: false, error: error.message });
+      }
+    }
+  );
+}
+
+// OTP is requested BEFORE login, so it cannot require Firebase Auth.
+// To reduce abuse, restrict to known admin emails + rate-limit.
+exports.sendOtp = onRequest(
+  {
+    region: "us-central1",
+    cors: true,
+    secrets: [GMAIL_USER, GMAIL_APP_PASSWORD],
+  },
   async (req, res) => {
+    const email = String(req.body?.email || "").trim().toLowerCase();
+
+    if (!email) {
+      return res.status(400).send({ success: false, message: "Email is required" });
+    }
+
     try {
-      const { schoolId, busId, scheduleId } = req.body;
-      
-      if (!schoolId || !busId || !scheduleId) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'schoolId, busId, and scheduleId required' 
+      const db = admin.firestore();
+
+      // Allow OTP only for emails that exist in admin metadata.
+      // This prevents spamming arbitrary addresses.
+      const [adminsSnap, adminUsersSnap] = await Promise.all([
+        db.collection("admins").where("email", "==", email).limit(1).get(),
+        db.collection("adminusers").where("email", "==", email).limit(1).get(),
+      ]);
+
+      if (adminsSnap.empty && adminUsersSnap.empty) {
+        // Avoid leaking whether an email exists.
+        return res.status(200).send({ success: true, message: "OTP sent to email" });
+      }
+
+      // Simple per-email rate limit: 5 OTPs per hour
+      const rateDocRef = db.collection("otp_rate_limits").doc(email);
+      const rateDoc = await rateDocRef.get();
+      const now = Date.now();
+      const windowMs = 60 * 60 * 1000;
+      const maxPerWindow = 5;
+      const rateData = rateDoc.exists ? rateDoc.data() : null;
+      const windowStart = Number(rateData?.windowStartMs || 0);
+      const count = Number(rateData?.count || 0);
+
+      const inWindow = windowStart > 0 && now - windowStart < windowMs;
+      const nextCount = inWindow ? count + 1 : 1;
+      const nextWindowStart = inWindow ? windowStart : now;
+
+      if (inWindow && nextCount > maxPerWindow) {
+        return res.status(429).send({
+          success: false,
+          message: "Too many OTP requests. Please try again later.",
         });
       }
+
+      await rateDocRef.set(
+        {
+          windowStartMs: nextWindowStart,
+          count: nextCount,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+      await db.collection("otps").doc(email).set({
+        otp,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      const mailOptions = {
+        from: getSecretValue(GMAIL_USER, "GMAIL_USER"),
+        to: email,
+        subject: "Your OTP Code",
+        text: `Your OTP code is: ${otp}`,
+      };
+
+      await getMailTransporter().sendMail(mailOptions);
+      return res.status(200).send({ success: true, message: "OTP sent to email" });
+    } catch (error) {
+      console.error("Error sending OTP:", error);
+      return res.status(500).send({ success: false, message: "Failed to send email" });
+    }
+  }
+);
+
+
+exports.sendCredentialEmail = onRequest(
+  {
+    region: "us-central1",
+    cors: true,
+    secrets: [GMAIL_USER, GMAIL_APP_PASSWORD],
+  },
+  async (req, res) => {
+    try {
+      const decoded = await requireFirebaseAuth(req);
+      const role = getRoleFromClaims(decoded);
+
+      if (!isSuperiorRole(role) && !isSchoolAdminRole(role) && !isRegionalAdminRole(role)) {
+        return res.status(403).send({ success: false, message: "Forbidden" });
+      }
+
+      const email = String(req.body?.email || "").trim();
+      const subject = String(req.body?.subject || "").trim();
+      const body = String(req.body?.body || "");
+
+      if (!email || !subject || !body) {
+        return res
+          .status(400)
+          .send({ success: false, message: "Missing fields (email, subject, body) are required." });
+      }
+
+      const mailOptions = {
+        from: getSecretValue(GMAIL_USER, "GMAIL_USER"),
+        to: email,
+        subject,
+        text: body,
+      };
+
+      await getMailTransporter().sendMail(mailOptions);
+      return res.status(200).send({ success: true, message: "Email sent successfully." });
+    } catch (error) {
+      console.error("Error sending email:", error);
+      return res.status(error.statusCode || 500).send({ success: false, message: "Failed to send email." });
+    }
+  }
+);
+
+exports.notifyAllStudents = onRequest(
+  { region: "us-central1", cors: true },
+  async (req, res) => {
+    try {
+      const decoded = await requireFirebaseAuth(req);
+      const role = getRoleFromClaims(decoded);
+      if (!isSuperiorRole(role) && !isSchoolAdminRole(role) && !isRegionalAdminRole(role)) {
+        return res.status(403).send({ success: false, message: "Forbidden" });
+      }
+
+      const schoolId = String(req.body?.schoolId || "").trim();
+      const title = String(req.body?.title || "").trim();
+      const body = String(req.body?.body || "").trim();
+
+      if (!schoolId || !title || !body) {
+        return res.status(400).send({
+          success: false,
+          message: "schoolId, title and body are required.",
+        });
+      }
+
+      assertSameSchoolIfNotSuperior(decoded, schoolId);
 
       const db = admin.firestore();
-      const rtdb = admin.database();
-      const currentDateKey = new Date().toISOString().split('T')[0];
-
-      // Fetch schedule
-      const scheduleDoc = await db
-        .collection('schools')
-        .doc(schoolId)
-        .collection('route_schedules')
-        .doc(scheduleId)
-        .get();
-
-      if (!scheduleDoc.exists) {
-        return res.status(404).json({ success: false, error: 'Schedule not found' });
+      let snapshot = await db.collection(`schooldetails/${schoolId}/students`).get();
+      if (snapshot.empty) {
+        snapshot = await db.collection(`schools/${schoolId}/students`).get();
       }
 
-      const schedule = scheduleDoc.data();
-      const busSnapshot = await rtdb.ref(`bus_locations/${schoolId}/${busId}`).once('value');
-      const busData = busSnapshot.val() || {};
-
-      // Start the trip
-      await handleTripStart({
-        db,
-        rtdb,
-        schoolId,
-        busId,
-        routeId: scheduleId,
-        schedule,
-        busData,
-        currentDateKey,
+      const tokens = [];
+      snapshot.forEach((doc) => {
+        const data = doc.data() || {};
+        if (data.fcmToken) tokens.push(data.fcmToken);
       });
 
-      return res.status(200).json({ 
-        success: true, 
-        message: `Trip started for ${schedule.routeName}`,
-        tripId: buildTripId(scheduleId, currentDateKey, schedule.startTime || '00:00')
-      });
+      if (tokens.length === 0) {
+        return res.status(200).send({ success: true, message: "No tokens found" });
+      }
+
+      const message = {
+        notification: { title, body },
+        android: {
+          notification: {
+            channelId: "busmate_silent",
+            sound: "default",
+          },
+        },
+        apns: {
+          payload: {
+            aps: { sound: "default" },
+          },
+        },
+        tokens,
+      };
+
+      const response = await admin.messaging().sendEachForMulticast(message);
+      const successCount = response.responses.filter((r) => r.success).length;
+      const failureCount = response.responses.length - successCount;
+
+      return res.status(200).send({ success: true, successCount, failureCount });
     } catch (error) {
-      console.error('Manual trip start error:', error);
-      return res.status(500).json({ success: false, error: error.message });
+      console.error("Error sending student notification:", error);
+      return res
+        .status(error.statusCode || 500)
+        .send({ success: false, message: "Failed to send notification" });
     }
   }
 );
 
-// otp generator and send using to mail
-
-// Configure nodemailer
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: 'jupentabusmate@gmail.com',
-    pass: 'ammpdixyhistmxzv',
-  },
-});
-
-exports.sendOtp = functions.https.onRequest(async (req, res) => {
-  const email = req.body.email;
-
-  if (!email) {
-    return res.status(400).send({ success: false, message: 'Email is required' });
-  }
-
-  const otp = Math.floor(100000 + Math.random() * 900000).toString();
-
-  // Store OTP
-  await admin.firestore().collection('otps').doc(email).set({
-    otp: otp,
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-  });
-
-  // Send OTP email
-  const mailOptions = {
-    from: 'your-email@gmail.com',
-    to: email,
-    subject: 'Your OTP Code',
-    text: `Your OTP code is: ${otp}`,
-  };
-
-  try {
-    await transporter.sendMail(mailOptions);
-    res.status(200).send({ success: true, message: 'OTP sent to email' });
-  } catch (error) {
-    console.error('Error sending email:', error);
-    res.status(500).send({ success: false, message: 'Failed to send email' });
-  }
-});
-
-
-exports.sendCredentialEmail = functions.https.onRequest(async (req, res) => {
-  const { email, subject, body } = req.body;
-
-  // Validate input
-  if (!email || !subject || !body) {
-    return res.status(400).send({ success: false, message: 'Missing fields (email, subject, body) are required.' });
-  }
-
-  // Create email options
-  const mailOptions = {
-    from: 'your-email@gmail.com',
-    to: email,
-    subject: subject,
-    text: body,
-    // Optional: if you want HTML emails
-    // html: `<p>${body}</p>`
-  };
-
-  try {
-    await transporter.sendMail(mailOptions);
-    res.status(200).send({ success: true, message: 'Email sent successfully.' });
-  } catch (error) {
-    console.error('Error sending email:', error);
-    res.status(500).send({ success: false, message: 'Failed to send email.' });
-  }
-});
-
-exports.notifyAllStudents = functions.https.onRequest(async (req, res) => {
-  const { title, body } = req.body;
-
-  if (!title || !body) {
-    return res.status(400).send({ success: false, message: 'Title and body are required.' });
-  }
-
-  try {
-    const db = admin.firestore();
-
-    // Fetch all user FCM tokens from Firestore
-    const snapshot = await db.collection("students").get();
-
-    const tokens = [];
-    snapshot.forEach((doc) => {
-      const data = doc.data();
-      if (data.fcmToken) {
-        tokens.push(data.fcmToken);
-      }
-    });
-
-    if (tokens.length === 0) {
-      return res.status(200).send("No tokens found");
-    }
-
-    const message = {
-      notification: {
-        title: title,
-        body: body,
-      },
-      android: {
-        notification: {
-          channelId: "busmate_silent", // Ensure the channel exists in your Android app
-          sound: "default",
-        },
-      },
-      apns: {
-        payload: {
-          aps: {
-            sound: "default",
-          },
-        },
-      },
-      tokens: tokens,
-    };
-
-    const response = await admin.messaging().sendEachForMulticast(message);
-
-    console.log(`Success: ${response.responses.filter(r => r.success).length}`);
-    console.log(`Failure: ${response.responses.filter(r => !r.success).length}`);
-
-    res.status(200).send(`Notification sent. Success: ${response.responses.filter(r => r.success).length}`);
-  } catch (error) {
-    console.error("Error sending notification:", error);
-    res.status(500).send("Failed to send notification");
-  }
-});
-
-exports.notifyAllDrivers = functions.https.onRequest(async (req, res) => {
-  const { title, body } = req.body;
-
-  if (!title || !body) {
-    return res.status(400).send({ success: false, message: 'Title and body are required.' });
-  }
-
-  try {
-    const db = admin.firestore();
-
-    // Fetch all user FCM tokens from Firestore
-    const snapshot = await db.collection("drivers").get();
-
-    const tokens = [];
-    snapshot.forEach((doc) => {
-      const data = doc.data();
-      if (data.fcmToken) {
-        tokens.push(data.fcmToken);
-      }
-    });
-
-    if (tokens.length === 0) {
-      return res.status(200).send("No tokens found");
-    }
-
-    const message = {
-      notification: {
-        title: title,
-        body: body,
-        sound: "default",
-      },
-      android: {
-        notification: {
-          channelId: "busmate_silent", // Ensure the channel exists in your Android app
-          sound: "default",
-        },
-      },
-      apns: {
-        payload: {
-          aps: {
-            sound: "default",
-          },
-        },
-      },
-      tokens: tokens,
-    };
-
-    const response = await admin.messaging().sendEachForMulticast(message);
-
-    console.log(`Success: ${response.responses.filter(r => r.success).length}`);
-    console.log(`Failure: ${response.responses.filter(r => !r.success).length}`);
-
-    res.status(200).send(`Notification sent. Success: ${response.responses.filter(r => r.success).length}`);
-  } catch (error) {
-    console.error("Error sending notification:", error);
-    res.status(500).send("Failed to send notification");
-  }
-});
-
-// Hash password function - used when registering/updating students
-// Provides secure server-side password hashing to prevent client-side manipulation
-exports.hashpassword = onRequest(
-  {cors: true, region: "us-central1"},
+exports.notifyAllDrivers = onRequest(
+  { region: "us-central1", cors: true },
   async (req, res) => {
     try {
-      const bcrypt = require("bcrypt");
-      const {password} = req.body;
-
-      if (!password) {
-        return res.status(400).json({error: "Password is required"});
+      const decoded = await requireFirebaseAuth(req);
+      const role = getRoleFromClaims(decoded);
+      if (!isSuperiorRole(role) && !isSchoolAdminRole(role) && !isRegionalAdminRole(role)) {
+        return res.status(403).send({ success: false, message: "Forbidden" });
       }
 
-      // Hash password with bcrypt (12 salt rounds for good security/performance balance)
-      const hashedPassword = await bcrypt.hash(password, 12);
+      const schoolId = String(req.body?.schoolId || "").trim();
+      const title = String(req.body?.title || "").trim();
+      const body = String(req.body?.body || "").trim();
 
-      res.status(200).json({hashedPassword: hashedPassword});
-    } catch (error) {
-      console.error("Error hashing password:", error);
-      res.status(500).json({error: "Failed to hash password"});
-    }
-  }
-);
-
-// Student login function - custom authentication for students (no Firebase Auth)
-// This avoids Firebase Auth costs after 50k users while maintaining security
-exports.studentlogin = onRequest(
-  {cors: true, region: "us-central1"},
-  async (req, res) => {
-    try {
-      const bcrypt = require("bcrypt");
-      const {credential, password, schoolId} = req.body;
-
-      if (!credential || !password || !schoolId) {
-        return res.status(400).json({
+      if (!schoolId || !title || !body) {
+        return res.status(400).send({
           success: false,
-          error: "Credential, password, and schoolId are required",
+          message: "schoolId, title and body are required.",
         });
       }
+
+      assertSameSchoolIfNotSuperior(decoded, schoolId);
+
+      const db = admin.firestore();
+      const driversSnap = await db.collection("adminusers").where("schoolId", "==", schoolId).get();
+      const tokens = [];
+
+      driversSnap.forEach((doc) => {
+        const data = doc.data() || {};
+        const r = String(data.role || "").toLowerCase();
+        if (r.includes("driver") && data.fcmToken) {
+          tokens.push(data.fcmToken);
+        }
+      });
+
+      if (tokens.length === 0) {
+        return res.status(200).send({ success: true, message: "No tokens found" });
+      }
+
+      const message = {
+        notification: { title, body },
+        android: {
+          notification: {
+            channelId: "busmate_silent",
+            sound: "default",
+          },
+        },
+        apns: {
+          payload: {
+            aps: { sound: "default" },
+          },
+        },
+        tokens,
+      };
+
+      const response = await admin.messaging().sendEachForMulticast(message);
+      const successCount = response.responses.filter((r) => r.success).length;
+      const failureCount = response.responses.length - successCount;
+
+      return res.status(200).send({ success: true, successCount, failureCount });
+    } catch (error) {
+      console.error("Error sending driver notification:", error);
+      return res
+        .status(error.statusCode || 500)
+        .send({ success: false, message: "Failed to send notification" });
+    }
+  }
+);
+
+// DEBUG ONLY: Hash password endpoint (avoid exposing CPU work publicly in prod)
+if (ENABLE_DEBUG_ENDPOINTS.value() === "true") {
+  exports.hashpassword = onRequest(
+    { cors: true, region: "us-central1" },
+    async (req, res) => {
+      try {
+        const decoded = await requireFirebaseAuth(req);
+        const role = getRoleFromClaims(decoded);
+        if (!isSuperiorRole(role) && !isSchoolAdminRole(role) && !isRegionalAdminRole(role)) {
+          return res.status(403).json({ error: "Forbidden" });
+        }
+
+        const bcrypt = require("bcrypt");
+        const { password } = req.body;
+
+        if (!password) {
+          return res.status(400).json({ error: "Password is required" });
+        }
+
+        const hashedPassword = await bcrypt.hash(password, 12);
+        return res.status(200).json({ hashedPassword });
+      } catch (error) {
+        console.error("Error hashing password:", error);
+        return res.status(error.statusCode || 500).json({ error: "Failed to hash password" });
+      }
+    }
+  );
+}
+
+// LEGACY ONLY: custom student login endpoint.
+// Not deployed unless ENABLE_LEGACY_STUDENTLOGIN=true.
+if (ENABLE_LEGACY_STUDENTLOGIN.value() === "true") {
+  exports.studentlogin = onRequest(
+    { cors: true, region: "us-central1" },
+    async (req, res) => {
+      try {
+        const bcrypt = require("bcrypt");
+        const { credential, password, schoolId } = req.body;
+
+        if (!credential || !password || !schoolId) {
+          return res.status(400).json({
+            success: false,
+            error: "Credential, password, and schoolId are required",
+          });
+        }
 
       // Query Firestore for student with matching credential and schoolId
       const studentsRef = admin.firestore()
@@ -1019,15 +1514,16 @@ exports.studentlogin = onRequest(
           languagePreference: studentData.languagePreference,
         },
       });
-    } catch (error) {
-      console.error("Error during student login:", error);
-      res.status(500).json({
-        success: false,
-        error: "Authentication failed",
-      });
+      } catch (error) {
+        console.error("Error during student login:", error);
+        return res.status(500).json({
+          success: false,
+          error: "Authentication failed",
+        });
+      }
     }
-  }
-);
+  );
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // HELPER: Process notifications for a single bus (called from onBusLocationUpdate)
@@ -1038,17 +1534,25 @@ async function processNotificationsForBus(schoolId, busId, busData) {
   try {
     console.log(`🔔 [Instant Notifications] Checking students for bus ${busId}...`);
     console.log(`   📍 currentTripId: ${busData.currentTripId}`);
+    console.log(`   🧭 routeRefId: ${busData.routeRefId || busData.activeRouteRefId || 'NULL'}`);
     console.log(`   🚏 Remaining stops: ${busData.remainingStops?.length || 0}`);
     console.log(`   🔍 RTDB busData keys: ${Object.keys(busData).join(', ')}`);
     console.log(`   📊 isActive: ${busData.isActive}, isWithinTripWindow: ${busData.isWithinTripWindow}`);
     
-    const studentsRef = db.collection(`schooldetails/${schoolId}/students`);
+    // Prefer schooldetails (new primary), but fallback to schools (legacy) if needed.
+    let studentsRef = db.collection(`schooldetails/${schoolId}/students`);
+    let studentsCollectionName = 'schooldetails';
 
     // Get exact stop names from RTDB (case-sensitive)
     const remainingStopNames = (busData.remainingStops || [])
       .map((s) => s?.name || s?.stopName || "")
       .filter((name) => name);
     const uniqueStopNames = Array.from(new Set(remainingStopNames));
+
+    // Normalized stop names for matching (case-insensitive)
+    const uniqueStopNamesNormalized = Array.from(
+      new Set(uniqueStopNames.map((n) => (n || "").toLowerCase().trim()))
+    );
     
     console.log(`   📍 Stop names in RTDB: [${uniqueStopNames.join(', ')}]`);
 
@@ -1063,13 +1567,40 @@ async function processNotificationsForBus(schoolId, busId, busData) {
 
     // Simple broad query - get all students for this bus on this trip
     console.log(`   🔍 Querying students: busId=${busId}, notified=false, tripId=${busData.currentTripId}`);
-    const snapshot = await studentsRef
+    let snapshot = await studentsRef
       .where('assignedBusId', '==', busId)
       .where('notified', '==', false)
       .where('currentTripId', '==', busData.currentTripId)
       .get();
+
+    if (snapshot.empty) {
+      const fallbackRef = db.collection(`schools/${schoolId}/students`);
+      const fallbackSnap = await fallbackRef
+        .where('assignedBusId', '==', busId)
+        .where('notified', '==', false)
+        .where('currentTripId', '==', busData.currentTripId)
+        .get();
+
+      if (!fallbackSnap.empty) {
+        studentsRef = fallbackRef;
+        studentsCollectionName = 'schools';
+        snapshot = fallbackSnap;
+      }
+    }
+
+    console.log(`   🗂️ Students collection used: ${studentsCollectionName}`);
     
     console.log(`   📊 Broad query returned ${snapshot.size} students`);
+
+    // Route scoping (multi-route): if bus has routeRefId, only process students for that route
+    const routeRefId = busData.routeRefId || busData.activeRouteRefId || null;
+    const routeScopedDocs = routeRefId
+      ? snapshot.docs.filter((d) => (d.data() || {}).assignedRouteId === routeRefId)
+      : snapshot.docs;
+
+    if (routeRefId) {
+      console.log(`   🧭 Route scoped students: ${routeScopedDocs.length} (routeRefId=${routeRefId})`);
+    }
     
     // If no students found, check what went wrong
     if (snapshot.size === 0) {
@@ -1089,15 +1620,29 @@ async function processNotificationsForBus(schoolId, busId, busData) {
       });
     }
     
-    // Filter in-memory to match stop names (case-sensitive)
-    const fetchedDocs = snapshot.docs.filter((doc) => {
+    // Filter candidates. Prefer matching by stop name, but if student has coordinates,
+    // keep them so findStopData can do location-based matching (avoids name formatting issues).
+    const fetchedDocs = routeScopedDocs.filter((doc) => {
       const student = doc.data();
       const studentStopName = student.stopping || student.stopLocation?.name || "";
-      const matches = studentStopName && uniqueStopNames.includes(studentStopName);
-      
-      console.log(`   👤 Student ${doc.id}: stopping="${studentStopName}" - ${matches ? '✅ MATCH' : '❌ NO MATCH'}`);
-      
-      return matches;
+
+      const hasCoords =
+        student.stopLocation &&
+        student.stopLocation.latitude &&
+        student.stopLocation.longitude;
+
+      const nameMatches =
+        studentStopName &&
+        uniqueStopNamesNormalized.includes(
+          (studentStopName || "").toLowerCase().trim()
+        );
+
+      const keep = Boolean(nameMatches || hasCoords);
+      console.log(
+        `   👤 Student ${doc.id}: stopping="${studentStopName}" coords=${hasCoords ? '✅' : '❌'} - ${keep ? '✅ KEEP' : '❌ DROP'}`
+      );
+
+      return keep;
     });
     
     console.log(`   🎯 Final filtered list: ${fetchedDocs.length} students`);
@@ -1129,8 +1674,22 @@ async function processNotificationsForBus(schoolId, busId, busData) {
     fetchedDocs.forEach((doc) => {
       const student = doc.data();
       const stopName = (student.stopping || student.stopLocation?.name || '').trim();
+
+      // Hard guard: a student should be notified at most once per trip.
+      // This protects against any external logic accidentally flipping `notified` back to false.
+      // NOTE: Some reset flows intentionally set lastNotifiedAt=null; in that case, allow notification.
+      if (
+        student.lastNotifiedTripId &&
+        student.lastNotifiedTripId === busData.currentTripId &&
+        student.lastNotifiedAt
+      ) {
+        console.log(
+          `   ⛔ SKIP ${student.name} (${doc.id}) - already notified for trip ${busData.currentTripId}`
+        );
+        return;
+      }
       
-      if (!stopName || !student.notificationPreferenceByTime) {
+      if (!stopName || student.notificationPreferenceByTime === null || student.notificationPreferenceByTime === undefined) {
         console.log(`   ⚠️ SKIPPED student ${doc.id} - invalid stop/preference`);
         return;
       }
@@ -1145,6 +1704,14 @@ async function processNotificationsForBus(schoolId, busId, busData) {
       }
       
       const eta = stopData.estimatedMinutesOfArrival;
+
+      const threshold = Number(student.notificationPreferenceByTime);
+      if (!Number.isFinite(threshold)) {
+        console.log(
+          `   ⚠️ SKIPPED student ${doc.id} - invalid notificationPreferenceByTime: ${student.notificationPreferenceByTime}`
+        );
+        return;
+      }
       
       // Check if ETA is actually calculated (not null/undefined/NaN)
       if (eta === null || eta === undefined || isNaN(eta)) {
@@ -1152,11 +1719,11 @@ async function processNotificationsForBus(schoolId, busId, busData) {
         return;
       }
       
-      console.log(`   📊 ETA: ${eta} min, Preference: ${student.notificationPreferenceByTime} min`);
+      console.log(`   📊 ETA: ${eta} min, Preference: ${threshold} min`);
       
       // Check if notification threshold met
-      if (eta !== null && eta !== undefined && eta <= student.notificationPreferenceByTime) {
-        console.log(`   🎯 THRESHOLD MET! ${eta.toFixed(1)} min <= ${student.notificationPreferenceByTime} min`);
+      if (eta !== null && eta !== undefined && eta <= threshold) {
+        console.log(`   🎯 THRESHOLD MET! ${eta.toFixed(1)} min <= ${threshold} min`);
         
         if (!student.fcmToken) {
           console.log(`   ⚠️ SKIPPED ${student.name} - No FCM token`);
@@ -1165,19 +1732,43 @@ async function processNotificationsForBus(schoolId, busId, busData) {
         
         const isVoiceNotification = (student.notificationType || "").toLowerCase() === "voice notification";
         
-        // ✅ HYBRID APPROACH: Include notification field for iOS, suppress on Android
-        // iOS: Needs notification field to wake onMessage listener in foreground
-        // Android: Will handle in onMessage and show custom notification
+        // ✅ CORRECTED FCM PAYLOAD STRUCTURE (following DeepSeek's instructions)
+        // Now includes notification field at root level for both foreground and background delivery
+        const lang = (student.languagePreference || "english").toLowerCase();
+        const soundName = `notification_${lang}`; // e.g., "notification_english"
+        
         const payload = {
+          token: student.fcmToken,
+          // ✅ Root-level notification field for reliable delivery
           notification: {
             title: "Bus Approaching!",
             body: `Bus will arrive in approximately ${eta.toFixed(0)} minutes.`,
           },
+          // ✅ Data field for custom handling in Flutter
+          data: {
+            type: "bus_arrival",
+            title: "Bus Approaching!",
+            body: `Bus will arrive in approximately ${eta.toFixed(0)} minutes.`,
+            studentId: doc.id,
+            notificationType: isVoiceNotification ? "Voice Notification" : "Text Notification",
+            selectedLanguage: lang,
+            eta: eta.toString(),
+            busId: busId,
+            sound: soundName, // Pass sound name to Flutter
+          },
+          // ✅ Android-specific configuration
           android: {
             priority: "high",
             ttl: 2 * 60 * 1000,
-            // No android.notification field - allows app to handle display
+            notification: {
+              title: "Bus Approaching!",
+              body: `Bus will arrive in approximately ${eta.toFixed(0)} minutes.`,
+              channel_id: `busmate_voice_${lang}`, // Use language-specific channel
+              sound: soundName, // Android sound (no extension)
+              click_action: "FLUTTER_NOTIFICATION_CLICK",
+            },
           },
+          // ✅ iOS (APNs) specific configuration
           apns: {
             headers: {
               "apns-priority": "10",
@@ -1185,22 +1776,17 @@ async function processNotificationsForBus(schoolId, busId, busData) {
             },
             payload: {
               aps: {
+                alert: {
+                  title: "Bus Approaching!",
+                  body: `Bus will arrive in approximately ${eta.toFixed(0)} minutes.`,
+                },
+                sound: `${soundName}.wav`, // iOS needs .wav extension
                 contentAvailable: true,
-                // Notification will wake onMessage listener
+                badge: 1,
+                category: "BUSMATE_CATEGORY",
               },
             },
           },
-          data: {
-            type: "bus_arrival",
-            title: "Bus Approaching!",
-            body: `Bus will arrive in approximately ${eta.toFixed(0)} minutes.`,
-            studentId: doc.id,
-            notificationType: isVoiceNotification ? "Voice Notification" : "Text Notification",
-            selectedLanguage: student.languagePreference || "english",
-            eta: eta.toString(),
-            busId: busId,
-          },
-          token: student.fcmToken,
         };
         
         const tripDirection = busData.tripDirection || 'unknown';
@@ -1213,6 +1799,7 @@ async function processNotificationsForBus(schoolId, busId, busData) {
           studentId: doc.id,
           updateData: {
             notified: true,
+            lastNotifiedTripId: busData.currentTripId,
             lastNotifiedRoute: tripDirection,
             lastNotifiedAt: admin.firestore.FieldValue.serverTimestamp(),
           }
@@ -1237,10 +1824,11 @@ async function processNotificationsForBus(schoolId, busId, busData) {
           console.log(`   🚀 SENDING FCM to ${task.studentId} (${task.studentName})`);
           console.log(`   📱 Token: ${task.payload.token}`);
           console.log(`   📦 Payload:`);
-          console.log(`      - Title: ${task.payload.notification.title}`);
-          console.log(`      - Body: ${task.payload.notification.body}`);
-          console.log(`      - Channel: ${task.payload.android.notification.channelId}`);
-          console.log(`      - Sound: ${task.payload.android.notification.sound}`);
+          console.log(`      - Title: ${task.payload.data.title}`);
+          console.log(`      - Body: ${task.payload.data.body}`);
+          console.log(`      - Android: DATA-ONLY message (no notification field)`);
+          console.log(`      - iOS: notification + data`);
+          console.log(`      - Language: ${task.payload.data.selectedLanguage}`);
           console.log(`      - Priority: ${task.payload.android.priority}`);
           console.log(`      - Data: ${JSON.stringify(task.payload.data)}`);
           
@@ -1308,6 +1896,109 @@ async function processNotificationsForBus(schoolId, busId, busData) {
   }
 }
 
+async function maybeResetStudentsForTripServerSide(schoolId, busId, busData) {
+  try {
+    const tripId = busData?.currentTripId;
+    if (!tripId) {
+      return;
+    }
+
+    // Only reset once per trip, and only near trip start.
+    // This prevents mid-trip resets (which could cause duplicate notifications).
+    const tripStartedAt = Number(busData?.tripStartedAt || 0);
+    const now = Date.now();
+    const minutesSinceStart = tripStartedAt > 0 ? (now - tripStartedAt) / 60000 : null;
+    const isNearStart = minutesSinceStart === null || (minutesSinceStart >= 0 && minutesSinceStart <= 5);
+
+    if (!isNearStart) {
+      return;
+    }
+
+    // IMPORTANT: Read the marker from RTDB to avoid using stale busData.
+    // (busData comes from event payload and may not include latest marker fields.)
+    const markerSnap = await admin
+      .database()
+      .ref(`bus_locations/${schoolId}/${busId}/studentsResetTripId`)
+      .once('value');
+    const markerTripId = markerSnap.val();
+    if (markerTripId === tripId) {
+      return;
+    }
+
+    const db = admin.firestore();
+
+    // Prefer schooldetails; fallback to schools if this school still uses legacy structure.
+    let studentsRef = db.collection(`schooldetails/${schoolId}/students`);
+    let studentsCollectionName = 'schooldetails';
+    let query = studentsRef.where('assignedBusId', '==', busId);
+
+    // Multi-route buses: only reset students assigned to the active routeRefId
+    const routeRefId = busData?.routeRefId || busData?.activeRouteRefId || null;
+    if (routeRefId) {
+      query = query.where('assignedRouteId', '==', routeRefId);
+    }
+
+    let snapshot = await query.get();
+
+    if (snapshot.empty) {
+      const fallbackRef = db.collection(`schools/${schoolId}/students`);
+      let fallbackQuery = fallbackRef.where('assignedBusId', '==', busId);
+      if (routeRefId) {
+        fallbackQuery = fallbackQuery.where('assignedRouteId', '==', routeRefId);
+      }
+      const fallbackSnap = await fallbackQuery.get();
+      if (!fallbackSnap.empty) {
+        studentsRef = fallbackRef;
+        studentsCollectionName = 'schools';
+        query = fallbackQuery;
+        snapshot = fallbackSnap;
+      }
+    }
+    if (snapshot.empty) {
+      await admin.database().ref(`bus_locations/${schoolId}/${busId}`).update({
+        studentsResetTripId: tripId,
+        studentsResetAt: now,
+        studentsResetCount: 0,
+        studentsResetSource: 'functions',
+        studentsResetCollection: studentsCollectionName,
+      });
+      return;
+    }
+
+    // Batch in chunks to avoid 500-write limit
+    const docs = snapshot.docs;
+    let updated = 0;
+
+    for (let i = 0; i < docs.length; i += 450) {
+      const chunk = docs.slice(i, i + 450);
+      const batch = db.batch();
+      for (const doc of chunk) {
+        batch.update(doc.ref, {
+          notified: false,
+          currentTripId: tripId,
+          tripStartedAt: admin.firestore.FieldValue.serverTimestamp(),
+          lastNotifiedAt: null,
+          lastNotifiedTripId: null,
+        });
+      }
+      await batch.commit();
+      updated += chunk.length;
+    }
+
+    await admin.database().ref(`bus_locations/${schoolId}/${busId}`).update({
+      studentsResetTripId: tripId,
+      studentsResetAt: now,
+      studentsResetCount: updated,
+      studentsResetSource: 'functions',
+      studentsResetCollection: studentsCollectionName,
+    });
+
+    console.log(`   🔄 [Trip Reset] Reset ${updated} students for trip ${tripId} (busId=${busId})`);
+  } catch (e) {
+    console.error(`   ❌ [Trip Reset] Failed resetting students for bus ${busId}:`, e);
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // UNIFIED GPS ARCHITECTURE - Central ETA Calculator + Instant Notifications
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1327,6 +2018,9 @@ exports.onBusLocationUpdate = onValueWritten(
     region: "us-central1",
     memory: "256MB",
     timeoutSeconds: 60,
+    cpu: 0.25,
+    maxInstances: 10,
+    secrets: [OLA_MAPS_API_KEY],
   },
   async (event) => {
     const schoolId = event.params.schoolId;
@@ -1361,6 +2055,21 @@ exports.onBusLocationUpdate = onValueWritten(
       await admin.database().ref(`bus_locations/${schoolId}/${busId}`).update({
         lastUpdateTimestamp: now,
       });
+
+      // ✅ Trip-start reset (server-side): ensure students are eligible for notifications.
+      // Runs only when tripId changes or when a reset is missing near trip start.
+      if (busData.currentTripId) {
+        const prevTripId = previousData ? previousData.currentTripId : null;
+        const tripChanged = !prevTripId || prevTripId !== busData.currentTripId;
+        const needsReset = busData.studentsResetTripId !== busData.currentTripId;
+        const tripStartedAt = Number(busData.tripStartedAt || 0);
+        const minutesSinceStart = tripStartedAt > 0 ? (now - tripStartedAt) / 60000 : null;
+        const nearStart = minutesSinceStart === null || (minutesSinceStart >= 0 && minutesSinceStart <= 5);
+
+        if (nearStart && (tripChanged || needsReset)) {
+          await maybeResetStudentsForTripServerSide(schoolId, busId, busData);
+        }
+      }
 
       // Check if bus is active
       if (!busData.isActive) {
@@ -1403,6 +2112,9 @@ exports.onBusLocationUpdate = onValueWritten(
           activeRouteId: activeRouteInfo.routeId,
           tripDirection: activeRouteInfo.direction,
           routeName: activeRouteInfo.routeName,
+          activeRouteRefId: activeRouteInfo.routeRefId || null,
+          routeRefId: activeRouteInfo.routeRefId || null,
+          routeRefName: activeRouteInfo.routeRefName || null,
           remainingStops: activeRouteInfo.stoppings,
           totalStops: activeRouteInfo.stoppings.length,
           allStudentsNotified: false,  // Reset flag for new trip
@@ -1415,6 +2127,9 @@ exports.onBusLocationUpdate = onValueWritten(
           ...busData,
           activeRouteId: activeRouteInfo.routeId,
           tripDirection: activeRouteInfo.direction,
+          activeRouteRefId: activeRouteInfo.routeRefId || null,
+          routeRefId: activeRouteInfo.routeRefId || null,
+          routeRefName: activeRouteInfo.routeRefName || null,
           remainingStops: activeRouteInfo.stoppings,
         });
         return;
@@ -1426,6 +2141,9 @@ exports.onBusLocationUpdate = onValueWritten(
         await admin.database().ref(`bus_locations/${schoolId}/${busId}`).update({
           activeRouteId: activeRouteInfo.routeId,
           tripDirection: activeRouteInfo.direction,
+          activeRouteRefId: activeRouteInfo.routeRefId || null,
+          routeRefId: activeRouteInfo.routeRefId || null,
+          routeRefName: activeRouteInfo.routeRefName || null,
           remainingStops: activeRouteInfo.stoppings || busData.remainingStops,
           allStudentsNotified: false,  // Reset flag for route change
           noPendingStudents: false,    // Reset flag for route change
@@ -1437,6 +2155,9 @@ exports.onBusLocationUpdate = onValueWritten(
           ...busData,
           activeRouteId: activeRouteInfo.routeId,
           tripDirection: activeRouteInfo.direction,
+          activeRouteRefId: activeRouteInfo.routeRefId || null,
+          routeRefId: activeRouteInfo.routeRefId || null,
+          routeRefName: activeRouteInfo.routeRefName || null,
           remainingStops: activeRouteInfo.stoppings || busData.remainingStops,
         });
         return;
@@ -1455,56 +2176,44 @@ exports.onBusLocationUpdate = onValueWritten(
       }
       
       // ⏰ OLA MAPS API RECALCULATION: Every 3 minutes for accurate traffic-aware ETAs
-      // Between API calls, ETAs are decremented automatically (time-based)
-      const lastCalculation = busData.lastETACalculation || 0;
-      const timeSinceLastCalc = (now - lastCalculation) / 1000 / 60; // minutes
+      // Use SEPARATE timestamps: lastOlaAPICall for API calls, lastETAUpdate for decrements
+      const lastOlaAPICall = busData.lastOlaAPICall || 0;
+      const lastETAUpdate = busData.lastETAUpdate || 0;
+      const timeSinceLastAPICall = (now - lastOlaAPICall) / 1000 / 60; // minutes since OLA API
+      const timeSinceLastUpdate = (now - lastETAUpdate) / 1000 / 60; // minutes since any ETA update
       
       let etasRecalculated = false;
-      if (timeSinceLastCalc >= 3) {
-        console.log(`🚀 3+ minutes elapsed - recalculating ETAs via Ola Maps (${timeSinceLastCalc.toFixed(1)} min since last API call)`);
+      
+      // ✅ Call OLA Maps API every 3 minutes if bus is active, regardless of movement
+      if (timeSinceLastAPICall >= 3 || lastOlaAPICall === 0) {
+        console.log(`🚀 ==========================================`);
+        console.log(`🚀 OLA MAPS API CALL TRIGGERED`);
+        console.log(`🚀 ==========================================`);
+        console.log(`   Time since last API call: ${timeSinceLastAPICall.toFixed(1)} minutes`);
+        console.log(`   Bus status: ${busData.isActive ? 'ACTIVE' : 'INACTIVE'}`);
+        console.log(`   Remaining stops: ${busData.remainingStops?.length || 0}`);
+        
         await calculateAndUpdateETAs(schoolId, busId, gpsData, busData);
         
         // CRITICAL: Re-read bus data after ETA calculation to get updated ETAs
         const updatedSnapshot = await admin.database().ref(`bus_locations/${schoolId}/${busId}`).once('value');
         busData = updatedSnapshot.val() || busData;
-        console.log(`   ✅ Reloaded bus data with fresh ETAs`);
+        
+        console.log(`   ✅ Reloaded bus data with fresh ETAs from OLA Maps`);
+        console.log(`   📊 First stop ETA: ${busData.remainingStops?.[0]?.estimatedMinutesOfArrival || 'N/A'} min`);
+        console.log(`🚀 ==========================================`);
         etasRecalculated = true;
       } else {
-        console.log(`⏭️ Skipping Ola Maps API - only ${timeSinceLastCalc.toFixed(1)} min since last call (need 3 min)`);
-        
-        // 📉 DECREMENT ETAs: Between API calls, subtract elapsed time from all stop ETAs
-        if (busData.remainingStops && busData.remainingStops.length > 0 && lastCalculation > 0) {
-          const elapsedMinutes = (now - lastCalculation) / 1000 / 60; // Convert to minutes
-          console.log(`   ⏱️ Decrementing ETAs based on ${elapsedMinutes.toFixed(1)} minutes elapsed`);
-          
-          let hasValidETAs = false;
-          const decrementedStops = busData.remainingStops.map((stop, index) => {
-            if (stop.estimatedMinutesOfArrival !== undefined && stop.estimatedMinutesOfArrival !== null) {
-              // Simply subtract elapsed minutes from current ETA
-              const newETAMinutes = Math.max(0, Math.round(stop.estimatedMinutesOfArrival - elapsedMinutes));
-              
-              console.log(`      📍 ${stop.name}: ${stop.estimatedMinutesOfArrival} min → ${newETAMinutes} min (decremented)`);
-              
-              hasValidETAs = true;
-              return {
-                ...stop,
-                estimatedMinutesOfArrival: newETAMinutes,
-                eta: stop.eta, // Keep original eta timestamp for reference
-                decremented: true, // Flag to indicate this is a decremented ETA
-              };
-            }
-            return stop;
-          });
-          
-          if (hasValidETAs) {
-            // Update RTDB with decremented ETAs
-            busData.remainingStops = decrementedStops;
-            await admin.database().ref(`bus_locations/${schoolId}/${busId}`).update({
-              remainingStops: decrementedStops,
-            });
-            console.log(`   ✅ Updated ${decrementedStops.length} stops with decremented ETAs`);
-          }
-        }
+        console.log(`⏭️ ==========================================`);
+        console.log(`⏭️ SKIPPING OLA MAPS API`);
+        console.log(`⏭️ ==========================================`);
+        console.log(`   Time since last API call: ${timeSinceLastAPICall.toFixed(1)} min (need 3 min)`);
+        console.log(`   Will call OLA API in: ${(3 - timeSinceLastAPICall).toFixed(1)} minutes`);
+
+        // IMPORTANT:
+        // Do NOT decrement ETAs here.
+        // Decrement happens in manageBusNotifications (scheduled every 1 minute),
+        // which works even when coordinates don't change and prevents double-decrement.
       }
       
       // 🚏 INSTANT STOP DETECTION: Check if bus passed any stops (runs on every GPS update!)
@@ -1675,6 +2384,8 @@ async function determineActiveRoute(schoolId, busId, busData) {
             routeName: busData.routeName || "Active Route",
             direction: busData.tripDirection || "unknown",
             stoppings: busData.remainingStops || [],
+            routeRefId: busData.routeRefId || busData.activeRouteRefId || null,
+            routeRefName: busData.routeRefName || null,
           };
         }
       }
@@ -1702,6 +2413,9 @@ async function determineActiveRoute(schoolId, busId, busData) {
       if (isTimeMatch) {
         console.log(`   ✅ FOUND MATCHING SCHEDULE: ${schedule.routeName} (${schedule.direction})`);
         console.log(`      Time: ${schedule.startTime} - ${schedule.endTime}, Direction: ${schedule.direction}`);
+
+        const routeRefId = schedule.routeRefId || null;
+        const routeRefName = schedule.routeRefName || null;
         
         // Get stops for this direction (already stored separately for pickup/drop)
         const directionStops = schedule.stops || schedule.stoppings || [];
@@ -1722,6 +2436,8 @@ async function determineActiveRoute(schoolId, busId, busData) {
             scheduleEndTime: schedule.endTime,
             currentTripId: tripId,
             isWithinTripWindow: true,
+            routeRefId: routeRefId,
+            routeRefName: routeRefName,
             remainingStops: directionStops,
             allStudentsNotified: false,
             noPendingStudents: false,
@@ -1733,6 +2449,8 @@ async function determineActiveRoute(schoolId, busId, busData) {
           routeName: schedule.routeName || "Unknown Route",
           direction: schedule.direction || "unknown",
           stoppings: directionStops,
+          routeRefId: routeRefId,
+          routeRefName: routeRefName,
         };
       }
     }
@@ -1747,7 +2465,12 @@ async function determineActiveRoute(schoolId, busId, busData) {
 
 // Helper: Calculate and update ETAs using Ola Maps API
 async function calculateAndUpdateETAs(schoolId, busId, gpsData, busData) {
-  const OLA_API_KEY = "c8mw89lGYQ05uglqqr7Val5eUTMRTPqgwMNS6F7h";
+  const OLA_API_KEY = getSecretValue(OLA_MAPS_API_KEY, "OLA_MAPS_API_KEY");
+
+  if (!OLA_API_KEY) {
+    console.error("❌ OLA_MAPS_API_KEY not configured. Set it via Secret Manager.");
+    return;
+  }
 
   if (!busData.remainingStops || busData.remainingStops.length === 0) {
     console.log(`⚠️ No remaining stops for bus ${busId}`);
@@ -1758,15 +2481,12 @@ async function calculateAndUpdateETAs(schoolId, busId, gpsData, busData) {
     // 🚦 Determine trip direction (pickup or drop)
     const tripDirection = busData.tripDirection || 'pickup';
     console.log(`🚦 Trip direction: ${tripDirection}`);
+
+    // ✅ Use remainingStops as-is (driver app already reversed them for DROP)
+    // Driver app reverses stops when starting DROP trip, so remainingStops is already in travel order
+    const stopsForCalculation = busData.remainingStops;
     
-    // 🔄 For DROP trips: Reverse the stops order for ETA calculation
-    // DROP: Bus travels from school (last stop) → student homes (first stops)
-    // So we need to calculate ETAs in reverse order
-    const stopsForCalculation = tripDirection === 'drop' 
-      ? [...busData.remainingStops].reverse()
-      : busData.remainingStops;
-    
-    console.log(`📍 Calculating ETAs for ${stopsForCalculation.length} stops`);
+    console.log(`📍 Calculating ETAs for ${stopsForCalculation.length} stops (${tripDirection})`);
     console.log(`   First stop: ${stopsForCalculation[0].name}`);
     console.log(`   Last stop: ${stopsForCalculation[stopsForCalculation.length - 1].name}`);
     
@@ -1842,27 +2562,29 @@ async function calculateAndUpdateETAs(schoolId, busId, gpsData, busData) {
           return {
             ...stop,
             estimatedMinutesOfArrival: etaMinutes,
+            originalETA: etaMinutes, // ✅ Store original ETA from OLA Maps
             distanceMeters: legDistanceMeters, // Per-leg distance (not cumulative)
             eta: etaTimestamp,
+            decremented: false, // Reset decrement flag
           };
         }
 
         return stop;
       });
-      
-      // 🔄 For DROP trips: Reverse the ETAs back to original order
-      // So they match the original remainingStops array order
-      const updatedStops = tripDirection === 'drop'
-        ? [...stopsWithETAs].reverse()
-        : stopsWithETAs;
+
+      // ✅ Stops with ETAs are already in correct order (matching remainingStops)
+      const updatedStops = stopsWithETAs;
 
       // Update Realtime Database with new ETAs (ONLY storage - no Firestore!)
+      const now = Date.now();
       await admin
         .database()
         .ref(`bus_locations/${schoolId}/${busId}`)
         .update({
           remainingStops: updatedStops,
-          lastETACalculation: Date.now(),
+          lastOlaAPICall: now, // ✅ Track when OLA Maps was called
+          lastETAUpdate: now, // ✅ Track when ETAs were last updated
+          lastETACalculation: now, // Keep for backward compatibility
         });
 
       console.log(`✅ Updated ${updatedStops.length} stop ETAs for bus ${busId}`);
@@ -1880,10 +2602,8 @@ async function calculateAndUpdateETAs(schoolId, busId, gpsData, busData) {
     console.log(`⚠️ Using fallback ETA calculation (distance-based) for ${tripDirection} trip`);
     const AVERAGE_SPEED_MPS = 8.33; // 30 km/h = 8.33 m/s (realistic city speed)
     
-    // 🚦 For DROP trips: Use reversed stops for calculation
-    const stopsForCalculation = tripDirection === 'drop' 
-      ? [...busData.remainingStops].reverse()
-      : busData.remainingStops;
+    // ✅ Use remainingStops as-is (already in travel order)
+    const stopsForCalculation = busData.remainingStops;
     
     // Start from current bus location
     let previousLocation = { lat: gpsData.latitude, lng: gpsData.longitude };
@@ -1911,29 +2631,35 @@ async function calculateAndUpdateETAs(schoolId, busId, gpsData, busData) {
       return {
         ...stop,
         estimatedMinutesOfArrival: etaMinutes,
+        originalETA: etaMinutes, // ✅ Store original ETA
         distanceMeters: legDistance,
         eta: new Date(Date.now() + cumulativeDuration * 1000).toISOString(),
+        decremented: false, // Reset decrement flag
       };
     });
     
-    // 🔄 For DROP trips: Reverse the ETAs back to original order
-    const updatedStops = tripDirection === 'drop'
-      ? [...stopsWithETAs].reverse()
-      : stopsWithETAs;
+    // ✅ Stops with ETAs are already in correct order
+    const updatedStops = stopsWithETAs;
     
     // Update Realtime Database with fallback ETAs (ONLY storage - no Firestore!)
+    const now = Date.now();
     await admin
       .database()
       .ref(`bus_locations/${schoolId}/${busId}`)
       .update({
         remainingStops: updatedStops,
-        lastETACalculation: Date.now(),
+        lastOlaAPICall: now, // ✅ Track when ETA was calculated
+        lastETAUpdate: now, // ✅ Track when ETAs were last updated
+        lastETACalculation: now, // Keep for backward compatibility
         etaCalculationMethod: 'fallback_distance',
       });
     
     console.log(`✅ Updated ${updatedStops.length} stop ETAs using fallback calculation`);
   }
-}// Manual test endpoint to trigger notification logic
+}
+
+// Manual test endpoint to trigger notification logic (DEBUG ONLY)
+if (ENABLE_DEBUG_ENDPOINTS.value() === "true") {
 exports.testNotifications = onRequest(async (req, res) => {
   console.log("🧪 Manual test notification trigger");
   
@@ -1970,6 +2696,12 @@ exports.testNotifications = onRequest(async (req, res) => {
         console.log(`⚠️ Skipped - missing data`);
         return;
       }
+
+      const threshold = Number(student.notificationPreferenceByTime);
+      if (!Number.isFinite(threshold)) {
+        console.log(`⚠️ Skipped - invalid notificationPreferenceByTime: ${student.notificationPreferenceByTime}`);
+        return;
+      }
       
       if (!studentsByBus.has(student.assignedBusId)) {
         studentsByBus.set(student.assignedBusId, []);
@@ -2003,8 +2735,8 @@ exports.testNotifications = onRequest(async (req, res) => {
       for (const student of students) {
         const stopName = student.resolvedStopName;
         const stopData = findStopData(busData, stopName, student.stopLocation);
-        
-        if (!stopData || !stopData.eta) {
+
+        if (!stopData || stopData.estimatedMinutesOfArrival === null || stopData.estimatedMinutesOfArrival === undefined) {
           results.push({ 
             studentId: student.studentId, 
             status: 'no_eta', 
@@ -2015,10 +2747,11 @@ exports.testNotifications = onRequest(async (req, res) => {
         }
         
         const eta = stopData.estimatedMinutesOfArrival;
+        const threshold = Number(student.notificationPreferenceByTime);
         
-        console.log(`📊 ${student.name}: ETA ${eta} min, Preference ${student.notificationPreferenceByTime} min`);
+        console.log(`📊 ${student.name}: ETA ${eta} min, Preference ${threshold} min`);
         
-        if (eta !== null && eta <= student.notificationPreferenceByTime) {
+        if (eta !== null && eta !== undefined && Number.isFinite(threshold) && eta <= threshold) {
           console.log(`🎯 SHOULD NOTIFY!`);
           
           notifications.push({
@@ -2038,14 +2771,14 @@ exports.testNotifications = onRequest(async (req, res) => {
             studentId: student.studentId, 
             status: 'queued', 
             eta,
-            threshold: student.notificationPreferenceByTime
+            threshold
           });
         } else {
           results.push({ 
             studentId: student.studentId, 
             status: 'eta_not_met', 
             eta,
-            threshold: student.notificationPreferenceByTime
+            threshold
           });
         }
       }
@@ -2079,6 +2812,7 @@ exports.testNotifications = onRequest(async (req, res) => {
     return res.status(500).json({ success: false, error: error.message });
   }
 });
+}
 
 // Helper: Calculate distance between two points (Haversine formula)
 function calculateDistance(point1, point2) {
@@ -2195,12 +2929,17 @@ function isDayInSchedule(days, numericDay, dayName) {
   }
   return days.includes(numericDay) || days.includes(dayName);
 }
-// 🔧 UTILITY: Add missing stoppingLower field to all students
-// This fixes the notification query issue where students without stoppingLower are not found
+// 🔧 UTILITY: Add missing stoppingLower field to all students (DEBUG ONLY)
+if (ENABLE_DEBUG_ENDPOINTS.value() === "true") {
 exports.addStoppingLowerField = onRequest(
   { cors: true, region: "us-central1" },
   async (req, res) => {
     try {
+      const decoded = await requireFirebaseAuth(req);
+      if (!isSuperiorRole(getRoleFromClaims(decoded))) {
+        return res.status(403).json({ success: false, error: "Forbidden" });
+      }
+
       const db = admin.firestore();
       console.log('🔧 Starting stoppingLower field migration...');
       
@@ -2283,3 +3022,4 @@ exports.addStoppingLowerField = onRequest(
     }
   }
 );
+}

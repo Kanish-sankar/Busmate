@@ -2288,6 +2288,7 @@ class _RouteManagementScreenUpgradedState extends State<RouteManagementScreenUpg
       
       final busData = busDoc.data();
       final busNo = busData?['busNo'] ?? '';
+      final existingPrimaryRouteId = (busData?['routeId'] as String?) ?? '';
       
       // Check if this is a simulator/test bus (contains "test" or "sim" in name)
       final isSimulatorBus = busNo.toLowerCase().contains('test') || 
@@ -2363,20 +2364,28 @@ class _RouteManagementScreenUpgradedState extends State<RouteManagementScreenUpg
         'assignedBusId': busId,
         'updatedAt': FieldValue.serverTimestamp(),
       });
-      
-      // Prepare bus update data
-      final busUpdateData = {
-        'routeId': widget.routeId,
-        'routeName': widget.routeName,
-        'stoppings': stopsToAssign,
+
+      // Prepare bus update data.
+      // IMPORTANT: Do NOT overwrite bus-level route/stops if the bus already has a primary route.
+      // Multi-route support uses route documents (assignedBusId) + schedule route selection.
+      final Map<String, dynamic> busUpdateData = {
         'updatedAt': FieldValue.serverTimestamp(),
+        // Keep a lightweight index of assigned routes (optional; safe for multi-route).
+        'assignedRouteIds': FieldValue.arrayUnion([widget.routeId]),
       };
-      
+
+      // Only set legacy primary route/stops if the bus doesn't already have one.
+      if (existingPrimaryRouteId.isEmpty) {
+        busUpdateData['routeId'] = widget.routeId;
+        busUpdateData['routeName'] = widget.routeName;
+        busUpdateData['stoppings'] = stopsToAssign;
+      }
+
       // Add polyline only for simulator buses
       if (isSimulatorBus && polylineToAssign != null && polylineToAssign.isNotEmpty) {
         busUpdateData['routePolyline'] = polylineToAssign;
       }
-      
+
       await FirebaseFirestore.instance
           .collection('schooldetails')
           .doc(widget.schoolId)
@@ -2465,8 +2474,9 @@ class _RouteManagementScreenUpgradedState extends State<RouteManagementScreenUpg
               .collection('buses')
               .doc(busId)
               .update({
-            'assignedRouteId': FieldValue.delete(),
-            'routeName': FieldValue.delete(),
+            // Multi-route safe: just remove this route from the index.
+            // Do NOT delete primary route fields because the bus may still have other routes.
+            'assignedRouteIds': FieldValue.arrayRemove([widget.routeId]),
           });
         }
         

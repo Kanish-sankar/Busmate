@@ -15,9 +15,6 @@ class StopNotifyController extends GetxController {
     if (studentId != null && schoolId != null) {
       fetchStudent(studentId, schoolId);
     } else {
-      print('❌ Error: Missing studentId or schoolId in storage');
-      print('   studentId: $studentId');
-      print('   schoolId: $schoolId');
       Get.snackbar("Error", "Student information not found. Please login again.");
     }
     super.onInit();
@@ -39,7 +36,6 @@ class StopNotifyController extends GetxController {
     
     String collectionName = 'schooldetails';
     if (!testDoc.exists) {
-      print("DEBUG: Student not in schooldetails, trying schools...");
       testDoc = await FirebaseFirestore.instance
           .collection('schools')
           .doc(schoolId)
@@ -60,13 +56,9 @@ class StopNotifyController extends GetxController {
         .listen((doc) {
       if (doc.exists && doc.data() != null) {
         student.value = StudentModel.fromMap(doc);
-        print('✅ Student loaded: ${student.value!.name}');
-        print('   Student ID: ${student.value!.id}');
-        
         // Initialize selectedTime with saved preference (default to 10 if not set)
         final savedTime = doc.data()?['notificationPreferenceByTime'] as int?;
         selectedTime?.value = savedTime ?? 10;
-        print('   Notification preference: ${selectedTime?.value} minutes');
       } else {
         student.value = null;
         Get.snackbar("Error", "Student not found");

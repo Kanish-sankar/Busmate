@@ -15,6 +15,8 @@ class Student {
   final String notificationType; // e.g. "Push Notification" or "SMS"
   final String languagePreference;
   final String? assignedBusId; // Bus assigned to the student
+  final String? assignedRouteId; // Route doc assigned to the student (schooldetails/{schoolId}/routes/{routeId})
+  final String? assignedRouteName;
   final String? assignedDriverId; // Driver assigned to the student
   final String schoolId; // Added schoolId field
 
@@ -32,6 +34,8 @@ class Student {
     required this.notificationType,
     required this.languagePreference,
     required this.assignedBusId,
+    this.assignedRouteId,
+    this.assignedRouteName,
     required this.assignedDriverId,
     required this.schoolId, // Added to constructor
   });
@@ -57,6 +61,8 @@ class Student {
       notificationType: data['notificationType'] ?? '',
       languagePreference: data['languagePreference'] ?? '',
       assignedBusId: data['assignedBusId'] ?? '',
+      assignedRouteId: data['assignedRouteId'] as String?,
+      assignedRouteName: data['assignedRouteName'] as String?,
       assignedDriverId: data['assignedDriverId'] ?? '',
 
       schoolId: data['schoolId'] ?? '', // Added to fromDocument
@@ -78,6 +84,8 @@ class Student {
       'notificationType': notificationType,
       'languagePreference': languagePreference,
       'assignedBusId': assignedBusId,
+      'assignedRouteId': assignedRouteId,
+      'assignedRouteName': assignedRouteName,
       'assignedDriverId': assignedDriverId,
       'schoolId': schoolId, // Added to toMap
     };

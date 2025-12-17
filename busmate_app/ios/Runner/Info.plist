@@ -38,13 +38,10 @@
 	<string>This app tracks your bus location in the background for live tracking purposes.</string>
 	<key>NSUserNotificationAlertStyle</key>
 	<string>alert</string>
-	<key>NSUserTrackingUsageDescription</key>
-	<string>This app uses tracking to send location updates and notifications.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
-		<string>audio</string>
 		<string>fetch</string>
 		<string>processing</string>
 		<string>location</string>

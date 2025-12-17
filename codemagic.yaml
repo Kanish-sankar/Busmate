@@ -1,26 +1,43 @@
 workflows:
   ios-release:
     name: iOS Release Build
-    max_build_duration: 30
+    max_build_duration: 60
+    instance_type: mac_mini_m1
     environment:
       flutter: stable
       xcode: latest
       cocoapods: default
+      groups:
+        - app_store_credentials
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.jupenta.busmate
     scripts:
       - name: Set up Flutter
         script: |
           cd busmate_app
           flutter pub get
-          flutter doctor
-      - name: Build iOS
+      - name: Install CocoaPods dependencies
+        script: |
+          cd busmate_app/ios
+          pod install
+      - name: Build iOS IPA
         script: |
           cd busmate_app
-          flutter build ios --release --no-codesign
+          flutter build ipa --release --export-options-plist=ios/ExportOptions.plist
     artifacts:
-      - busmate_app/build/ios/iphoneos/Runner.app
+      - busmate_app/build/ios/ipa/*.ipa
+      - busmate_app/build/ios/archive/Runner.xcarchive
     publishing:
+      email:
+        recipients:
+          - kanish@jupenta.com
+        notify:
+          success: true
+          failure: true
       app_store_connect:
         api_key: $APP_STORE_CONNECT_PRIVATE_KEY
         key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
         issuer_id: $APP_STORE_CONNECT_ISSUER_ID
         submit_to_testflight: true
+        app_id: 6504101518

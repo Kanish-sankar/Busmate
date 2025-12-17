@@ -5,7 +5,6 @@ import 'package:busmate/presentation/parents_module/driver_module/widget/driver_
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
-import 'package:get_storage/get_storage.dart';
 
 class DriverScreen extends GetView<DriverController> {
   const DriverScreen({super.key});
@@ -120,8 +119,9 @@ class DriverScreen extends GetView<DriverController> {
                         bool isActive = controller.isTripActive.value;
                         return ElevatedButton(
                           style: ElevatedButton.styleFrom(
-                            backgroundColor:
-                                isActive ? Colors.red : Colors.green,
+                            backgroundColor: isActive
+                                ? Colors.red
+                                : Colors.green,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(10.r),
                             ),
@@ -134,11 +134,6 @@ class DriverScreen extends GetView<DriverController> {
                             } else {
                               await controller.startTrip();
                             }
-                            // Refresh bus details after status change
-                            await controller.fetchBusDetail(
-                              GetStorage().read('driverSchoolId'),
-                              GetStorage().read('driverBusId'),
-                            );
                           },
                           child: Text(
                             isActive ? "Stop Trip" : "Start Trip",

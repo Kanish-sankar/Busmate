@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'package:busmate_web/services/osrm_service.dart';
 
 class Stop {
@@ -89,6 +90,7 @@ class RouteController extends GetxController {
   late final String _uid;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   late String _routeId;
+  String? _assignedBusId; // Track which bus is assigned to this route
 
   // Store the last fetched OSRM route distance (in meters) for each direction
   var upRouteDistance = 0.0.obs;
@@ -141,8 +143,10 @@ class RouteController extends GetxController {
         .snapshots()
         .listen((snapshot) {
       if (snapshot.exists) {
-        final data = snapshot.data();
-        if (data == null) return;
+        final data = snapshot.data()!;
+        
+        // Track assigned bus ID
+        _assignedBusId = data['assignedBusId'] as String?;
 
         // Load UP stops
         if (data.containsKey('upStops')) {
@@ -195,6 +199,7 @@ class RouteController extends GetxController {
   // Update Firestore with the current stops.
   Future<void> updateFirestore() async {
     try {
+      // Update route document
       await _firestore
           .collection('schooldetails')
           .doc(_uid)
@@ -213,6 +218,9 @@ class RouteController extends GetxController {
       Get.snackbar('Error', 'Failed to update route: $e');
     }
   }
+  
+  /// Sync route stops to the assigned bus document
+  /// This ensures Time Control and Student Stop Location screens work correctly
 
   /// Fetch road-aware route polyline using OSRM
   /// Creates ONE main route from start to end, with stops as zones along the way

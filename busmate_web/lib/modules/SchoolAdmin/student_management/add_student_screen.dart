@@ -1,9 +1,11 @@
 import 'package:busmate_web/modules/SchoolAdmin/bus_management/bus_management_controller.dart';
 import 'package:busmate_web/modules/SchoolAdmin/bus_management/bus_model.dart';
 import 'package:busmate_web/modules/SchoolAdmin/driver_management/driver_controller.dart';
-// import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:busmate_web/modules/utils/uniqueness_check_controller.dart';
 // ignore: depend_on_referenced_packages
 import 'package:http/http.dart' as http;
 import 'dart:convert';
@@ -31,6 +33,9 @@ class AddStudentScreen extends StatelessWidget {
   // Reactive variables for dropdown selections
   final RxString selectedBusId = ''.obs;
   final RxString selectedDriverId = ''.obs; // For driver selection
+  final RxString selectedRouteId = ''.obs;
+  final RxString selectedRouteName = ''.obs;
+  final RxList<Map<String, dynamic>> routeOptions = <Map<String, dynamic>>[].obs; // [{id,name}]
 
   // New reactive variables for notification preferences
   final RxInt notificationPreferenceByTime = 10.obs; // Changed to RxInt
@@ -51,6 +56,8 @@ class AddStudentScreen extends StatelessWidget {
   final Student? student;
   final String schoolId; // <-- Add this
 
+  late final UniquenessCheckController credentialCheck;
+
   AddStudentScreen({super.key})
       : isEdit = Get.arguments?['isEdit'] ?? false,
         student = Get.arguments?['student'],
@@ -68,10 +75,94 @@ class AddStudentScreen extends StatelessWidget {
             .firstWhereOrNull((bus) => bus.id == student!.assignedBusId);
         if (bus != null) {
           selectedBusId.value = bus.id;
-          locationOptions.value =
-              bus.stoppings.map((stop) => stop['name'] as String).toList();
+          selectedRouteId.value = student!.assignedRouteId ?? '';
+          selectedRouteName.value = student!.assignedRouteName ?? '';
+          Future.microtask(() => _loadRoutesAndStopsForBus(bus.id));
         }
       }
+    }
+
+    final credentialTag = 'studentLegacyCredential-${schoolId.isNotEmpty ? schoolId : 'default'}-${student?.id ?? 'new'}';
+    if (Get.isRegistered<UniquenessCheckController>(tag: credentialTag)) {
+      credentialCheck = Get.find<UniquenessCheckController>(tag: credentialTag);
+    } else {
+      credentialCheck = Get.put(
+        UniquenessCheckController(UniquenessCheckType.adminusersCredential),
+        tag: credentialTag,
+      );
+    }
+
+    credentialCheck.onValueChanged(emailController.text, debounce: Duration.zero);
+  }
+
+  Future<void> _loadRoutesAndStopsForBus(String busId) async {
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('schooldetails')
+          .doc(schoolId)
+          .collection('routes')
+          .where('assignedBusId', isEqualTo: busId)
+          .get();
+
+      routeOptions.value = snapshot.docs
+          .map((d) => {
+                'id': d.id,
+                'name': (d.data()['routeName'] as String?) ?? 'Unnamed Route',
+              })
+          .toList();
+
+      if (routeOptions.length == 1 && selectedRouteId.value.isEmpty) {
+        selectedRouteId.value = routeOptions.first['id'] as String;
+        selectedRouteName.value = routeOptions.first['name'] as String;
+      }
+
+      await _loadStopsForSelectedRoute();
+    } catch (e) {
+      routeOptions.clear();
+      locationOptions.clear();
+    }
+  }
+
+  List<String> _extractStopNamesFromRoute(Map<String, dynamic> routeData) {
+    final upStopsRaw = routeData['upStops'] as List<dynamic>?;
+    if (upStopsRaw != null && upStopsRaw.isNotEmpty) {
+      return upStopsRaw
+          .where((s) => (s is Map<String, dynamic>) && (s['isWaypoint'] != true))
+          .map((s) => (s as Map<String, dynamic>)['name']?.toString() ?? '')
+          .where((n) => n.isNotEmpty)
+          .toList();
+    }
+
+    final legacyStops = routeData['stops'] as List<dynamic>?;
+    if (legacyStops != null && legacyStops.isNotEmpty) {
+      return legacyStops
+          .map((s) => (s as Map<String, dynamic>)['name']?.toString() ?? '')
+          .where((n) => n.isNotEmpty)
+          .toList();
+    }
+
+    return [];
+  }
+
+  Future<void> _loadStopsForSelectedRoute() async {
+    locationOptions.clear();
+    if (selectedRouteId.value.isEmpty) return;
+
+    try {
+      final routeDoc = await FirebaseFirestore.instance
+          .collection('schooldetails')
+          .doc(schoolId)
+          .collection('routes')
+          .doc(selectedRouteId.value)
+          .get();
+
+      final data = routeDoc.data();
+      if (data == null) return;
+
+      selectedRouteName.value = (data['routeName'] as String?) ?? selectedRouteName.value;
+      locationOptions.value = _extractStopNamesFromRoute(data);
+    } catch (e) {
+      locationOptions.clear();
     }
   }
 
@@ -79,6 +170,23 @@ class AddStudentScreen extends StatelessWidget {
   Future<void> _registerStudent() async {
     if (_formKey.currentState!.validate()) {
       try {
+        final credential = emailController.text.trim();
+
+        // Enforce UNIQUE credential across adminusers (login identifier)
+        final existingCredential = await FirebaseFirestore.instance
+            .collection('adminusers')
+            .where('email', isEqualTo: credential)
+            .limit(1)
+            .get();
+
+        if (existingCredential.docs.isNotEmpty) {
+          Get.snackbar(
+            'Duplicate Credential',
+            'This credential is already used: "$credential"',
+          );
+          return;
+        }
+
         // Prompt the admin for their password
         // String? adminPassword = await _promptForAdminPassword();
         // if (adminPassword == null || adminPassword.isEmpty) {
@@ -90,11 +198,20 @@ class AddStudentScreen extends StatelessWidget {
         // final adminEmail = FirebaseAuth.instance.currentUser!.email!;
 
         // Call the Firebase Function to create the student user
+        final currentUser = FirebaseAuth.instance.currentUser;
+        final idToken = await currentUser?.getIdToken();
+        if (idToken == null || idToken.isEmpty) {
+          throw Exception("Not authenticated");
+        }
+
         final response = await http.post(
           Uri.parse("https://createschooluser-gnxzq4evda-uc.a.run.app"),
-          headers: {"Content-Type": "application/json"},
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer $idToken",
+          },
           body: jsonEncode({
-            "email": emailController.text.trim(),
+            "email": credential,
             "password": passwordController.text,
             "role": "student",
           }),
@@ -111,7 +228,7 @@ class AddStudentScreen extends StatelessWidget {
         // Create a new Student instance
         final newStudent = Student(
           id: studentUid,
-          email: emailController.text.trim(),
+          email: credential,
           password: passwordController.text,
           name: nameController.text.trim(),
           rollNumber: rollNumberController.text.trim(),
@@ -130,6 +247,10 @@ class AddStudentScreen extends StatelessWidget {
           languagePreference: language.value,
           assignedBusId:
               selectedBusId.value.isNotEmpty ? selectedBusId.value : null,
+            assignedRouteId:
+              selectedRouteId.value.isNotEmpty ? selectedRouteId.value : null,
+            assignedRouteName:
+              selectedRouteName.value.isNotEmpty ? selectedRouteName.value : null,
           assignedDriverId:
               selectedDriverId.value.isNotEmpty ? selectedDriverId.value : null,
           schoolId: schoolId, // <-- Use the correct schoolId
@@ -215,13 +336,9 @@ class AddStudentScreen extends StatelessWidget {
       // Set bus and fetch stoppings
       if (student!.assignedBusId?.isNotEmpty == true) {
         selectedBusId.value = student!.assignedBusId!;
-        // Fetch stops for the assigned bus
-        final bus = busController.buses
-            .firstWhereOrNull((bus) => bus.id == student!.assignedBusId);
-        if (bus != null) {
-          locationOptions.value =
-              bus.stoppings.map((stop) => stop['name'] as String).toList();
-        }
+        selectedRouteId.value = student!.assignedRouteId ?? '';
+        selectedRouteName.value = student!.assignedRouteName ?? '';
+        Future.microtask(() => _loadRoutesAndStopsForBus(selectedBusId.value));
       }
 
       selectedDriverId.value = student!.assignedDriverId ?? '';
@@ -265,29 +382,64 @@ class AddStudentScreen extends StatelessWidget {
                   onChanged: (value) async {
                     if (value != null) {
                       selectedBusId.value = value;
-                      // Clear previous stoppings
+                      // Clear previous selections
                       stoppingController.text = '';
+                      selectedRouteId.value = '';
+                      selectedRouteName.value = '';
+                      routeOptions.clear();
 
-                      // Fetch stops from the selected bus and update location options
-                      try {
-                        final selectedBus = busController.buses
-                            .firstWhere((bus) => bus.id == value);
-                        locationOptions.value = selectedBus.stoppings
-                            .map((stop) => stop['name'] as String)
-                            .toList()
-                            .cast<String>();
-                      } catch (e) {
-                        locationOptions.clear();
-                        Get.snackbar('Error', 'Failed to fetch stoppings: $e');
-                      }
+                      locationOptions.clear();
+                      await _loadRoutesAndStopsForBus(value);
                     } else {
                       selectedBusId.value = '';
+                      selectedRouteId.value = '';
+                      selectedRouteName.value = '';
+                      routeOptions.clear();
                       locationOptions.clear();
                     }
                   },
                   validator: (value) {
                     if (value == null || value.isEmpty) {
                       return 'Please select a bus';
+                    }
+                    return null;
+                  },
+                );
+              }),
+              const SizedBox(height: 10),
+
+              // Route Selection Dropdown
+              Obx(() {
+                if (selectedBusId.value.isEmpty) {
+                  return const SizedBox.shrink();
+                }
+
+                if (routeOptions.isEmpty) {
+                  return const Text('No routes assigned to this bus');
+                }
+
+                return DropdownButtonFormField<String>(
+                  decoration: const InputDecoration(labelText: 'Select Route'),
+                  value: selectedRouteId.value.isNotEmpty ? selectedRouteId.value : null,
+                  items: routeOptions.map((r) {
+                    return DropdownMenuItem(
+                      value: r['id'] as String,
+                      child: Text(r['name'] as String),
+                    );
+                  }).toList(),
+                  onChanged: routeOptions.length <= 1
+                      ? null
+                      : (value) {
+                          if (value == null) return;
+                          selectedRouteId.value = value;
+                          final selected = routeOptions.firstWhere((r) => r['id'] == value);
+                          selectedRouteName.value = selected['name'] as String;
+                          stoppingController.text = '';
+                          _loadStopsForSelectedRoute();
+                        },
+                  validator: (value) {
+                    if (routeOptions.length > 1 && (value == null || value.isEmpty)) {
+                      return 'Please select a route';
                     }
                     return null;
                   },
@@ -316,19 +468,43 @@ class AddStudentScreen extends StatelessWidget {
               }),
               const SizedBox(height: 10),
               // Student Email Field
-              TextFormField(
-                controller: emailController,
-                decoration: const InputDecoration(labelText: 'Student Email'),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Email is required';
-                  }
-                  if (!RegExp(r'^[^@]+@[^@]+\.[^@]+').hasMatch(value.trim())) {
-                    return 'Enter a valid email';
-                  }
-                  return null;
-                },
-              ),
+              Obx(() => TextFormField(
+                    controller: emailController,
+                    onChanged: (v) => credentialCheck.onValueChanged(
+                      v,
+                      excludeDocId: (isEdit && student != null) ? student!.id : null,
+                    ),
+                    decoration: InputDecoration(
+                      labelText: 'Student Email',
+                      suffixIcon: credentialCheck.isChecking.value
+                          ? const Padding(
+                              padding: EdgeInsets.all(12),
+                              child: SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              ),
+                            )
+                          : (credentialCheck.isTaken.value
+                              ? const Icon(Icons.error_outline, color: Colors.red)
+                              : null),
+                      errorText: credentialCheck.isTaken.value
+                          ? 'Credential already exists'
+                          : null,
+                    ),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return 'Email is required';
+                      }
+                      if (!RegExp(r'^[^@]+@[^@]+\.[^@]+').hasMatch(value.trim())) {
+                        return 'Enter a valid email';
+                      }
+                      if (credentialCheck.isTaken.value) {
+                        return 'Credential already exists';
+                      }
+                      return null;
+                    },
+                  )),
               const SizedBox(height: 10),
               // Password Field with visibility toggle
               Obx(() => TextFormField(
@@ -602,6 +778,10 @@ class AddStudentScreen extends StatelessWidget {
               // Submit Button
               ElevatedButton(
                 onPressed: () async {
+                  if (credentialCheck.isChecking.value || credentialCheck.isTaken.value) {
+                    Get.snackbar('Duplicate Credential', 'This credential already exists');
+                    return;
+                  }
                   if (isEdit && student != null) {
                     final updatedStudent = Student(
                       id: student!.id,
@@ -624,6 +804,12 @@ class AddStudentScreen extends StatelessWidget {
                       languagePreference: language.value,
                       assignedBusId: selectedBusId.value.isNotEmpty
                           ? selectedBusId.value
+                          : null,
+                        assignedRouteId: selectedRouteId.value.isNotEmpty
+                          ? selectedRouteId.value
+                          : null,
+                        assignedRouteName: selectedRouteName.value.isNotEmpty
+                          ? selectedRouteName.value
                           : null,
                       assignedDriverId: selectedDriverId.value.isNotEmpty
                           ? selectedDriverId.value

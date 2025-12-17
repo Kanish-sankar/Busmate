@@ -8,8 +8,6 @@ import 'package:latlong2/latlong.dart';
 /// - OSRM for routing and directions
 /// - No API keys required!
 class OlaMapsService {
-  // Legacy OLA Maps API key (kept for compatibility, but not used anymore)
-  static const String _apiKey = 'c8mw89lGYQ05uglqqr7Val5eUTMRTPqgwMNS6F7h';
   static const String _baseUrl = 'https://api.olamaps.io';
   
   /// Autocomplete search for places using Nominatim (OpenStreetMap)
@@ -124,40 +122,12 @@ class OlaMapsService {
   }
   
   /// Get place details by place ID
+  ///
+  /// NOTE: Previously this used Ola endpoints with a client-side API key.
+  /// That has been removed for production hardening. This method is currently
+  /// unused in the web app; return null to avoid shipping secrets.
   static Future<PlaceDetails?> getPlaceDetails(String placeId) async {
-    try {
-      final uri = Uri.parse('$_baseUrl/places/v1/details').replace(
-        queryParameters: {
-          'place_id': placeId,
-          'api_key': _apiKey,
-        },
-      );
-      
-      final response = await http.get(
-        uri,
-        headers: {
-          'X-API-Key': _apiKey,
-          'Content-Type': 'application/json',
-        },
-      );
-      
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final result = data['result'];
-        
-        return PlaceDetails(
-          placeId: result['place_id'] ?? '',
-          name: result['name'] ?? '',
-          address: result['formatted_address'] ?? '',
-          latitude: result['geometry']?['location']?['lat']?.toDouble() ?? 0.0,
-          longitude: result['geometry']?['location']?['lng']?.toDouble() ?? 0.0,
-        );
-      }
-      
-      return null;
-    } catch (e) {
-      return null;
-    }
+    return null;
   }
   
   /// Reverse geocoding - get address from coordinates using Nominatim
@@ -308,53 +278,9 @@ class OlaMapsService {
     required List<LatLng> origins,
     required List<LatLng> destinations,
   }) async {
-    try {
-      final params = {
-        'origins': origins
-            .map((o) => '${o.latitude},${o.longitude}')
-            .join('|'),
-        'destinations': destinations
-            .map((d) => '${d.latitude},${d.longitude}')
-            .join('|'),
-        'api_key': _apiKey,
-      };
-      
-      final uri = Uri.parse('$_baseUrl/routing/v1/distancematrix').replace(
-        queryParameters: params,
-      );
-      
-      final response = await http.get(
-        uri,
-        headers: {
-          'X-API-Key': _apiKey,
-          'Content-Type': 'application/json',
-        },
-      );
-      
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final rows = data['rows'] as List? ?? [];
-        
-        List<DistanceElement> elements = [];
-        for (var row in rows) {
-          final rowElements = row['elements'] as List? ?? [];
-          for (var element in rowElements) {
-            elements.add(DistanceElement(
-              distanceMeters: element['distance']?['value']?.toInt() ?? 0,
-              durationSeconds: element['duration']?['value']?.toInt() ?? 0,
-              distanceText: element['distance']?['text'] ?? '',
-              durationText: element['duration']?['text'] ?? '',
-            ));
-          }
-        }
-        
-        return DistanceMatrixResult(elements: elements);
-      }
-      
-      return null;
-    } catch (e) {
-      return null;
-    }
+    // This web project uses Ola distance matrix via the authenticated Cloud Function
+    // in OlaDistanceMatrixService to keep the API key server-side.
+    return null;
   }
 }
 

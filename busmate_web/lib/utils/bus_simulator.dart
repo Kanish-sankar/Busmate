@@ -168,7 +168,7 @@ class BusSimulator {
           
           if (remainingStops.isNotEmpty) {
             final busLocation = LatLng(lat, lng);
-            final Distance distance = const Distance();
+            const Distance distance = Distance();
             const double stopProximityThreshold = 200.0; // 200 meters
             
             bool stopsRemoved = false;

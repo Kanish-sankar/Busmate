@@ -1,8 +1,328 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // ========================================
+    // HELPER FUNCTIONS
+    // ========================================
+
+    // Check if user is authenticated
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Get role from custom claims
+    function userRole() {
+      return isSignedIn() && request.auth.token.role != null ? request.auth.token.role : null;
+    }
+
+    // Get schoolId from custom claims
+    function userSchoolId() {
+      return isSignedIn() && request.auth.token.schoolId != null ? request.auth.token.schoolId : null;
+    }
+
+    // Get assignedBusId from custom claims
+    function userBusId() {
+      return isSignedIn() && request.auth.token.assignedBusId != null ? request.auth.token.assignedBusId : null;
+    }
+
+    // Check if user is a student
+    function isStudent() {
+      return userRole() == 'student';
+    }
+
+    // Check if user is a driver
+    function isDriver() {
+      return userRole() == 'driver';
+    }
+
+    // Check if user is a school admin
+    function isSchoolAdmin() {
+      // Support both legacy role casing and normalized lowercase roles.
+      return userRole() in [
+        'schoolAdmin', 'schooladmin',
+        'school_admin',
+        'regionalAdmin', 'regionaladmin'
+      ];
+    }
+
+    // Check if user is a superior admin (full access)
+    function isSuperior() {
+      return userRole() in ['superior', 'super_admin'];
+    }
+
+    // Check if user belongs to the specified school
+    function belongsToSchool(schoolId) {
+      return userSchoolId() == schoolId;
+    }
+
+    // ========================================
+    // ADMIN USERS COLLECTION
+    // ========================================
+    match /adminusers/{userId} {
+      // Superior: Full access to everything
+      allow read, write: if isSuperior();
+
+      // School Admin: Can read/write users in their school
+      allow read, write: if isSchoolAdmin() && (
+        resource.data.schoolId == userSchoolId() ||
+        request.resource.data.schoolId == userSchoolId()
+      );
+
+      // Driver: Can read/update own document (non-sensitive fields only)
+      allow read: if isDriver() && request.auth.uid == userId;
+      allow update: if isDriver() && 
+        request.auth.uid == userId &&
+        !request.resource.data.diff(resource.data).changedKeys().hasAny([
+          'role', 'schoolId', 'assignedBusId', 'assignedRouteId'
+        ]);
+
+      // Student: Can read/update own document (preferences only)
+      allow read: if isStudent() && request.auth.uid == userId;
+      allow update: if isStudent() && 
+        request.auth.uid == userId &&
+        request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'languagePreference', 'fcmToken', 'tokenUpdatedAt', 'lastLogin', 'notificationTimers'
+        ]);
+    }
+
+    // ========================================
+    // SCHOOL DETAILS COLLECTION (Primary)
+    // ========================================
+    match /schooldetails/{schoolId} {
+      // Superior: Read/write everything
+      allow read, write: if isSuperior();
+
+      // School Admin: Read/write their school only
+      allow read, write: if isSchoolAdmin() && belongsToSchool(schoolId);
+
+      // Driver: Read their school
+      allow read: if isDriver() && belongsToSchool(schoolId);
+
+      // Student: Read their school
+      allow read: if isStudent() && belongsToSchool(schoolId);
+
+      // ========================================
+      // STUDENTS SUB-COLLECTION
+      // ========================================
+      match /students/{studentId} {
+        // Superior: Full access
+        allow read, write: if isSuperior();
+
+        // School Admin: Full access to their school
+        allow read, write: if isSchoolAdmin() && belongsToSchool(schoolId);
+
+        // Driver: Read students in their school
+        allow read: if isDriver() && belongsToSchool(schoolId);
+
+        // Student: Read own data
+        allow read: if isStudent() && request.auth.uid == studentId;
+
+        // Student: Update own preferences
+        allow update: if isStudent() && 
+          request.auth.uid == studentId &&
+          request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            'languagePreference', 'notificationTimers', 'notificationPreferenceByTime',
+            'notificationType', 'stopping', 'stopLocation', 'fcmToken', 
+            'tokenUpdatedAt', 'lastLogin', 'updatedAt', 'sibling'
+          ]);
+      }
+
+      // ========================================
+      // DRIVERS SUB-COLLECTION
+      // ========================================
+      match /drivers/{driverId} {
+        // Superior: Full access
+        allow read, write: if isSuperior();
+
+        // School Admin: Full access to their school
+        allow read, write: if isSchoolAdmin() && belongsToSchool(schoolId);
+
+        // Driver: Read own data and update login/token
+        allow read: if isDriver() && request.auth.uid == driverId;
+        allow update: if isDriver() && 
+          request.auth.uid == driverId &&
+          request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            'lastLogin', 'fcmToken', 'currentLocation'
+          ]);
+
+        // Student: Read drivers in their school
+        allow read: if isStudent() && belongsToSchool(schoolId);
+      }
+
+      // ========================================
+      // BUSES SUB-COLLECTION
+      // ========================================
+      match /buses/{busId} {
+        // Superior: Full access
+        allow read, write: if isSuperior();
+
+        // School Admin: Full access to their school
+        allow read, write: if isSchoolAdmin() && belongsToSchool(schoolId);
+
+        // Driver: Read own bus and update route type
+        allow read: if isDriver() && belongsToSchool(schoolId);
+        allow update: if isDriver() && 
+          userBusId() == busId &&
+          request.resource.data.diff(resource.data).changedKeys().hasOnly(['busRouteType']);
+
+        // Student: Read buses in their school
+        allow read: if isStudent() && belongsToSchool(schoolId);
+      }
+
+      // ========================================
+      // ROUTES SUB-COLLECTION
+      // ========================================
+      match /routes/{routeId} {
+        // Superior: Full access
+        allow read, write: if isSuperior();
+
+        // School Admin: Full access to their school
+        allow read, write: if isSchoolAdmin() && belongsToSchool(schoolId);
+
+        // Driver & Student: Read routes in their school
+        allow read: if (isDriver() || isStudent()) && belongsToSchool(schoolId);
+      }
+
+      // ========================================
+      // NOTIFICATIONS SUB-COLLECTION
+      // ========================================
+      match /notifications/{notificationId} {
+        // Superior: Full access
+        allow read, write: if isSuperior();
+
+        // School Admin: Full access to their school
+        allow read, write: if isSchoolAdmin() && belongsToSchool(schoolId);
+
+        // Student: Read own notifications
+        allow read: if isStudent() && resource.data.studentId == request.auth.uid;
+      }
+
+      // Catch-all for other school sub-collections
+      match /{document=**} {
+        // Superior: Full access
+        allow read, write: if isSuperior();
+
+        // School Admin: Full access to their school
+        allow read, write: if isSchoolAdmin() && belongsToSchool(schoolId);
+
+        // Driver & Student: Read their school
+        allow read: if (isDriver() || isStudent()) && belongsToSchool(schoolId);
+      }
+    }
+
+    // ========================================
+    // SCHOOLS COLLECTION (Legacy/Fallback)
+    // ========================================
+    match /schools/{schoolId} {
+      // Superior: Full access
+      allow read, write: if isSuperior();
+
+      // School Admin: Full access to their school
+      allow read, write: if isSchoolAdmin() && belongsToSchool(schoolId);
+
+      // Driver & Student: Read their school
+      allow read: if (isDriver() || isStudent()) && belongsToSchool(schoolId);
+
+      // ========================================
+      // STUDENTS SUB-COLLECTION (Legacy)
+      // ========================================
+      match /students/{studentId} {
+        // Superior: Full access
+        allow read, write: if isSuperior();
+
+        // School Admin: Full access to their school
+        allow read, write: if isSchoolAdmin() && belongsToSchool(schoolId);
+
+        // Driver: Read students in their school
+        allow read: if isDriver() && belongsToSchool(schoolId);
+
+        // Student: Read own data
+        allow read: if isStudent() && request.auth.uid == studentId;
+
+        // Student: Update own preferences (including FCM token)
+        allow update: if isStudent() &&
+          request.auth.uid == studentId &&
+          request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            'languagePreference', 'notificationTimers', 'notificationPreferenceByTime',
+            'notificationType', 'stopping', 'stopLocation', 'fcmToken',
+            'tokenUpdatedAt', 'lastLogin', 'updatedAt', 'sibling'
+          ]);
+      }
+
+      // Catch-all for sub-collections
+      match /{document=**} {
+        allow read, write: if isSuperior();
+        allow read, write: if isSchoolAdmin() && belongsToSchool(schoolId);
+        allow read: if (isDriver() || isStudent()) && belongsToSchool(schoolId);
+      }
+    }
+
+    // ========================================
+    // NOTIFICATION TIMERS (Root Collection)
+    // ========================================
+    match /notificationTimers/{studentId} {
+      // Superior: Full access
+      allow read, write: if isSuperior();
+
+      // School Admin: Read their school (if document has schoolId)
+      allow read, write: if isSchoolAdmin() && resource.data.schoolId == userSchoolId();
+
+      // Student: Read/write own timers
+      allow read, write: if isStudent() && request.auth.uid == studentId;
+    }
+
+    // ========================================
+    // ADMINS COLLECTION (For Web Portal)
+    // ========================================
+    match /admins/{adminId} {
+      // Superior: Full access
+      allow read, write: if isSuperior();
+
+      // School Admin: Can create other school admins in their school
+      allow read: if isSchoolAdmin() && (
+        request.auth.uid == adminId ||
+        resource.data.schoolId == userSchoolId()
+      );
+      allow create, update: if isSchoolAdmin() && 
+        request.resource.data.schoolId == userSchoolId() &&
+        request.resource.data.role in ['schoolAdmin', 'school_admin'];
+
+      // Admin can read own document
+      allow read: if isSignedIn() && request.auth.uid == adminId;
+    }
+
+    // ========================================
+    // LEGACY ROOT COLLECTIONS
+    // ========================================
+    match /students/{studentId} {
+      allow read, write: if isSuperior();
+      allow read: if isStudent() && request.auth.uid == studentId;
+    }
+
+    match /drivers/{driverId} {
+      allow read, write: if isSuperior();
+      allow read: if isDriver() && request.auth.uid == driverId;
+    }
+
+    match /payments/{paymentId} {
+      allow read, write: if isSuperior();
+      allow read: if isSchoolAdmin() && resource.data.schoolId == userSchoolId();
+    }
+
+    // ========================================
+    // CATCH-ALL (Superior only)
+    // ========================================
     match /{document=**} {
-      allow read, write: if true;
+      allow read, write: if isSuperior();
+    }
+
+    // ========================================
+    // DEFAULT DENY ALL
+    // ========================================
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

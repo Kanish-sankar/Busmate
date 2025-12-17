@@ -2,7 +2,7 @@
 import 'package:busmate_web/modules/SchoolAdmin/bus_management/bus_management_controller.dart';
 import 'package:busmate_web/modules/SchoolAdmin/bus_management/bus_model.dart';
 import 'package:busmate_web/modules/SchoolAdmin/driver_management/driver_model.dart';
-// import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 // ignore: depend_on_referenced_packages
@@ -11,6 +11,8 @@ import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'driver_controller.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:busmate_web/modules/utils/uniqueness_check_controller.dart';
 
 // ignore: must_be_immutable
 class AddDriverScreen extends StatelessWidget {
@@ -38,6 +40,8 @@ class AddDriverScreen extends StatelessWidget {
   final bool isEdit;
   final Driver? driver;
 
+  late final UniquenessCheckController credentialCheck;
+
   // Add a reactive variable for image upload state
   final RxString imageUploadStatus = ''.obs;
 
@@ -51,6 +55,18 @@ class AddDriverScreen extends StatelessWidget {
     final String schoolId = Get.arguments?['schoolId'] ?? '';
     driverController.schoolId = schoolId;
     busController.schoolId = schoolId;
+
+    final credentialTag = 'driverLegacyCredential-${schoolId.isNotEmpty ? schoolId : 'default'}-${driver?.id ?? 'new'}';
+    if (Get.isRegistered<UniquenessCheckController>(tag: credentialTag)) {
+      credentialCheck = Get.find<UniquenessCheckController>(tag: credentialTag);
+    } else {
+      credentialCheck = Get.put(
+        UniquenessCheckController(UniquenessCheckType.adminusersCredential),
+        tag: credentialTag,
+      );
+    }
+
+    credentialCheck.onValueChanged(emailController.text, debounce: Duration.zero);
     // Optionally, fetch data again if needed:
     // driverController.fetchDrivers();
     // busController.fetchBuses();
@@ -59,6 +75,22 @@ class AddDriverScreen extends StatelessWidget {
   Future<void> _registerDriver() async {
     if (_formKey.currentState!.validate()) {
       try {
+        final credential = emailController.text.trim();
+
+        final existingCredential = await FirebaseFirestore.instance
+            .collection('adminusers')
+            .where('email', isEqualTo: credential)
+            .limit(1)
+            .get();
+
+        if (existingCredential.docs.isNotEmpty) {
+          Get.snackbar(
+            'Duplicate Credential',
+            'This credential is already used: "$credential"',
+          );
+          return;
+        }
+
         // Save the current admin user's credentials
         // final User? currentUser = FirebaseAuth.instance.currentUser;
         // final String? adminEmail = currentUser?.email;
@@ -69,11 +101,20 @@ class AddDriverScreen extends StatelessWidget {
         // }
 
         // Call the Firebase Function to create the driver user
+        final currentUser = FirebaseAuth.instance.currentUser;
+        final idToken = await currentUser?.getIdToken();
+        if (idToken == null || idToken.isEmpty) {
+          throw Exception("Not authenticated");
+        }
+
         final response = await http.post(
           Uri.parse("https://createschooluser-gnxzq4evda-uc.a.run.app"),
-          headers: {"Content-Type": "application/json"},
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer $idToken",
+          },
           body: jsonEncode({
-            "email": emailController.text.trim(),
+            "email": credential,
             "password": passwordController.text,
             "role": "driver",
             "schoolId": driverController.schoolId, // Add this line
@@ -91,7 +132,7 @@ class AddDriverScreen extends StatelessWidget {
         // Create a new Driver instance
         final newDriver = Driver(
           id: driverUid,
-          email: emailController.text.trim(),
+          email: credential,
           password: passwordController.text,
           name: nameController.text.trim(),
           licenseNumber: licenseController.text.trim(),
@@ -176,19 +217,43 @@ class AddDriverScreen extends StatelessWidget {
           child: ListView(
             children: [
               // Driver Email Field
-              TextFormField(
-                controller: emailController,
-                decoration: const InputDecoration(labelText: 'Driver Email'),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Email is required';
-                  }
-                  if (!RegExp(r'^[^@]+@[^@]+\.[^@]+').hasMatch(value.trim())) {
-                    return 'Enter a valid email';
-                  }
-                  return null;
-                },
-              ),
+              Obx(() => TextFormField(
+                    controller: emailController,
+                    onChanged: (v) => credentialCheck.onValueChanged(
+                      v,
+                      excludeDocId: (isEdit && driver != null) ? driver!.id : null,
+                    ),
+                    decoration: InputDecoration(
+                      labelText: 'Driver Email',
+                      suffixIcon: credentialCheck.isChecking.value
+                          ? const Padding(
+                              padding: EdgeInsets.all(12),
+                              child: SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              ),
+                            )
+                          : (credentialCheck.isTaken.value
+                              ? const Icon(Icons.error_outline, color: Colors.red)
+                              : null),
+                      errorText: credentialCheck.isTaken.value
+                          ? 'Credential already exists'
+                          : null,
+                    ),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return 'Email is required';
+                      }
+                      if (!RegExp(r'^[^@]+@[^@]+\.[^@]+').hasMatch(value.trim())) {
+                        return 'Enter a valid email';
+                      }
+                      if (credentialCheck.isTaken.value) {
+                        return 'Credential already exists';
+                      }
+                      return null;
+                    },
+                  )),
               const SizedBox(height: 10),
               // Password Field
               Obx(() => TextFormField(

@@ -49,7 +49,6 @@ class SignInController extends GetxController with GetTickerProviderStateMixin {
     final arguments = Get.arguments;
     if (arguments != null && arguments is Map) {
       userRole = arguments['role'] as String?;
-      print("DEBUG: SignInController initialized with role: $userRole");
     }
     
     // Initialize animations
@@ -138,7 +137,6 @@ class SignInController extends GetxController with GetTickerProviderStateMixin {
     
     try {
       // Use simple login (no Firebase Auth, just adminusers with hashed password)
-      print("DEBUG: Using simpleLogin");
       await authLogin.simpleLogin(
         txtEmail.text.trim(), 
         txtPassword.text.trim()
@@ -149,7 +147,6 @@ class SignInController extends GetxController with GetTickerProviderStateMixin {
       
     } catch (e) {
       // Error already shown in simpleLogin method
-      print("DEBUG: Login failed: $e");
     } finally {
       isLoading.value = false;
     }

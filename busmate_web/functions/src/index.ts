@@ -1,4 +1,5 @@
 import { onRequest } from "firebase-functions/v2/https";
+import { defineSecret, defineString } from "firebase-functions/params";
 import * as admin from "firebase-admin";
 import * as logger from "firebase-functions/logger";
 import * as functions from 'firebase-functions';
@@ -16,7 +17,42 @@ const cors = corsLib({ origin: true });
 
 // Secure API key management using Firebase Functions config
 const API_KEY = functions.config().google?.maps_api_key || process.env.GOOGLE_MAPS_API_KEY;
-const OLA_MAPS_API_KEY = functions.config().ola?.maps_api_key || process.env.OLA_MAPS_API_KEY || 'c8mw89lGYQ05uglqqr7Val5eUTMRTPqgwMNS6F7h';
+const OLA_MAPS_API_KEY = defineSecret("OLA_MAPS_API_KEY");
+const ENABLE_DEBUG_ENDPOINTS = defineString("ENABLE_DEBUG_ENDPOINTS");
+
+function extractBearerToken(req: Request): string | null {
+  const authHeader = req.header("authorization") || req.header("Authorization");
+  if (!authHeader) return null;
+  const parts = authHeader.split(" ");
+  if (parts.length === 2 && parts[0].toLowerCase() === "bearer") return parts[1];
+  return null;
+}
+
+async function requireFirebaseAuth(req: Request) {
+  const token = extractBearerToken(req);
+  if (!token) {
+    throw new Error("Missing Authorization Bearer token");
+  }
+  return admin.auth().verifyIdToken(token);
+}
+
+async function getCallerProfile(uid: string): Promise<{ role?: string; schoolId?: string }> {
+  const db = admin.firestore();
+
+  const adminsDoc = await db.collection("admins").doc(uid).get();
+  if (adminsDoc.exists) {
+    const data = adminsDoc.data() as any;
+    return { role: data?.role, schoolId: data?.schoolId };
+  }
+
+  const adminUsersDoc = await db.collection("adminusers").doc(uid).get();
+  if (adminUsersDoc.exists) {
+    const data = adminUsersDoc.data() as any;
+    return { role: data?.role, schoolId: data?.schoolId };
+  }
+
+  return {};
+}
 
 
 export const autocomplete = functions.https.onRequest(
@@ -147,18 +183,52 @@ export const createSchoolUser = onRequest(async (req, res): Promise<void> => {
   res.set("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
 
   try {
+    const decoded = await requireFirebaseAuth(req);
+    const callerProfile = await getCallerProfile(decoded.uid);
+    const callerRole = (decoded as any)?.role || callerProfile.role;
+    const callerSchoolId = (decoded as any)?.schoolId || callerProfile.schoolId;
+
+    if (!callerRole) {
+      res.status(403).send({ error: "Forbidden" });
+      return;
+    }
+
     const { email, password, role, schoolId, permissions, adminName, adminID } = req.body;
     if (!email || !password || !role) {
       logger.error("Missing required fields", { email, password, role });
       res.status(400).send("Missing required fields: email, password, or role");
       return;
     }
+
+    // Role-based authorization to prevent public abuse while preserving current flows.
+    // - schoolAdmin can create only driver/student under their own school
+    // - privileged roles can create all roles
+    const privilegedRoles = new Set(["superior", "schoolSuperAdmin", "regionalAdmin"]);
+    const allowedBySchoolAdmin = new Set(["driver", "student"]);
+
+    const isPrivileged = privilegedRoles.has(String(callerRole));
+    if (!isPrivileged) {
+      if (callerRole !== "schoolAdmin" || !allowedBySchoolAdmin.has(String(role))) {
+        res.status(403).send({ error: "Forbidden" });
+        return;
+      }
+    }
+
+    // If school admin is creating driver/student, enforce/derive schoolId from caller.
+    let resolvedSchoolId: string | undefined = schoolId;
+    if (!isPrivileged && callerRole === "schoolAdmin") {
+      if (!callerSchoolId) {
+        res.status(403).send({ error: "Forbidden" });
+        return;
+      }
+      resolvedSchoolId = callerSchoolId;
+    }
     
     // For admin manager roles, both schoolId and permissions are required.
     if (
       (role === "schoolAdmin" || role === "regionalAdmin" || role === "schoolSuperAdmin")
     ) {
-      if (!schoolId) {
+      if (!resolvedSchoolId) {
         logger.error("Missing schoolId for admin manager", { email, role });
         res.status(400).send("Missing required field: schoolId");
         return;
@@ -177,7 +247,7 @@ export const createSchoolUser = onRequest(async (req, res): Promise<void> => {
       // Check if user with this UID already exists
       let userExists = false;
       try {
-        await admin.auth().getUser(schoolId);
+        await admin.auth().getUser(resolvedSchoolId!);
         userExists = true;
       } catch (err: any) {
         if (err.code !== 'auth/user-not-found') {
@@ -185,9 +255,9 @@ export const createSchoolUser = onRequest(async (req, res): Promise<void> => {
         }
       }
       if (!userExists) {
-        await admin.auth().createUser({ uid: schoolId, email, password });
+        await admin.auth().createUser({ uid: resolvedSchoolId!, email, password });
       }
-      docId = schoolId;
+      docId = resolvedSchoolId!;
     } else if (role === "regionalAdmin" || role === "schoolSuperAdmin") {
       // regionalAdmin gets a unique UID
       const userRecord = await admin.auth().createUser({ email, password });
@@ -205,8 +275,8 @@ export const createSchoolUser = onRequest(async (req, res): Promise<void> => {
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     };
 
-    if (schoolId) {
-      userData.schoolId = schoolId; // Add schoolId if provided
+    if (resolvedSchoolId) {
+      userData.schoolId = resolvedSchoolId; // Add schoolId if provided/derived
     }
     
     // Add admin name and ID if provided (for Regional Admins)
@@ -251,12 +321,25 @@ export const createSchoolUser = onRequest(async (req, res): Promise<void> => {
  * Call this once to migrate old data
  */
 export const migrateRegionalAdmins = onRequest(async (req, res): Promise<void> => {
+  if (ENABLE_DEBUG_ENDPOINTS.value() !== "true") {
+    res.status(404).send({ error: "Not Found" });
+    return;
+  }
+
   // Set CORS headers
   res.set("Access-Control-Allow-Origin", "*");
   res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
   res.set("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
 
   try {
+    const decoded = await requireFirebaseAuth(req);
+    const callerProfile = await getCallerProfile(decoded.uid);
+    const callerRole = (decoded as any)?.role || callerProfile.role;
+    if (callerRole !== "superior") {
+      res.status(403).send({ error: "Forbidden" });
+      return;
+    }
+
     logger.info("Starting migration of regional admins from adminusers to admins");
 
     const db = admin.firestore();
@@ -314,31 +397,39 @@ export const migrateRegionalAdmins = onRequest(async (req, res): Promise<void> =
  * Proxies requests to Ola Maps API to avoid CORS issues in web browser
  * Keeps API key secure on server-side
  */
-export const olaDistanceMatrix = functions.https.onRequest(
-  (req: Request, res: Response) => {
+export const olaDistanceMatrix = onRequest(
+  { cors: true, secrets: [OLA_MAPS_API_KEY] },
+  async (req: Request, res: Response) => {
     cors(req, res, async () => {
       // Only allow POST requests
       if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Method not allowed. Use POST.' });
       }
 
-      const { origins, destinations, mode } = req.body;
+      try {
+        await requireFirebaseAuth(req);
+      } catch (e) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
 
-      if (!OLA_MAPS_API_KEY) {
+      const { origins, destinations, mode } = req.body;
+      const olaKey = OLA_MAPS_API_KEY.value();
+
+      if (!olaKey) {
         logger.error("Ola Maps API key not configured");
         return res.status(500).json({ error: 'Ola Maps API key not configured.' });
       }
 
       if (!origins || !destinations) {
         logger.warn("Missing required parameters");
-        return res.status(400).json({ 
-          error: 'Missing required parameters: origins and destinations are required.' 
+        return res.status(400).json({
+          error: 'Missing required parameters: origins and destinations are required.'
         });
       }
 
       try {
         logger.info(`Ola Maps Distance Matrix request: ${origins.length} origins, ${destinations.length} destinations`);
-        
+
         const response = await axios.post(
           'https://api.olamaps.io/routing/v1/distanceMatrix',
           {
@@ -348,7 +439,7 @@ export const olaDistanceMatrix = functions.https.onRequest(
           },
           {
             headers: {
-              'Authorization': `Bearer ${OLA_MAPS_API_KEY}`,
+              'Authorization': `Bearer ${olaKey}`,
               'Content-Type': 'application/json',
               'X-Request-Id': Date.now().toString()
             },
@@ -358,24 +449,20 @@ export const olaDistanceMatrix = functions.https.onRequest(
 
         logger.info("Ola Maps API call successful");
         return res.status(200).json(response.data);
-        
       } catch (error: any) {
         logger.error("Ola Maps API error:", error.response?.data || error.message);
-        
+
         if (error.response) {
-          // API responded with error
           return res.status(error.response.status).json({
             error: error.response.data?.message || 'Ola Maps API error',
             details: error.response.data
           });
         } else if (error.code === 'ECONNABORTED') {
-          // Timeout
           return res.status(504).json({ error: 'Request timeout' });
         } else {
-          // Network or other error
-          return res.status(500).json({ 
+          return res.status(500).json({
             error: 'Failed to connect to Ola Maps API',
-            message: error.message 
+            message: error.message
           });
         }
       }

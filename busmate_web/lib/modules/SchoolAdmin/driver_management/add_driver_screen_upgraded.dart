@@ -6,7 +6,10 @@ import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:crypto/crypto.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:busmate_web/modules/utils/uniqueness_check_controller.dart';
 import 'driver_controller.dart';
 
 class AddDriverScreenUpgraded extends StatefulWidget {
@@ -29,16 +32,10 @@ class _AddDriverScreenUpgradedState extends State<AddDriverScreenUpgraded> {
   final TextEditingController licenseController = TextEditingController();
   final TextEditingController contactController = TextEditingController();
   final TextEditingController profileImageController = TextEditingController();
-
-  // Hash password using SHA-256
-  String hashPassword(String password) {
-    final bytes = utf8.encode(password);
-    final digest = sha256.convert(bytes);
-    return digest.toString();
-  }
   
   final RxBool passwordVisible = false.obs;
   final RxBool available = true.obs;
+  late final UniquenessCheckController credentialCheck;
   final RxString selectedBusId = ''.obs;
   final RxString imageUploadStatus = ''.obs;
   final RxString profileImageUrlRx = ''.obs;
@@ -60,6 +57,20 @@ class _AddDriverScreenUpgradedState extends State<AddDriverScreenUpgraded> {
     
     driverController.schoolId = schoolId;
     busController.schoolId = schoolId;
+
+    final credentialTag = 'driverCredential-$schoolId-${driver?.id ?? 'new'}';
+    if (Get.isRegistered<UniquenessCheckController>(tag: credentialTag)) {
+      credentialCheck = Get.find<UniquenessCheckController>(tag: credentialTag);
+    } else {
+      credentialCheck = Get.put(
+        UniquenessCheckController(
+          UniquenessCheckType.adminusersEmailOrPhone,
+          schoolId: schoolId,
+          authTypeGetter: () => 'email',
+        ),
+        tag: credentialTag,
+      );
+    }
     
     if (isEdit && driver != null) {
       _populateFields();
@@ -78,6 +89,14 @@ class _AddDriverScreenUpgradedState extends State<AddDriverScreenUpgraded> {
     profileImageUrlRx.value = driver!.profileImageUrl;
     selectedBusId.value = driver!.assignedBusId ?? '';
     available.value = driver!.available;
+
+    if (driver!.email.trim().isNotEmpty) {
+      credentialCheck.onValueChanged(
+        driver!.email,
+        excludeDocId: driver!.id,
+        debounce: Duration.zero,
+      );
+    }
     
     // Determine driver type based on assigned bus (if available)
     if (driver!.assignedBusId != null && driver!.assignedBusId!.isNotEmpty) {
@@ -115,20 +134,44 @@ class _AddDriverScreenUpgradedState extends State<AddDriverScreenUpgraded> {
                           icon: Icons.account_circle,
                           color: Colors.blue,
                           children: [
-                            _buildTextField(
+                            Obx(() => _buildTextField(
                               controller: emailController,
-                              label: 'Driver Email',
+                              label: 'Email Address',
                               icon: Icons.email,
+                              onChanged: (v) => credentialCheck.onValueChanged(
+                                v,
+                                excludeDocId: (isEdit && driver != null) ? driver!.id : null,
+                              ),
+                              errorText: (driverType.value == 'software' && credentialCheck.isTaken.value)
+                                  ? 'Email already exists'
+                                  : null,
+                              suffixIcon: (driverType.value == 'software' && credentialCheck.isChecking.value)
+                                  ? const Padding(
+                                      padding: EdgeInsets.all(12),
+                                      child: SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(strokeWidth: 2),
+                                      ),
+                                    )
+                                  : (driverType.value == 'software' && credentialCheck.isTaken.value)
+                                      ? const Icon(Icons.error_outline, color: Colors.red)
+                                      : (driverType.value == 'software' && emailController.text.trim().isNotEmpty)
+                                          ? const Icon(Icons.check_circle, color: Colors.green)
+                                          : null,
                               validator: (value) {
                                 if (value == null || value.trim().isEmpty) {
                                   return 'Email is required';
                                 }
-                                if (!RegExp(r'^[^@]+@[^@]+\.[^@]+').hasMatch(value.trim())) {
-                                  return 'Enter a valid email';
+                                if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
+                                  return 'Please enter a valid email address';
+                                }
+                                if (credentialCheck.isTaken.value) {
+                                  return 'Email already exists';
                                 }
                                 return null;
                               },
-                            ),
+                            )),
                             const SizedBox(height: 16),
                             Obx(() => _buildTextField(
                                   controller: passwordController,
@@ -455,14 +498,18 @@ class _AddDriverScreenUpgradedState extends State<AddDriverScreenUpgraded> {
     String? Function(String?)? validator,
     bool obscureText = false,
     Widget? suffixIcon,
+    String? errorText,
+    ValueChanged<String>? onChanged,
   }) {
     return TextFormField(
       controller: controller,
       obscureText: obscureText,
+      onChanged: onChanged,
       decoration: InputDecoration(
         labelText: label,
         prefixIcon: Icon(icon),
         suffixIcon: suffixIcon,
+        errorText: errorText,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
         ),
@@ -493,7 +540,11 @@ class _AddDriverScreenUpgradedState extends State<AddDriverScreenUpgraded> {
         Expanded(
           flex: 2,
           child: ElevatedButton(
-            onPressed: isLoading.value ? null : () => _handleSubmit(),
+            onPressed: (isLoading.value ||
+                    (driverType.value == 'software' &&
+                        (credentialCheck.isChecking.value || credentialCheck.isTaken.value)))
+                ? null
+                : () => _handleSubmit(),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.blue[700],
               foregroundColor: Colors.white,
@@ -587,20 +638,72 @@ class _AddDriverScreenUpgradedState extends State<AddDriverScreenUpgraded> {
 
   Future<void> _registerDriver() async {
     try {
-      // Generate a Firestore document ID
-      final docRef = driverController.driverCollection.doc();
-      String driverUid = docRef.id;
+      String driverUid = '';
+      String? email;
 
-      // Hash password for software drivers
-      String? hashedPassword;
-      if (driverType.value == 'software' && passwordController.text.isNotEmpty) {
-        hashedPassword = hashPassword(passwordController.text);
+      // For software drivers, create Firebase Auth account
+      if (driverType.value == 'software') {
+        // Create a secondary Firebase app instance for driver creation
+        // This prevents logging out the current admin
+        FirebaseApp secondaryApp;
+        try {
+          secondaryApp = Firebase.app('SecondaryApp');
+        } catch (e) {
+          secondaryApp = await Firebase.initializeApp(
+            name: 'SecondaryApp',
+            options: Firebase.app().options,
+          );
+        }
+
+        final secondaryAuth = FirebaseAuth.instanceFor(app: secondaryApp);
+        
+        try {
+          final credential = emailController.text.trim();
+          final password = passwordController.text.trim();
+
+          if (password.length < 6) {
+            throw Exception('Password must be at least 6 characters');
+          }
+
+          // Email authentication
+          final userCredential = await secondaryAuth.createUserWithEmailAndPassword(
+            email: credential,
+            password: password,
+          );
+          email = credential;
+
+          driverUid = userCredential.user!.uid;
+
+          // Set display name
+          await userCredential.user!.updateDisplayName(nameController.text.trim());
+
+          // Sign out from secondary app (don't affect current admin session)
+          await secondaryAuth.signOut();
+
+          print('DEBUG: Created Firebase Auth account for driver: $driverUid');
+        } catch (authError) {
+          print('DEBUG: Firebase Auth error: $authError');
+          if (authError.toString().contains('email-already-in-use')) {
+            throw Exception('This email is already registered');
+          } else if (authError.toString().contains('invalid-email')) {
+            throw Exception('Invalid email format');
+          } else if (authError.toString().contains('weak-password')) {
+            throw Exception('Password is too weak. Use at least 6 characters');
+          }
+          rethrow;
+        }
+      } else {
+        // Hardware drivers don't need Firebase Auth
+        final docRef = driverController.driverCollection.doc();
+        driverUid = docRef.id;
       }
 
       final newDriver = Driver(
         id: driverUid,
-        email: driverType.value == 'software' ? emailController.text.trim() : '',
-        password: driverType.value == 'software' ? hashedPassword! : '',
+        email: driverType.value == 'software'
+            ? emailController.text.trim() 
+            : '',
+        password: '', // No password stored in Driver model anymore
         name: nameController.text.trim(),
         licenseNumber: licenseController.text.trim(),
         contactInfo: contactController.text.trim(),
@@ -613,20 +716,29 @@ class _AddDriverScreenUpgradedState extends State<AddDriverScreenUpgraded> {
 
       await driverController.addDriver(newDriver);
 
-      // Also create in adminusers collection for mobile app login
+      // Create metadata in adminusers collection (no password)
       if (driverType.value == 'software') {
         await FirebaseFirestore.instance.collection('adminusers').doc(driverUid).set({
-          'email': emailController.text.trim(),
-          'password': hashedPassword,
+          'email': email,
           'role': 'driver',
           'name': nameController.text.trim(),
           'schoolId': schoolId,
           'assignedBusId': selectedBusId.value.isNotEmpty ? selectedBusId.value : null,
           'contactInfo': contactController.text.trim(),
           'licenseNumber': licenseController.text.trim(),
-          'employeeId': licenseController.text.trim(), // Use license as employeeId for now
+          'employeeId': licenseController.text.trim(),
           'createdAt': FieldValue.serverTimestamp(),
         });
+        print('DEBUG: Created adminusers doc for driver: $driverUid');
+        
+        // Set custom claims via Cloud Function
+        try {
+          final callable = FirebaseFunctions.instance.httpsCallable('setUserClaims');
+          await callable.call({'uid': driverUid});
+          print('✅ Custom claims set for driver: $driverUid');
+        } catch (claimsError) {
+          print('⚠️ Failed to set custom claims (non-critical): $claimsError');
+        }
       }
 
       if (selectedBusId.value.isNotEmpty) {
@@ -652,6 +764,21 @@ class _AddDriverScreenUpgradedState extends State<AddDriverScreenUpgraded> {
 
   Future<void> _updateDriver() async {
     try {
+      if (driverType.value == 'software') {
+        final credential = emailController.text.trim();
+        final existingCredential = await FirebaseFirestore.instance
+            .collection('adminusers')
+            .where('email', isEqualTo: credential)
+          .where('schoolId', isEqualTo: schoolId)
+            .limit(1)
+            .get();
+
+        if (existingCredential.docs.isNotEmpty &&
+            existingCredential.docs.first.id != driver!.id) {
+          throw Exception('Duplicate Credential: "$credential"');
+        }
+      }
+
       final updatedDriver = Driver(
         id: driver!.id,
         email: emailController.text.trim(),

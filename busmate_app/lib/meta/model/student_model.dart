@@ -4,6 +4,8 @@ class StudentModel {
   String id;
   String assignedBusId;
   String assignedDriverId;
+  String? assignedRouteId;
+  String? assignedRouteName;
   String email;
   String languagePreference;
   String name;
@@ -19,12 +21,15 @@ class StudentModel {
   String studentClass;
   List<String> siblings;
   bool notified; // Track if student has been notified for current trip
-  GeoPoint? stopLocation; // Student's stop coordinates for location-based matching
+  GeoPoint?
+      stopLocation; // Student's stop coordinates for location-based matching
 
   StudentModel({
     required this.id,
     required this.assignedBusId,
     required this.assignedDriverId,
+    this.assignedRouteId,
+    this.assignedRouteName,
     required this.email,
     required this.languagePreference,
     required this.name,
@@ -50,6 +55,8 @@ class StudentModel {
       id: doc.id,
       assignedBusId: data['assignedBusId'] ?? '',
       assignedDriverId: data['assignedDriverId'] ?? '',
+      assignedRouteId: data['assignedRouteId'],
+      assignedRouteName: data['assignedRouteName'],
       email: data['email'] ?? '',
       languagePreference: data['languagePreference'] ?? '',
       name: data['name'] ?? '',
@@ -85,6 +92,8 @@ class StudentModel {
     return {
       'assignedBusId': assignedBusId,
       'assignedDriverId': assignedDriverId,
+      'assignedRouteId': assignedRouteId,
+      'assignedRouteName': assignedRouteName,
       'email': email,
       'languagePreference': languagePreference,
       'name': name,
@@ -110,6 +119,8 @@ class StudentModel {
       'id': id,
       'assignedBusId': assignedBusId,
       'assignedDriverId': assignedDriverId,
+      'assignedRouteId': assignedRouteId,
+      'assignedRouteName': assignedRouteName,
       'email': email,
       'languagePreference': languagePreference,
       'name': name,
@@ -126,7 +137,10 @@ class StudentModel {
       'siblings': siblings,
       'notified': notified,
       'stopLocation': stopLocation != null
-          ? {'latitude': stopLocation!.latitude, 'longitude': stopLocation!.longitude}
+          ? {
+              'latitude': stopLocation!.latitude,
+              'longitude': stopLocation!.longitude
+            }
           : null,
     };
   }
@@ -140,7 +154,8 @@ class StudentModel {
       email: json['email'] ?? '',
       languagePreference: json['languagePreference'] ?? '',
       name: json['name'] ?? '',
-      notificationPreferenceByLocation: json['notificationPreferenceByLocation'] ?? '',
+      notificationPreferenceByLocation:
+          json['notificationPreferenceByLocation'] ?? '',
       notificationPreferenceByTime: json['notificationPreferenceByTime'] ?? 5,
       fcmToken: json['fcmToken'] ?? '',
       notificationType: json['notificationType'] ?? '',
@@ -150,7 +165,10 @@ class StudentModel {
       schoolId: json['schoolId'] ?? '',
       stopping: json['stopping'] ?? '',
       studentClass: json['studentClass'] ?? '',
-      siblings: (json['siblings'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [],
+      siblings: (json['siblings'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          [],
       notified: json['notified'] ?? false,
       stopLocation: json['stopLocation'] != null
           ? GeoPoint(

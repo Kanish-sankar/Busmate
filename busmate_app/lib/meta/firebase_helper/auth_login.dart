@@ -2,6 +2,7 @@ import 'package:busmate/meta/nav/pages.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
@@ -15,7 +16,11 @@ class AuthLogin extends GetxController {
   final FirebaseAuth auth = FirebaseAuth.instance;
   bool isStudent = false;
 
-  // Hash password using SHA-256
+  // Phone authentication
+  String? _verificationId;
+  int? _resendToken;
+
+  // Hash password using SHA-256 (DEPRECATED - kept for backward compatibility)
   String hashPassword(String password) {
     final bytes = utf8.encode(password);
     final digest = sha256.convert(bytes);
@@ -24,11 +29,14 @@ class AuthLogin extends GetxController {
 
   Future<void> login(String email, String pass) async {
     try {
-      // ignore: unused_local_variable
       UserCredential userCredential = await auth.signInWithEmailAndPassword(
         email: email,
         password: pass,
       );
+      
+      // Ensure custom claims are properly set
+      await _ensureCustomClaims(userCredential.user!);
+      
       if (isStudent) {
         GetStorage().write('isLoggedIn', true);
         GetStorage().write('isLoggedInStudent', true);
@@ -56,189 +64,165 @@ class AuthLogin extends GetxController {
     await auth.sendPasswordResetEmail(email: email);
   }
 
-  // Simple login using adminusers collection with hashed password (NO Firebase Auth)
-  Future<void> simpleLogin(String emailOrId, String password) async {
-    try {
-      print("DEBUG: Simple login attempt for: $emailOrId");
-      
-      // Hash the entered password
-      String hashedPassword = hashPassword(password);
-      print("DEBUG: Password hashed");
-      
-      // Query adminusers by email
-      QuerySnapshot emailQuery = await FirebaseFirestore.instance
+  // Helper method to ensure custom claims are set
+  Future<Map<String, dynamic>> _ensureCustomClaims(User user) async {
+    final String userId = user.uid;
+    
+    // First, try to get existing claims
+    var idTokenResult = await user.getIdTokenResult();
+    var claims = idTokenResult.claims;
+    
+    String? role = claims?['role'] as String?;
+    String? schoolId = claims?['schoolId'] as String?;
+    
+    // If claims are missing or empty, we need to set them
+    if (role == null || role.isEmpty || schoolId == null || schoolId.isEmpty) {
+      // Fetch user data from adminusers
+      final adminDoc = await FirebaseFirestore.instance
           .collection('adminusers')
-          .where('email', isEqualTo: emailOrId.toLowerCase())
-          .limit(1)
+          .doc(userId)
           .get();
-      
-      // If not found by email, try by studentId or employeeId
-      if (emailQuery.docs.isEmpty) {
-        print("DEBUG: Not found by email, trying by ID");
-        
-        // Try studentId
-        QuerySnapshot idQuery = await FirebaseFirestore.instance
-            .collection('adminusers')
-            .where('studentId', isEqualTo: emailOrId)
-            .limit(1)
-            .get();
-        
-        // If still not found, try employeeId
-        if (idQuery.docs.isEmpty) {
-          idQuery = await FirebaseFirestore.instance
-              .collection('adminusers')
-              .where('employeeId', isEqualTo: emailOrId)
-              .limit(1)
-              .get();
-        }
-        
-        if (idQuery.docs.isEmpty) {
-          throw Exception("User not found");
-        }
-        
-        emailQuery = idQuery;
+
+      if (!adminDoc.exists) {
+        throw Exception('User profile not found. Please contact administrator.');
       }
+
+      final adminData = adminDoc.data()!;
       
-      // Get user document
-      DocumentSnapshot userDoc = emailQuery.docs.first;
-      Map<String, dynamic> userData = userDoc.data() as Map<String, dynamic>;
-      String userId = userDoc.id;
-      String role = userData['role'] as String;
-      
-      print("DEBUG: User found with role: $role");
-      
-      // Check password - support both bcrypt (old) and SHA-256 (new)
-      String storedPassword = userData['password'] as String? ?? '';
-      bool passwordValid = false;
-      
-      // Check if stored password is bcrypt (starts with $2a$, $2b$, or $2y$)
-      if (storedPassword.startsWith(RegExp(r'\$2[aby]\$'))) {
-        print("DEBUG: Stored password is bcrypt format (${storedPassword.length} chars)");
-        // Verify using bcrypt
-        try {
-          passwordValid = BCrypt.checkpw(password, storedPassword);
-          print("DEBUG: Bcrypt check result: $passwordValid");
-        } catch (e) {
-          print("DEBUG: Bcrypt comparison error: $e");
-          passwordValid = false;
+      // Call setUserClaims cloud function to set the claims
+      try {
+        final callable = FirebaseFunctions.instance.httpsCallable('setUserClaims');
+        await callable.call({'uid': userId});
+        
+        // Force refresh the token to get new claims
+        await user.getIdToken(true); // Force refresh
+        idTokenResult = await user.getIdTokenResult(true);
+        claims = idTokenResult.claims;
+        
+        role = claims?['role'] as String?;
+        schoolId = claims?['schoolId'] as String?;
+        if (role == null || role.isEmpty || schoolId == null || schoolId.isEmpty) {
+          throw Exception('Permissions not ready. Please log out and log in again.');
         }
+      } catch (e) {
+        // Do NOT continue with missing claims: RTDB/Firestore rules will deny.
+        // Fail fast so the user can re-login after claims are fixed.
+        throw Exception('Failed to set permissions for this account. Please contact admin or try again.');
+      }
+    }
+    
+    return {
+      'role': role,
+      'schoolId': schoolId,
+      'assignedBusId': claims?['assignedBusId'] as String?,
+      'assignedRouteId': claims?['assignedRouteId'] as String?,
+    };
+  }
+
+  // Login with Firebase Authentication (email/password or phone OTP)
+  Future<void> simpleLogin(String emailOrPhone, String password) async {
+    try {
+      final String credential = emailOrPhone.trim();
+      UserCredential? userCredential;
+
+      // Determine if email or phone and sign in accordingly
+      if (credential.contains('@')) {
+        // Email login
+        userCredential = await auth.signInWithEmailAndPassword(
+          email: credential,
+          password: password,
+        );
+      } else if (credential.contains('@busmate.placeholder')) {
+        // Placeholder email for phone-based accounts - should not be used for login
+        throw Exception('Please use phone number to login, not placeholder email');
       } else {
-        print("DEBUG: Stored password is SHA-256 format");
-        print("DEBUG: Stored password: ${storedPassword.substring(0, 20)}...");
-        print("DEBUG: Entered hashed: ${hashedPassword.substring(0, 20)}...");
-        // Compare SHA-256 hashes
-        passwordValid = (storedPassword == hashedPassword);
+        // Phone login - for now, treat as email since phone requires OTP flow
+        // User should use phone OTP method instead
+        throw Exception('Phone login requires OTP verification. Please use "Login with Phone" option.');
       }
+
+      final String userId = userCredential.user!.uid;
       
-      if (!passwordValid) {
-        print("DEBUG: Password verification failed");
-        throw Exception("Invalid password");
+      // Ensure custom claims are properly set and refreshed
+      final claimsData = await _ensureCustomClaims(userCredential.user!);
+      
+      final String? role = claimsData['role'] as String?;
+      final String? schoolId = claimsData['schoolId'] as String?;
+      String? assignedBusId = claimsData['assignedBusId'] as String?;
+      final String? assignedRouteId = claimsData['assignedRouteId'] as String?;
+      // If claims are missing, fetch from adminusers
+      if (role == null || role.isEmpty) {
+        final adminDoc = await FirebaseFirestore.instance
+            .collection('adminusers')
+            .doc(userId)
+            .get();
+
+        if (!adminDoc.exists) {
+          throw Exception('User profile not found. Please contact administrator.');
+        }
+
+        final adminData = adminDoc.data()!;
+        final fetchedRole = adminData['role'] as String?;
+        final fetchedSchoolId = adminData['schoolId'] as String?;
+
+        if (fetchedRole == null || fetchedRole.isEmpty) {
+          throw Exception('User role not configured. Please contact administrator.');
+        }
+
+        // Store data
+        GetStorage().write('isLoggedIn', true);
+        GetStorage().write('adminUserId', userId);
+        GetStorage().write('userRole', fetchedRole);
+        GetStorage().write('userEmail', adminData['email'] ?? '');
+        GetStorage().write('userName', adminData['name'] ?? '');
+
+        await _handleRoleBasedNavigation(
+          fetchedRole,
+          userId,
+          fetchedSchoolId,
+          adminData['assignedBusId'] as String?,
+        );
+        return;
       }
-      
-      print("DEBUG: Password verified!");
-      
-      // Store data based on role
+
+      // Store user data
       GetStorage().write('isLoggedIn', true);
       GetStorage().write('adminUserId', userId);
       GetStorage().write('userRole', role);
-      GetStorage().write('userEmail', userData['email'] ?? '');
-      GetStorage().write('userName', userData['name'] ?? '');
-      
-      // Try to update FCM token and last login (non-blocking)
-      try {
-        String? token = await FirebaseMessaging.instance.getToken();
-        GetStorage().write('fcmToken', token);
+      GetStorage().write('userEmail', userCredential.user?.email ?? '');
+      GetStorage().write('userName', userCredential.user?.displayName ?? '');
 
-        final adminDoc = FirebaseFirestore.instance.collection('adminusers').doc(userId);
+      // Update FCM token and last login (non-blocking)
+      try {
+        String? fcmToken = await FirebaseMessaging.instance.getToken();
+        GetStorage().write('fcmToken', fcmToken);
+
+        final adminDoc =
+            FirebaseFirestore.instance.collection('adminusers').doc(userId);
         final adminUpdate = <String, dynamic>{
           'lastLogin': FieldValue.serverTimestamp(),
         };
 
         if (role == 'student') {
           adminUpdate['fcmToken'] = FieldValue.delete();
-          String? schoolId = userData['schoolId'] as String?;
           await _updateStudentFcmToken(
             studentId: userId,
             schoolId: schoolId,
-            token: token,
+            token: fcmToken,
           );
         } else {
-          if (token != null && token.isNotEmpty) {
-            adminUpdate['fcmToken'] = token;
+          if (fcmToken != null && fcmToken.isNotEmpty) {
+            adminUpdate['fcmToken'] = fcmToken;
           }
         }
 
         await adminDoc.update(adminUpdate);
-        print("DEBUG: FCM token synced for $role login");
       } catch (fcmError) {
-        print("DEBUG: FCM update failed (non-critical): $fcmError");
       }
-      
-      // Route based on role
-      if (role == 'student') {
-        isStudent = true;
-        GetStorage().write('isLoggedInStudent', true);
-        GetStorage().write('studentId', userId);
-        
-        // Get schoolId and assignedBusId from adminusers
-        String? schoolId = userData['schoolId'] as String?;
-        String? assignedBusId = userData['assignedBusId'] as String?;
-        
-        // If schoolId exists in adminusers, try to fetch full student data
-        if (schoolId != null) {
-          try {
-            // Fetch from correct path: schooldetails/{schoolId}/students/{studentId}
-            DocumentSnapshot studentDoc = await FirebaseFirestore.instance
-                .collection('schooldetails')
-                .doc(schoolId)
-                .collection('students')
-                .doc(userId)
-                .get();
-            
-            if (studentDoc.exists) {
-              Map<String, dynamic> studentData = studentDoc.data() as Map<String, dynamic>;
-              // Update with latest data from students collection
-              assignedBusId = studentData['assignedBusId'] as String?;
-              print("DEBUG: Fetched student data from schooldetails");
-            }
-          } catch (e) {
-            print("DEBUG: Could not fetch from schooldetails/students: $e");
-          }
-        }
-        
-        if (schoolId != null) GetStorage().write('studentSchoolId', schoolId);
-        if (assignedBusId != null) GetStorage().write('studentBusId', assignedBusId);
-        
-        print("DEBUG: Student schoolId: $schoolId, busId: $assignedBusId");
-        print("DEBUG: Navigating to student screen");
-        Get.offAllNamed(Routes.stopLocation);
-      } else if (role == 'driver') {
-        isStudent = false;
-        GetStorage().write('isLoggedInDriver', true);
-        GetStorage().write('driverId', userId);
-        
-        String? schoolId = userData['schoolId'] as String?;
-        String? assignedBusId = userData['assignedBusId'] as String?;
-        
-        print("DEBUG: Driver data from adminusers:");
-        print("  userId: $userId");
-        print("  schoolId: $schoolId");
-        print("  assignedBusId: $assignedBusId");
-        
-        if (schoolId != null) GetStorage().write('driverSchoolId', schoolId);
-        if (assignedBusId != null) GetStorage().write('driverBusId', assignedBusId);
-        
-        print("DEBUG: Saved to GetStorage:");
-        print("  driverId: ${GetStorage().read('driverId')}");
-        print("  driverSchoolId: ${GetStorage().read('driverSchoolId')}");
-        print("  driverBusId: ${GetStorage().read('driverBusId')}");
-        
-        print("DEBUG: Navigating to driver screen");
-        Get.offAllNamed(Routes.driverScreen);
-      } else {
-        throw Exception("Invalid role: $role");
-      }
-      
+
+      // Handle role-based navigation
+      await _handleRoleBasedNavigation(role, userId, schoolId, assignedBusId);
+
       Get.snackbar(
         "Welcome!",
         "Login successful",
@@ -247,11 +231,22 @@ class AuthLogin extends GetxController {
         colorText: Colors.white,
         duration: const Duration(seconds: 2),
       );
-      
     } catch (e) {
-      print("DEBUG: Login error: $e");
       String errorMessage = e.toString().replaceAll('Exception: ', '');
       
+      // Better error messages
+      if (e.toString().contains('user-not-found')) {
+        errorMessage = 'No account found with this email';
+      } else if (e.toString().contains('wrong-password')) {
+        errorMessage = 'Incorrect password';
+      } else if (e.toString().contains('invalid-email')) {
+        errorMessage = 'Invalid email format';
+      } else if (e.toString().contains('user-disabled')) {
+        errorMessage = 'This account has been disabled';
+      } else if (e.toString().contains('too-many-requests')) {
+        errorMessage = 'Too many failed attempts. Please try again later';
+      }
+
       Get.snackbar(
         "Login Failed",
         errorMessage,
@@ -264,20 +259,65 @@ class AuthLogin extends GetxController {
     }
   }
 
+  // Helper method to handle role-based navigation
+  Future<void> _handleRoleBasedNavigation(
+    String role,
+    String userId,
+    String? schoolId,
+    String? assignedBusId,
+  ) async {
+    if (role == 'student') {
+      isStudent = true;
+      GetStorage().write('isLoggedInStudent', true);
+      GetStorage().write('studentId', userId);
+
+      // If schoolId exists, try to fetch full student data
+      if (schoolId != null) {
+        try {
+          DocumentSnapshot studentDoc = await FirebaseFirestore.instance
+              .collection('schooldetails')
+              .doc(schoolId)
+              .collection('students')
+              .doc(userId)
+              .get();
+
+          if (studentDoc.exists) {
+            Map<String, dynamic> studentData =
+                studentDoc.data() as Map<String, dynamic>;
+            assignedBusId = studentData['assignedBusId'] as String?;
+          }
+        } catch (e) {
+        }
+      }
+
+      if (schoolId != null) GetStorage().write('studentSchoolId', schoolId);
+      if (assignedBusId != null) GetStorage().write('studentBusId', assignedBusId);
+      Get.offAllNamed(Routes.stopLocation);
+    } else if (role == 'driver') {
+      isStudent = false;
+      GetStorage().write('isLoggedInDriver', true);
+      GetStorage().write('driverId', userId);
+      if (schoolId != null) GetStorage().write('driverSchoolId', schoolId);
+      if (assignedBusId != null) GetStorage().write('driverBusId', assignedBusId);
+      Get.offAllNamed(Routes.driverScreen);
+    } else {
+      throw Exception("Invalid role: $role. Only 'student' and 'driver' are allowed.");
+    }
+  }
+
   // Login with role (Student or Driver) using adminusers collection (DEPRECATED - kept for reference)
   Future<void> loginWithRole(String email, String password, String role) async {
     try {
-      print("DEBUG: Starting login for email: $email, role: $role");
-      
       // Step 1: Authenticate with Firebase Auth
       UserCredential userCredential = await auth.signInWithEmailAndPassword(
         email: email,
         password: password,
       );
+
+      // Ensure custom claims are properly set
+      await _ensureCustomClaims(userCredential.user!);
       
       String uid = userCredential.user!.uid;
-      print("DEBUG: Firebase Auth successful for UID: $uid");
-      
       // Step 2: Query adminusers collection
       QuerySnapshot adminQuery = await FirebaseFirestore.instance
           .collection('adminusers')
@@ -285,33 +325,32 @@ class AuthLogin extends GetxController {
           .where('role', isEqualTo: role)
           .limit(1)
           .get();
-      
+
       if (adminQuery.docs.isEmpty) {
         // User authenticated but doesn't have this role
         await auth.signOut();
         throw Exception("No $role account found with this email");
       }
-      
+
       // Step 3: Get user data from adminusers
       DocumentSnapshot userDoc = adminQuery.docs.first;
       Map<String, dynamic> userData = userDoc.data() as Map<String, dynamic>;
       String adminUserId = userDoc.id;
-      
-      print("DEBUG: User found in adminusers with role: $role");
-      
       // Step 4: Store data based on role
       GetStorage().write('isLoggedIn', true);
       GetStorage().write('adminUserId', adminUserId);
       GetStorage().write('userRole', role);
       GetStorage().write('userEmail', email);
       GetStorage().write('userName', userData['name'] ?? '');
-      
+
       // Try to update FCM token (non-blocking)
       try {
         String? token = await FirebaseMessaging.instance.getToken();
         GetStorage().write('fcmToken', token);
 
-        final adminDoc = FirebaseFirestore.instance.collection('adminusers').doc(adminUserId);
+        final adminDoc = FirebaseFirestore.instance
+            .collection('adminusers')
+            .doc(adminUserId);
         final adminUpdate = <String, dynamic>{
           'lastLogin': FieldValue.serverTimestamp(),
         };
@@ -331,48 +370,42 @@ class AuthLogin extends GetxController {
         }
 
         await adminDoc.update(adminUpdate);
-        print("DEBUG: FCM token synced for $role role login");
       } catch (fcmError) {
-        print("DEBUG: FCM token update failed (non-critical): $fcmError");
       }
-      
+
       // Step 5: Route based on role
       if (role == 'student') {
         isStudent = true;
         GetStorage().write('isLoggedInStudent', true);
         GetStorage().write('studentId', adminUserId);
-        
+
         // Get assigned bus and school info if available
         String? schoolId = userData['schoolId'] as String?;
         String? assignedBusId = userData['assignedBusId'] as String?;
-        
+
         if (schoolId != null) GetStorage().write('studentSchoolId', schoolId);
-        if (assignedBusId != null) GetStorage().write('studentBusId', assignedBusId);
-        
-        print("DEBUG: Navigating to student stop location");
+        if (assignedBusId != null)
+          GetStorage().write('studentBusId', assignedBusId);
         Get.offAllNamed(Routes.stopLocation);
       } else if (role == 'driver') {
         isStudent = false;
         GetStorage().write('isLoggedInDriver', true);
         GetStorage().write('driverId', adminUserId);
-        
+
         // Get assigned bus and school info if available
         String? schoolId = userData['schoolId'] as String?;
         String? assignedBusId = userData['assignedBusId'] as String?;
-        
+
         if (schoolId != null) GetStorage().write('driverSchoolId', schoolId);
-        if (assignedBusId != null) GetStorage().write('driverBusId', assignedBusId);
-        
-        print("DEBUG: Navigating to driver screen");
+        if (assignedBusId != null)
+          GetStorage().write('driverBusId', assignedBusId);
         Get.offAllNamed(Routes.driverScreen);
       } else {
         throw Exception("Invalid role: $role");
       }
-      
     } on FirebaseAuthException catch (e) {
-      print("DEBUG: Firebase Auth failed: ${e.code} - ${e.message}");
       String errorMessage = "Invalid email or password";
-      
+
       if (e.code == 'user-not-found') {
         errorMessage = "No account found with this email";
       } else if (e.code == 'wrong-password') {
@@ -382,7 +415,7 @@ class AuthLogin extends GetxController {
       } else if (e.code == 'user-disabled') {
         errorMessage = "This account has been disabled";
       }
-      
+
       Get.snackbar(
         "Login Failed",
         errorMessage,
@@ -392,7 +425,6 @@ class AuthLogin extends GetxController {
       );
       throw Exception(errorMessage);
     } catch (e) {
-      print("DEBUG: Login error: $e");
       Get.snackbar(
         "Error",
         e.toString().replaceAll('Exception: ', ''),
@@ -410,18 +442,18 @@ class AuthLogin extends GetxController {
     String? token,
   }) async {
     if (schoolId == null || schoolId.isEmpty) {
-      print("DEBUG: Skipping student FCM update, missing schoolId");
       return;
     }
 
     if (token == null || token.isEmpty) {
-      print("DEBUG: Skipping student FCM update, missing token");
       return;
     }
 
+    // IMPORTANT:
+    // - Do NOT set `notified=false` here. That can cause duplicate notifications mid-trip.
+    // - Only update Firestore when the token actually changes (to reduce writes).
     final updateData = <String, dynamic>{
       'fcmToken': token,
-      'notified': false,
       'tokenUpdatedAt': FieldValue.serverTimestamp(),
     };
 
@@ -440,8 +472,6 @@ class AuthLogin extends GetxController {
     );
 
     if (!updatedSchoolDetails && !updatedSchools) {
-      print(
-          "DEBUG: Student FCM token update skipped - doc missing in schooldetails and schools");
     }
   }
 
@@ -460,18 +490,23 @@ class AuthLogin extends GetxController {
 
       final docSnapshot = await docRef.get();
       if (!docSnapshot.exists) {
-        print(
-            "DEBUG: $collectionName/$schoolId/students/$studentId not found while updating token");
         return false;
       }
 
+      final existingData = docSnapshot.data();
+      final existingToken = existingData is Map<String, dynamic>
+          ? (existingData['fcmToken'] as String?)
+          : null;
+      final newToken = updateData['fcmToken'] as String?;
+
+      // Avoid noisy writes when token hasn't changed.
+      if (newToken != null && newToken.isNotEmpty && existingToken == newToken) {
+        return true;
+      }
+
       await docRef.set(updateData, SetOptions(merge: true));
-      print(
-          "DEBUG: Student FCM token stored in $collectionName/$schoolId/students/$studentId");
       return true;
     } catch (e) {
-      print(
-          "DEBUG: Error updating $collectionName/$schoolId/students/$studentId token: $e");
       return false;
     }
   }
@@ -479,8 +514,6 @@ class AuthLogin extends GetxController {
   // Legacy login method (kept for backward compatibility)
   Future<void> isStudentLogin(String userId, String password) async {
     try {
-      print("DEBUG: Starting login attempt for userId: $userId");
-      
       // First, try to authenticate with Firebase Auth directly using email/password
       // This will work if the userId is actually an email address
       try {
@@ -488,34 +521,35 @@ class AuthLogin extends GetxController {
           email: userId,
           password: password,
         );
-        
+
         String authenticatedUserId = userCredential.user!.uid;
-        print("DEBUG: Firebase Auth successful for UID: $authenticatedUserId");
-        
         // Now check if this authenticated user is a student or driver
         try {
           DocumentSnapshot studentDoc = await FirebaseFirestore.instance
               .collection('students')
               .doc(authenticatedUserId)
               .get();
-              
+
           if (studentDoc.exists) {
-            print("DEBUG: User is a student");
             isStudent = true;
             // Store student data
-            Map<String, dynamic> studentData = studentDoc.data() as Map<String, dynamic>;
+            Map<String, dynamic> studentData =
+                studentDoc.data() as Map<String, dynamic>;
             GetStorage().write('isLoggedIn', true);
             GetStorage().write('isLoggedInStudent', true);
             GetStorage().write('studentId', authenticatedUserId);
-            GetStorage().write('studentBusId', studentData['assignedBusId'] ?? '');
-            GetStorage().write('studentSchoolId', studentData['schoolId'] ?? '');
-            GetStorage().write('studentDriverId', studentData['assignedDriverId'] ?? '');
-            
+            GetStorage()
+                .write('studentBusId', studentData['assignedBusId'] ?? '');
+            GetStorage()
+                .write('studentSchoolId', studentData['schoolId'] ?? '');
+            GetStorage().write(
+                'studentDriverId', studentData['assignedDriverId'] ?? '');
+
             // Try to update FCM token (non-blocking)
             try {
               String? token = await FirebaseMessaging.instance.getToken();
               GetStorage().write('fcmToken', token);
-              
+
               // Update FCM token in the correct subcollection path
               String? schoolId = studentData['schoolId'] as String?;
               if (schoolId != null && schoolId.isNotEmpty) {
@@ -526,11 +560,13 @@ class AuthLogin extends GetxController {
                     .collection('students')
                     .doc(authenticatedUserId)
                     .get();
-                
+
                 if (schoolsDoc.exists) {
                   // Update in schools collection
-                  await schoolsDoc.reference.update({'fcmToken': token, 'notified': false});
-                  print("✅ FCM token updated in schools/$schoolId/students/$authenticatedUserId");
+                  await schoolsDoc.reference.update({
+                    'fcmToken': token,
+                    'tokenUpdatedAt': FieldValue.serverTimestamp(),
+                  });
                 } else {
                   // Update in schooldetails collection
                   await FirebaseFirestore.instance
@@ -538,41 +574,40 @@ class AuthLogin extends GetxController {
                       .doc(schoolId)
                       .collection('students')
                       .doc(authenticatedUserId)
-                      .update({'fcmToken': token, 'notified': false});
-                  print("✅ FCM token updated in schooldetails/$schoolId/students/$authenticatedUserId");
+                      .update({
+                    'fcmToken': token,
+                    'tokenUpdatedAt': FieldValue.serverTimestamp(),
+                  });
                 }
               }
             } catch (fcmError) {
-              print("❌ FCM token update failed (non-critical): $fcmError");
               // Continue with login even if FCM fails
             }
-                
-            print("DEBUG: Navigating to stop location");
             Get.offAllNamed(Routes.stopLocation);
             return;
           }
         } catch (e) {
-          print("DEBUG: Error checking student document: $e");
         }
-        
+
         // Check if user is a driver
         try {
           DocumentSnapshot driverDoc = await FirebaseFirestore.instance
               .collection('drivers')
               .doc(authenticatedUserId)
               .get();
-              
+
           if (driverDoc.exists) {
-            print("DEBUG: User is a driver");
             isStudent = false;
             // Store driver data
-            Map<String, dynamic> driverData = driverDoc.data() as Map<String, dynamic>;
+            Map<String, dynamic> driverData =
+                driverDoc.data() as Map<String, dynamic>;
             GetStorage().write('isLoggedIn', true);
             GetStorage().write('isLoggedInDriver', true);
             GetStorage().write('driverId', authenticatedUserId);
             GetStorage().write('driverSchoolId', driverData['schoolId'] ?? '');
-            GetStorage().write('driverBusId', driverData['assignedBusId'] ?? '');
-            
+            GetStorage()
+                .write('driverBusId', driverData['assignedBusId'] ?? '');
+
             // Try to update FCM token (non-blocking)
             try {
               String? token = await FirebaseMessaging.instance.getToken();
@@ -581,31 +616,24 @@ class AuthLogin extends GetxController {
                   .collection('drivers')
                   .doc(authenticatedUserId)
                   .update({'fcmToken': token});
-              print("DEBUG: FCM token updated successfully");
             } catch (fcmError) {
-              print("DEBUG: FCM token update failed (non-critical): $fcmError");
               // Continue with login even if FCM fails
             }
-                
-            print("DEBUG: Navigating to driver screen");
             Get.offAllNamed(Routes.driverScreen);
             return;
           }
         } catch (e) {
-          print("DEBUG: Error checking driver document: $e");
         }
-        
+
         // If authenticated but neither student nor driver found
         await auth.signOut(); // Sign out the authenticated user
-        throw Exception("User authenticated but no student/driver record found");
-        
+        throw Exception(
+            "User authenticated but no student/driver record found");
       } on FirebaseAuthException catch (e) {
-        print("DEBUG: Firebase Auth failed: ${e.code} - ${e.message}");
         // If direct email login fails, the user might not exist or wrong credentials
         throw Exception("Invalid email or password");
       }
     } catch (e) {
-      print("DEBUG: Login error: $e");
       Get.snackbar("Error", "Login failed: ${e.toString()}");
       rethrow; // Re-throw the exception
     }
@@ -618,7 +646,7 @@ class AuthLogin extends GetxController {
           snackPosition: SnackPosition.BOTTOM);
       return;
     }
-    
+
     try {
       await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
       Get.snackbar("Success", "Password reset link sent to $email",
@@ -632,17 +660,13 @@ class AuthLogin extends GetxController {
   // Call this once to create a test user, then remove this function
   Future<void> createTestUser() async {
     try {
-      print("Creating test user...");
-      
       // Create Firebase Auth user
       UserCredential userCredential = await auth.createUserWithEmailAndPassword(
         email: 'kanish@gmail.com',
         password: '123456',
       );
-      
+
       String uid = userCredential.user!.uid;
-      print("Test user created with UID: $uid");
-      
       // Create Firestore document in students collection
       await FirebaseFirestore.instance.collection('students').doc(uid).set({
         'email': 'kanish@gmail.com',
@@ -659,28 +683,20 @@ class AuthLogin extends GetxController {
         'createdAt': FieldValue.serverTimestamp(),
         'isActive': true,
       });
-      
-      print('✅ Test user created successfully!');
-      print('Email: kanish@gmail.com');
-      print('Password: 123456');
-      print('UID: $uid');
-      
       Get.snackbar(
-        'Success', 
+        'Success',
         'Test user created! Login with:\nkanish@gmail.com / 123456',
         backgroundColor: Colors.green,
         colorText: Colors.white,
         duration: const Duration(seconds: 5),
         snackPosition: SnackPosition.BOTTOM,
       );
-      
+
       // Sign out after creating
       await auth.signOut();
-      
     } catch (e) {
-      print('❌ Error creating test user: $e');
       Get.snackbar(
-        'Error', 
+        'Error',
         'Failed to create test user: ${e.toString()}',
         backgroundColor: Colors.red,
         colorText: Colors.white,

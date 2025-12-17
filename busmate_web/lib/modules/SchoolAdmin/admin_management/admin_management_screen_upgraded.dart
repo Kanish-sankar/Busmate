@@ -1,7 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:busmate_web/modules/utils/uniqueness_check_controller.dart';
 
 class SchoolAdminManagementScreenUpgraded extends StatefulWidget {
   final String schoolId;
@@ -21,13 +23,15 @@ class SchoolAdminManagementScreenUpgraded extends StatefulWidget {
 class _SchoolAdminManagementScreenUpgradedState
     extends State<SchoolAdminManagementScreenUpgraded> {
   late GlobalKey<FormState> _formKey;
+
   final TextEditingController _adminNameController = TextEditingController();
   final TextEditingController _adminIdController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+
   final RxBool passwordVisible = false.obs;
-  
-  final RxMap<String, bool> _permissions = {
+
+  final RxMap<String, bool> _permissions = <String, bool>{
     "busManagement": true,
     "driverManagement": true,
     "routeManagement": true,
@@ -35,16 +39,31 @@ class _SchoolAdminManagementScreenUpgradedState
     "studentManagement": true,
     "paymentManagement": true,
     "notifications": true,
-    "adminManagement": false, // Regional admins can't manage other admins by default
+    "adminManagement":
+        false, // Regional admins can't manage other admins by default
   }.obs;
+
+  late UniquenessCheckController emailCheck;
+
+  final FirebaseAuth _auth = FirebaseAuth.instance;
 
   @override
   void initState() {
     super.initState();
     _formKey = GlobalKey<FormState>();
-  }
 
-  final FirebaseAuth _auth = FirebaseAuth.instance;
+    final emailTag = 'regionalAdminEmail-${widget.schoolId}';
+    if (Get.isRegistered<UniquenessCheckController>(tag: emailTag)) {
+      emailCheck = Get.find<UniquenessCheckController>(tag: emailTag);
+    } else {
+      emailCheck = Get.put(
+        UniquenessCheckController(UniquenessCheckType.firebaseAuthEmail),
+        tag: emailTag,
+      );
+    }
+
+    emailCheck.onValueChanged(_emailController.text, debounce: Duration.zero);
+  }
 
   Future<bool> _verifyAdminPassword(String password) async {
     try {
@@ -67,6 +86,22 @@ class _SchoolAdminManagementScreenUpgradedState
   Future<void> _registerNewAdmin() async {
     if (_formKey.currentState!.validate()) {
       try {
+        final candidateEmail = _emailController.text.trim();
+
+        // Guard: prevent creating if email already exists in Firebase Auth.
+        final methods = await FirebaseAuth.instance
+            .fetchSignInMethodsForEmail(candidateEmail);
+        if (methods.isNotEmpty) {
+          Get.snackbar(
+            'Duplicate Email',
+            'This email is already registered: "$candidateEmail"',
+            backgroundColor: Colors.red[100],
+            colorText: Colors.red[900],
+            snackPosition: SnackPosition.BOTTOM,
+          );
+          return;
+        }
+
         String? adminPassword = await _promptForAdminPassword();
         if (adminPassword == null || adminPassword.isEmpty) return;
 
@@ -78,34 +113,39 @@ class _SchoolAdminManagementScreenUpgradedState
           barrierDismissible: false,
         );
 
-        // Store School Admin credentials BEFORE creating new user
-        final schoolAdminEmail = _auth.currentUser!.email!;
-
-        // Create user in Firebase Auth (this will auto-login the new user)
-        UserCredential userCredential = await _auth.createUserWithEmailAndPassword(
-          email: _emailController.text.trim(),
-          password: _passwordController.text,
+        // Create the new user in Firebase Auth using a secondary Firebase app
+        // so we don't switch away from the currently signed-in School Admin.
+        final secondaryApp = await Firebase.initializeApp(
+          name: 'SecondaryApp-${DateTime.now().millisecondsSinceEpoch}',
+          options: Firebase.app().options,
         );
+
+        late final String newAdminUid;
+        try {
+          final secondaryAuth = FirebaseAuth.instanceFor(app: secondaryApp);
+          final userCredential = await secondaryAuth.createUserWithEmailAndPassword(
+            email: _emailController.text.trim(),
+            password: _passwordController.text,
+          );
+          newAdminUid = userCredential.user!.uid;
+          await secondaryAuth.signOut();
+        } finally {
+          await secondaryApp.delete();
+        }
 
         // Create regional admin document in 'admins' collection
         await FirebaseFirestore.instance
             .collection("admins")
-            .doc(userCredential.user!.uid)
+            .doc(newAdminUid)
             .set({
-              'email': _emailController.text.trim(),
-              'role': 'regionalAdmin',
-              'schoolId': widget.schoolId,
-              'permissions': Map<String, bool>.from(_permissions),
-              'adminName': _adminNameController.text.trim(),
-              'adminID': _adminIdController.text.trim(),
-              'createdAt': FieldValue.serverTimestamp(),
-            });
-
-        // Sign back in as School Admin (new user is auto-logged in, we need to restore School Admin)
-        await _auth.signInWithEmailAndPassword(
-          email: schoolAdminEmail,
-          password: adminPassword,
-        );
+          'email': _emailController.text.trim(),
+          'role': 'regionalAdmin',
+          'schoolId': widget.schoolId,
+          'permissions': Map<String, bool>.from(_permissions),
+          'adminName': _adminNameController.text.trim(),
+          'adminID': _adminIdController.text.trim(),
+          'createdAt': FieldValue.serverTimestamp(),
+        });
 
         Get.back(); // Close loading dialog
 
@@ -177,15 +217,20 @@ class _SchoolAdminManagementScreenUpgradedState
                     onPressed: () async {
                       if (_formKey.currentState!.validate()) {
                         try {
-                          String? adminPassword = await _promptForAdminPassword();
+                          String? adminPassword =
+                              await _promptForAdminPassword();
                           if (adminPassword == null || adminPassword.isEmpty) {
                             return;
                           }
 
-                          if (!await _verifyAdminPassword(adminPassword)) return;
+                          if (!await _verifyAdminPassword(adminPassword))
+                            return;
 
                           // Update in root admins collection
-                          await FirebaseFirestore.instance.collection('admins').doc(docId).update({
+                          await FirebaseFirestore.instance
+                              .collection('admins')
+                              .doc(docId)
+                              .update({
                             'adminName': _adminNameController.text.trim(),
                             'adminID': _adminIdController.text.trim(),
                             'email': _emailController.text.trim(),
@@ -253,7 +298,10 @@ class _SchoolAdminManagementScreenUpgradedState
     if (confirmed == true) {
       try {
         // Delete from root admins collection (where Regional Admins are stored)
-        await FirebaseFirestore.instance.collection('admins').doc(docId).delete();
+        await FirebaseFirestore.instance
+            .collection('admins')
+            .doc(docId)
+            .delete();
         Get.snackbar(
           "Success",
           "Admin deleted successfully",
@@ -343,7 +391,7 @@ class _SchoolAdminManagementScreenUpgradedState
     _adminNameController.text = adminData['adminName'] ?? '';
     _adminIdController.text = adminData['adminID'] ?? '';
     _emailController.text = adminData['email'] ?? '';
-    
+
     Map<String, dynamic>? permissions = adminData['permissions'];
     if (permissions != null) {
       _permissions.clear();
@@ -460,25 +508,46 @@ class _SchoolAdminManagementScreenUpgradedState
                       value!.isEmpty ? "Enter admin ID" : null,
                 ),
                 const SizedBox(height: 12),
-                TextFormField(
-                  controller: _emailController,
-                  decoration: InputDecoration(
-                    labelText: "Email",
-                    prefixIcon: const Icon(Icons.email),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    filled: true,
-                    fillColor: Colors.white,
-                  ),
-                  validator: (value) {
-                    if (value!.isEmpty) return "Enter email";
-                    if (!RegExp(r'^[^@]+@[^@]+\.[^@]+').hasMatch(value)) {
-                      return "Enter a valid email";
-                    }
-                    return null;
-                  },
-                ),
+                Obx(() => TextFormField(
+                      controller: _emailController,
+                      onChanged: (v) => emailCheck.onValueChanged(v),
+                      decoration: InputDecoration(
+                        labelText: "Email",
+                        prefixIcon: const Icon(Icons.email),
+                        suffixIcon: emailCheck.isChecking.value
+                            ? const Padding(
+                                padding: EdgeInsets.all(12),
+                                child: SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2),
+                                ),
+                              )
+                            : (emailCheck.isTaken.value
+                                ? const Icon(Icons.error_outline,
+                                    color: Colors.red)
+                                : null),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        filled: true,
+                        fillColor: Colors.white,
+                        errorText: emailCheck.isTaken.value
+                            ? 'Email already exists'
+                            : null,
+                      ),
+                      validator: (value) {
+                        if (value!.isEmpty) return "Enter email";
+                        if (!RegExp(r'^[^@]+@[^@]+\.[^@]+').hasMatch(value)) {
+                          return "Enter a valid email";
+                        }
+                        if (emailCheck.isTaken.value) {
+                          return 'Email already exists';
+                        }
+                        return null;
+                      },
+                    )),
                 const SizedBox(height: 12),
                 Obx(() => TextFormField(
                       controller: _passwordController,
@@ -597,7 +666,8 @@ class _SchoolAdminManagementScreenUpgradedState
   Widget _buildAdminCard(DocumentSnapshot doc) {
     var adminData = doc.data() as Map<String, dynamic>;
     var permissions = adminData['permissions'] as Map<String, dynamic>?;
-    int accessibleScreens = permissions?.values.where((v) => v == true).length ?? 0;
+    int accessibleScreens =
+        permissions?.values.where((v) => v == true).length ?? 0;
 
     return Card(
       elevation: 2,
@@ -848,7 +918,10 @@ class _SchoolAdminManagementScreenUpgradedState
                       width: double.infinity,
                       height: 50,
                       child: ElevatedButton.icon(
-                        onPressed: _registerNewAdmin,
+                        onPressed: (emailCheck.isChecking.value ||
+                                emailCheck.isTaken.value)
+                            ? null
+                            : _registerNewAdmin,
                         icon: const Icon(Icons.add, color: Colors.white),
                         label: const Text(
                           "Register Regional Admin",

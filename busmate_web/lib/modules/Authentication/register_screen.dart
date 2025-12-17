@@ -2,6 +2,7 @@ import 'package:busmate_web/modules/Authentication/auth_controller.dart';
 import 'package:busmate_web/modules/Routes/app_pages.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:busmate_web/modules/utils/uniqueness_check_controller.dart';
 
 class RegisterScreen extends StatelessWidget {
   final TextEditingController emailController = TextEditingController();
@@ -15,8 +16,22 @@ class RegisterScreen extends StatelessWidget {
 
   RegisterScreen({super.key});
 
+  UniquenessCheckController _getEmailCheck() {
+    const tag = 'registerEmailCheck';
+    if (Get.isRegistered<UniquenessCheckController>(tag: tag)) {
+      return Get.find<UniquenessCheckController>(tag: tag);
+    }
+    return Get.put(
+      UniquenessCheckController(UniquenessCheckType.firebaseAuthEmail),
+      tag: tag,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final emailCheck = _getEmailCheck();
+    emailCheck.onValueChanged(emailController.text, debounce: Duration.zero);
+
     return Scaffold(
       // Removing the default app bar for a full-screen, immersive design.
       body: Container(
@@ -51,17 +66,32 @@ class RegisterScreen extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 32),
-                      TextField(
-                        controller: emailController,
-                        decoration: InputDecoration(
-                          labelText: 'Email',
-                          prefixIcon: const Icon(Icons.email),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        keyboardType: TextInputType.emailAddress,
-                      ),
+                      Obx(() => TextField(
+                            controller: emailController,
+                            onChanged: (v) => emailCheck.onValueChanged(v),
+                            decoration: InputDecoration(
+                              labelText: 'Email',
+                              prefixIcon: const Icon(Icons.email),
+                              suffixIcon: emailCheck.isChecking.value
+                                  ? const Padding(
+                                      padding: EdgeInsets.all(12),
+                                      child: SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(strokeWidth: 2),
+                                      ),
+                                    )
+                                  : (emailCheck.isTaken.value
+                                      ? const Icon(Icons.error_outline, color: Colors.red)
+                                      : null),
+                              errorText:
+                                  emailCheck.isTaken.value ? 'Email already exists' : null,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            keyboardType: TextInputType.emailAddress,
+                          )),
                       const SizedBox(height: 16),
                       TextField(
                         controller: passwordController,
@@ -103,7 +133,9 @@ class RegisterScreen extends StatelessWidget {
                       const SizedBox(height: 24),
                       Obx(
                         () => ElevatedButton(
-                          onPressed: authController.isLoading.value
+                          onPressed: (authController.isLoading.value ||
+                                  emailCheck.isChecking.value ||
+                                  emailCheck.isTaken.value)
                               ? null
                               : () async {
                                   if (emailController.text.isEmpty ||
@@ -115,6 +147,16 @@ class RegisterScreen extends StatelessWidget {
                                     );
                                     return;
                                   }
+
+                                  if (emailCheck.isTaken.value) {
+                                    Get.snackbar(
+                                      'Duplicate Email',
+                                      'This email already exists',
+                                      snackPosition: SnackPosition.BOTTOM,
+                                    );
+                                    return;
+                                  }
+
                                   await authController.register(
                                     emailController.text.trim(),
                                     passwordController.text,

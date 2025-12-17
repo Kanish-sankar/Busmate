@@ -1,26 +1,19 @@
 import 'dart:convert';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 
 /// OLA Maps Distance Matrix API Service for ETA calculations
 /// Optimized for single-call approach with waypoint support
 class OlaDistanceMatrixService {
-  // OLA Maps API key from https://maps.olakrutrim.com/
-  static const String _apiKey = 'c8mw89lGYQ05uglqqr7Val5eUTMRTPqgwMNS6F7h';
-  static const String _baseUrl = 'https://api.olamaps.io/routing/v1/distanceMatrix';
+  // Use Cloud Function proxy so the Ola key stays server-side.
+  static const String _cloudFunctionUrl =
+      'https://us-central1-busmate-b80e8.cloudfunctions.net/olaDistanceMatrix';
   
   // For mobile testing: Use mock data initially (set to false for real API when ready)
   // Mobile apps don't have CORS issues, so real API will work fine
   static const bool _useMockData = false; // Set to true for testing without API calls
   
-  /// Validate API key before making requests
-  static bool _isApiKeyValid() {
-    if (_apiKey == 'YOUR_OLA_MAPS_API_KEY' || _apiKey.isEmpty) {
-      print('ERROR: OLA Maps API key not configured. Please set your API key in ola_distance_matrix_service.dart');
-      return false;
-    }
-    return true;
-  }
 
   /// Calculate ETAs for all stops from current bus location (OPTIMIZED - Single API Call)
   /// Sends ALL stops + waypoints in ONE API call for maximum efficiency
@@ -35,10 +28,6 @@ class OlaDistanceMatrixService {
     required List<LatLng> stops,
     List<List<LatLng>>? waypointsPerStop, // Waypoints for each stop (empty list if no waypoints)
   }) async {
-    if (!_isApiKeyValid()) {
-      throw Exception('OLA Maps API key not configured');
-    }
-    
     if (stops.isEmpty) return {};
     
     // Build destinations array: [waypoint1, waypoint2, stop1, waypoint3, stop2, ...]
@@ -55,21 +44,11 @@ class OlaDistanceMatrixService {
       destinations.add(stops[i]);
       stopIndices.add(destinations.length - 1); // Record position of actual stop
     }
-    
-    print('\n🚀 [OLA MAPS API] Calculating ETAs:');
-    print('   - Total stops: ${stops.length}');
-    print('   - Total waypoints: ${destinations.length - stops.length}');
-    print('   - Total destinations in ONE call: ${destinations.length}');
-    print('   - Stop indices: $stopIndices');
-    
     // ONE API CALL for all destinations
     final allResults = await _fetchDistanceMatrix(
       origins: [currentLocation],
       destinations: destinations,
     );
-    
-    print('   ✅ API call successful - received ${allResults.length} results');
-    
     // Extract ETAs only for actual stops (not waypoints)
     final Map<int, StopETA> stopETAs = {};
     for (int i = 0; i < stopIndices.length; i++) {
@@ -77,11 +56,8 @@ class OlaDistanceMatrixService {
       if (allResults.containsKey(destIndex)) {
         final eta = allResults[destIndex]!;
         stopETAs[i] = eta.copyWith(stopIndex: i);
-        print('   📍 Stop ${i+1}: ${(eta.durationSeconds/60).toStringAsFixed(1)}min, ${(eta.distanceMeters/1000).toStringAsFixed(2)}km');
       }
     }
-    
-    print('   🎯 Initial ETA calculation complete: ${stopETAs.length}/${stops.length} stops\n');
     return stopETAs;
   }
 
@@ -96,17 +72,11 @@ class OlaDistanceMatrixService {
   }) async {
     // Skip already passed stops
     if (stopsPassedCount >= allStops.length) {
-      print('   ⚠️ [RECALC] All stops passed, no recalculation needed');
       return {};
     }
     
     final remainingStops = allStops.sublist(stopsPassedCount);
     final remainingWaypoints = allWaypoints?.sublist(stopsPassedCount);
-    
-    print('\n🔄 [OLA MAPS RECALC] Recalculating ETAs:');
-    print('   - Stops passed: $stopsPassedCount');
-    print('   - Remaining stops: ${remainingStops.length}');
-    
     // Calculate ETAs for remaining stops in ONE API call
     final remainingETAs = await calculateAllStopETAs(
       currentLocation: currentLocation,
@@ -119,8 +89,6 @@ class OlaDistanceMatrixService {
     remainingETAs.forEach((localIndex, eta) {
       adjustedETAs[stopsPassedCount + localIndex] = eta.copyWith(stopIndex: stopsPassedCount + localIndex);
     });
-    
-    print('   ✅ Recalculation complete: ${adjustedETAs.length} ETAs updated\n');
     return adjustedETAs;
   }
 
@@ -133,7 +101,6 @@ class OlaDistanceMatrixService {
     
     // Use mock data for testing (mobile apps can use real API - no CORS!)
     if (_useMockData) {
-      print('🧪 Using mock ETA data for testing');
       return _generateMockETAs(origins[0], destinations);
     }
     
@@ -145,12 +112,17 @@ class OlaDistanceMatrixService {
     };
     
     try {
+      final currentUser = FirebaseAuth.instance.currentUser;
+      final idToken = await currentUser?.getIdToken();
+      if (idToken == null || idToken.isEmpty) {
+        throw Exception('Not authenticated');
+      }
+
       final response = await http.post(
-        Uri.parse(_baseUrl),
+        Uri.parse(_cloudFunctionUrl),
         headers: {
-          'Authorization': 'Bearer $_apiKey',
           'Content-Type': 'application/json',
-          'X-Request-Id': DateTime.now().millisecondsSinceEpoch.toString(),
+          'Authorization': 'Bearer $idToken',
         },
         body: jsonEncode(requestBody),
       ).timeout(
@@ -168,11 +140,9 @@ class OlaDistanceMatrixService {
       } else if (response.statusCode == 429) {
         throw Exception('API Rate Limit: Too many requests. Please wait and try again.');
       } else {
-        print('OLA Maps API Error Response: ${response.body}');
         throw Exception('API Error: ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
-      print('Error calling OLA Distance Matrix API: $e');
       rethrow;
     }
   }
@@ -184,19 +154,16 @@ class OlaDistanceMatrixService {
     try {
       final rows = data['rows'] as List<dynamic>?;
       if (rows == null || rows.isEmpty) {
-        print('Warning: No rows in response');
         return {};
       }
       
       final firstRow = rows[0] as Map<String, dynamic>?;
       if (firstRow == null) {
-        print('Warning: First row is null');
         return {};
       }
       
       final elements = firstRow['elements'] as List<dynamic>?;
       if (elements == null || elements.isEmpty) {
-        print('Warning: No elements in first row');
         return {};
       }
       
@@ -206,14 +173,12 @@ class OlaDistanceMatrixService {
         // Check if route was found
         final status = element['status'] as String?;
         if (status != 'OK') {
-          print('Warning: No route found for destination $i, status: $status');
           continue;
         }
         
         // Extract distance (in meters)
         final distanceData = element['distance'] as Map<String, dynamic>?;
         if (distanceData == null) {
-          print('Warning: No distance data for destination $i');
           continue;
         }
         final distanceMeters = (distanceData['value'] as num?)?.toDouble() ?? 0.0;
@@ -221,7 +186,6 @@ class OlaDistanceMatrixService {
         // Extract duration (in seconds) - prefer duration_in_traffic if available
         final durationData = element['duration_in_traffic'] ?? element['duration'];
         if (durationData == null) {
-          print('Warning: No duration data for destination $i');
           continue;
         }
         final durationSeconds = (durationData['value'] as num?)?.toInt() ?? 0;
@@ -236,8 +200,6 @@ class OlaDistanceMatrixService {
       
       return etas;
     } catch (e) {
-      print('Error parsing distance matrix response: $e');
-      print('Response data: $data');
       return {};
     }
   }
@@ -287,7 +249,6 @@ class OlaDistanceMatrixService {
       if (lastRecalculationTime != null) {
         final minutesSinceLastRecalc = DateTime.now().difference(lastRecalculationTime).inMinutes;
         if (minutesSinceLastRecalc >= maxMinutesBetweenRecalc) {
-          print('⏰ Forcing recalculation: $minutesSinceLastRecalc min since last update');
           return true;
         }
       }

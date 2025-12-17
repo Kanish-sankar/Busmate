@@ -16,6 +16,7 @@ import 'package:busmate/meta/model/scool_model.dart';
 import 'package:busmate/meta/model/student_model.dart';
 import 'package:busmate/meta/nav/pages.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:get/get.dart';
@@ -36,17 +37,23 @@ class DriverController extends GetxController {
 
   @override
   void onInit() async {
+    // 🔒 Check if user is actually logged in first
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) {
+      // Not logged in - don't try to fetch any data
+      super.onInit();
+      return;
+    }
+
     GetStorage storage = GetStorage();
     if (storage.read(_trackingEnabledKey) == null) {
       storage.write(_trackingEnabledKey, false);
     }
-    
+
+    // 🔒 Ensure custom claims are set for current user (critical for security rules)
+    await _ensureUserClaimsAreSet();
+
     // Debug prints
-    print('🔍 [Driver] GetStorage values:');
-    print('   driverId: ${storage.read('driverId')}');
-    print('   driverSchoolId: ${storage.read('driverSchoolId')}');
-    print('   driverBusId: ${storage.read('driverBusId')}');
-    
     await fetchSchool(storage.read('driverSchoolId'));
     await fetchDriver(storage.read('driverId'));
     await fetchBusDetail(
@@ -65,33 +72,89 @@ class DriverController extends GetxController {
     // Listen to Realtime Database for trip status changes
     final busId = GetStorage().read('driverBusId');
     final schoolId = GetStorage().read('driverSchoolId');
-    
+
     // Note: Button state is now LOCAL and controls the database
     // We don't listen to database for button state anymore
     // Database listener removed to prevent conflicts
-    
+
     if (busId == null || schoolId == null) {
-      print('❌ [Driver] Cannot proceed - busId or schoolId is null');
       isTripActive.value = false;
     } else {
       // Check initial state from database once on startup
-      print('🔍 [Driver] Checking initial trip state from DB: bus_locations/$schoolId/$busId');
-      FirebaseDatabase.instance
-          .ref('bus_locations/$schoolId/$busId/isActive')
-          .once()
-          .then((snapshot) {
+      try {
+        final snapshot = await FirebaseDatabase.instance
+            .ref('bus_locations/$schoolId/$busId/isActive')
+            .once();
+
         if (snapshot.snapshot.exists && snapshot.snapshot.value != null) {
           final isActive = snapshot.snapshot.value == true;
-          print('📊 [Driver] Initial DB state - isActive: $isActive');
           isTripActive.value = isActive;
         } else {
-          print('⚠️ [Driver] No initial state in DB - defaulting to inactive');
           isTripActive.value = false;
         }
-      });
+      } catch (e) {
+        isTripActive.value = false;
+      }
     }
 
     super.onInit();
+  }
+
+  // Helper method to ensure custom claims are set on app start
+  Future<void> _ensureUserClaimsAreSet() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      // Get current claims
+      final idTokenResult = await user.getIdTokenResult();
+      final claims = idTokenResult.claims;
+
+      final String? role = claims?['role'] as String?;
+      final String? schoolId = claims?['schoolId'] as String?;
+
+      // If claims are missing, set them
+      if (role == null || role.isEmpty || schoolId == null || schoolId.isEmpty) {
+        try {
+          // Call setUserClaims cloud function
+          final callable = FirebaseFunctions.instance.httpsCallable('setUserClaims');
+          await callable.call({'uid': user.uid});
+
+          // Force refresh the token
+          await user.getIdToken(true);
+
+          // Re-check claims after refresh
+          final refreshed = await user.getIdTokenResult(true);
+          final refreshedClaims = refreshed.claims;
+          final refreshedRole = refreshedClaims?['role'] as String?;
+          final refreshedSchoolId = refreshedClaims?['schoolId'] as String?;
+          if (refreshedRole == null || refreshedRole.isEmpty || refreshedSchoolId == null || refreshedSchoolId.isEmpty) {
+            throw Exception('Claims still missing after refresh');
+          }
+        } catch (e) {
+          // Do not continue: RTDB reads will fail with permission-denied.
+          await FirebaseAuth.instance.signOut();
+          GetStorage().erase();
+          Get.snackbar(
+            'Login required',
+            'Permissions were not ready. Please log in again.',
+            snackPosition: SnackPosition.BOTTOM,
+          );
+          Get.offAllNamed(Routes.sigIn);
+        }
+      }
+    } catch (e) {
+      // Silently fail - don't block app startup
+    }
+  }
+
+  @override
+  void onClose() {
+    _tripEndTimer?.cancel();
+    _tripEndTimer = null;
+    _foregroundTimer?.cancel();
+    _foregroundTimer = null;
+    super.onClose();
   }
 
   double calculateDistance(double lat1, double lon1, double lat2, double lon2) {
@@ -108,8 +171,6 @@ class DriverController extends GetxController {
   }
 
   void _setupBackgroundListener() {
-    print('📡 [Driver] Setting up background listener');
-
     final ReceivePort port = ReceivePort();
     if (IsolateNameServer.lookupPortByName(isolateName) != null) {
       IsolateNameServer.removePortNameMapping(isolateName);
@@ -117,11 +178,7 @@ class DriverController extends GetxController {
     IsolateNameServer.registerPortWithName(port.sendPort, isolateName);
 
     port.listen((dynamic data) {
-      print('📥 [Driver] Received from background: $data');
-
       if (data is LocationDto) {
-        print(
-            '📍 [Driver] Location from background: ${data.latitude}, ${data.longitude}');
       }
     });
   }
@@ -135,13 +192,11 @@ class DriverController extends GetxController {
   // Fetch School by ID
   Future<void> fetchSchool(String? schoolId) async {
     try {
-      print('🏫 [Driver] Fetching school: $schoolId');
       if (schoolId == null || schoolId.isEmpty) {
-        print('❌ [Driver] schoolId is null or empty');
         school.value = null;
         return;
       }
-      
+
       isLoading.value = true;
       DocumentSnapshot doc = await FirebaseFirestore.instance
           .collection('schooldetails')
@@ -150,14 +205,11 @@ class DriverController extends GetxController {
 
       if (doc.exists && doc.data() != null) {
         school.value = SchoolModel.fromMap(doc.data() as Map<String, dynamic>);
-        print('✅ [Driver] School loaded: ${school.value!.schoolName}');
       } else {
         school.value = null;
-        print('❌ [Driver] School not found in Firestore');
         Get.snackbar("Error", "School not found");
       }
     } catch (e) {
-      print('❌ [Driver] Error fetching school: $e');
       Get.snackbar("Error", "Failed to fetch school: $e");
     } finally {
       isLoading.value = false;
@@ -167,22 +219,18 @@ class DriverController extends GetxController {
   // Fetch Driver by ID
   Future<void> fetchDriver(String? driverId) async {
     try {
-      print('🚗 [Driver] Fetching driver: $driverId');
       if (driverId == null || driverId.isEmpty) {
-        print('❌ [Driver] driverId is null or empty');
         driver.value = null;
         return;
       }
-      
+
       final schoolId = GetStorage().read('driverSchoolId');
       if (schoolId == null || schoolId.isEmpty) {
-        print('❌ [Driver] schoolId is null, cannot fetch driver');
         driver.value = null;
         return;
       }
-      
+
       isLoading.value = true;
-      print('🔍 [Driver] Fetching from: schooldetails/$schoolId/drivers/$driverId');
       DocumentSnapshot doc = await FirebaseFirestore.instance
           .collection('schooldetails')
           .doc(schoolId)
@@ -192,14 +240,11 @@ class DriverController extends GetxController {
 
       if (doc.exists && doc.data() != null) {
         driver.value = DriverModel.fromMap(doc);
-        print('✅ [Driver] Driver loaded: ${driver.value!.id}');
       } else {
         driver.value = null;
-        print('❌ [Driver] Driver not found in Firestore');
         Get.snackbar("Error", "Driver not found");
       }
     } catch (e) {
-      print('❌ [Driver] Error fetching driver: $e');
       Get.snackbar("Error", "Failed to fetch driver: $e");
     } finally {
       isLoading.value = false;
@@ -209,15 +254,15 @@ class DriverController extends GetxController {
   // Fetch Bus by ID
   Future<void> fetchBusDetail(String? schoolId, String? busId) async {
     try {
-      print('🚌 [Driver] Fetching bus: $busId from school: $schoolId');
-      if (schoolId == null || schoolId.isEmpty || busId == null || busId.isEmpty) {
-        print('❌ [Driver] schoolId or busId is null/empty');
+      if (schoolId == null ||
+          schoolId.isEmpty ||
+          busId == null ||
+          busId.isEmpty) {
         busDetail.value = null;
         return;
       }
-      
+
       isLoading.value = true;
-      print('🔍 [Driver] Fetching from: schooldetails/$schoolId/buses/$busId');
       DocumentSnapshot doc = await FirebaseFirestore.instance
           .collection('schooldetails')
           .doc(schoolId)
@@ -227,7 +272,6 @@ class DriverController extends GetxController {
 
       if (doc.exists && doc.data() != null) {
         busDetail.value = BusModel.fromMap(doc.data() as Map<String, dynamic>);
-        print(GetStorage().read('driverBusId'));
       } else {
         busDetail.value = null;
         Get.snackbar("Error", "Bus not found");
@@ -241,21 +285,44 @@ class DriverController extends GetxController {
 
   void fetchStudentsByBusId(String busId) async {
     try {
-      var querySnapshot = await FirebaseFirestore.instance
-          .collection('students')
-          .where('assignedBusId', isEqualTo: busId)
-          .get();
-      otherBusStudents.value =
-          querySnapshot.docs.map((doc) => StudentModel.fromMap(doc)).toList();
+      final schoolId = GetStorage().read('driverSchoolId') as String?;
+      if (schoolId == null || schoolId.isEmpty) {
+        otherBusStudents.clear();
+        return;
+      }
+
+      // Prefer schooldetails, fallback to schools (legacy)
+      QuerySnapshot querySnapshot;
+      try {
+        querySnapshot = await FirebaseFirestore.instance
+            .collection('schooldetails')
+            .doc(schoolId)
+            .collection('students')
+            .where('assignedBusId', isEqualTo: busId)
+            .get();
+      } catch (_) {
+        querySnapshot = await FirebaseFirestore.instance
+            .collection('schools')
+            .doc(schoolId)
+            .collection('students')
+            .where('assignedBusId', isEqualTo: busId)
+            .get();
+      }
+
+      otherBusStudents.value = querySnapshot.docs
+          .map((doc) => StudentModel.fromMap(doc))
+          .toList();
     } catch (e) {
-      log("Error fetching students: $e");
     }
   }
 
 // Timer for fallback foreground updates
   Timer? _foregroundTimer;
 
-  Future<void> startTrip() async {
+  // Trip timing helpers
+  Timer? _tripEndTimer;
+
+  Future<void> _sendBusStartNotification() async {
     try {
       final url =
           Uri.parse("https://sendbusstartnotification-gnxzq4evda-uc.a.run.app");
@@ -263,19 +330,15 @@ class DriverController extends GetxController {
       final response = await http.get(url);
 
       if (response.statusCode == 200) {
-        print("✅ [Notification] Sent to all students successfully");
       } else {
-        print("❌ [Notification] Failed: ${response.body}");
       }
     } catch (e) {
-      print("❌ [Notification] Error sending notification: $e");
     }
+  }
 
-    print('🚗 [StartTrip] Starting trip...');
-
+  Future<void> startTrip({String? forcedScheduleStartTime}) async {
     bool permissionGranted = await _checkAndRequestLocationPermissions();
     if (!permissionGranted) {
-      print('⛔ [StartTrip] Permissions not granted, aborting');
       Get.snackbar("Permission Required",
           "Location permissions are needed to track bus location");
       return;
@@ -283,28 +346,21 @@ class DriverController extends GetxController {
 
     try {
       if (busDetail.value == null) {
-        print('⚠️ [StartTrip] Bus details not available');
         Get.snackbar("Error", "Bus details not available");
         return;
       }
 
       isLoading.value = true;
-      
+
       // **BUTTON CONTROLS STATE** - Update immediately for instant UI feedback
       isTripActive.value = true;
-      print('🔴 [Driver] Button state set to ACTIVE (red) - USER CLICKED START');
-
       final storage = GetStorage();
       storage.write(_trackingEnabledKey, true);
 
       String schoolId = storage.read('driverSchoolId');
       String busId = storage.read('driverBusId');
       String routeType = "pickup"; // <-- define routeType with default
-
-      print('🔑 [StartTrip] Using schoolId: $schoolId, busId: $busId');
-
       // Query ALL active route schedules (may have both pickup and drop)
-      print('🔍 [StartTrip] Querying active route schedules...');
       final routeQuery = await FirebaseFirestore.instance
           .collection('schools')
           .doc(schoolId)
@@ -322,30 +378,43 @@ class DriverController extends GetxController {
 
       // Get current time to match with schedule
       final now = DateTime.now();
-      final currentTime = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
-      print('🕐 [StartTrip] Current time: $currentTime');
+      final currentTime =
+          '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+        // Auto-switch can fire a few seconds late; allow forcing the schedule-start
+        // time so we still select the correct next schedule and keep isWithinTripWindow true.
+        final selectionTime = forcedScheduleStartTime ?? currentTime;
 
       // Find schedule that matches current time window
       DocumentSnapshot<Map<String, dynamic>>? selectedDoc;
       bool foundMatchingSchedule = false;
-      
+
       if (routeQuery.docs.length > 1) {
-        print('📋 [StartTrip] Found ${routeQuery.docs.length} active schedules - checking time windows:');
-        
+        // IMPORTANT: If current time equals a schedule's start time, prefer that schedule.
         for (var doc in routeQuery.docs) {
           final data = doc.data();
           final startTime = data['startTime'] as String? ?? '';
           final endTime = data['endTime'] as String? ?? '23:59';
           final direction = data['direction'] as String? ?? 'unknown';
-          
-          print('   - ${data['routeName']}: $direction ($startTime - $endTime)');
-          
-          // Check if current time is within this schedule's window
-          if (_isTimeWithinSchedule(currentTime, startTime, endTime)) {
+          if (startTime == selectionTime &&
+              _isTimeWithinSchedule(selectionTime, startTime, endTime)) {
             selectedDoc = doc;
             foundMatchingSchedule = true;
-            print('   ✅ Selected this schedule (matches current time)');
             break;
+          }
+        }
+
+        if (!foundMatchingSchedule) {
+          for (var doc in routeQuery.docs) {
+            final data = doc.data();
+            final startTime = data['startTime'] as String? ?? '';
+            final endTime = data['endTime'] as String? ?? '23:59';
+
+            // Check if current time is within this schedule's window
+            if (_isTimeWithinSchedule(selectionTime, startTime, endTime)) {
+              selectedDoc = doc;
+              foundMatchingSchedule = true;
+              break;
+            }
           }
         }
       } else {
@@ -353,19 +422,15 @@ class DriverController extends GetxController {
         final data = routeQuery.docs.first.data();
         final startTime = data['startTime'] as String? ?? '';
         final endTime = data['endTime'] as String? ?? '23:59';
-        
-        if (_isTimeWithinSchedule(currentTime, startTime, endTime)) {
+
+        if (_isTimeWithinSchedule(selectionTime, startTime, endTime)) {
           selectedDoc = routeQuery.docs.first;
           foundMatchingSchedule = true;
-          print('   ✅ Current time is within schedule window ($startTime - $endTime)');
         }
       }
-      
+
       // CRITICAL VALIDATION: If no schedule matches current time, prevent trip start
       if (!foundMatchingSchedule || selectedDoc == null) {
-        print('❌ [StartTrip] VALIDATION FAILED: No trips scheduled at current time');
-        print('⏰ [StartTrip] Current time ($currentTime) is outside all schedule windows');
-        
         // Show available schedules to driver
         String scheduleInfo = 'Available schedules:\n';
         for (var doc in routeQuery.docs) {
@@ -375,14 +440,14 @@ class DriverController extends GetxController {
           final routeName = data['routeName'] as String? ?? 'Unknown';
           scheduleInfo += '• $routeName: $startTime - $endTime\n';
         }
-        
+
         Get.snackbar(
           "No Active Trips",
           "Current time ($currentTime) is outside scheduled trip times.\n\n$scheduleInfo",
           duration: Duration(seconds: 5),
           snackPosition: SnackPosition.BOTTOM,
         );
-        
+
         isLoading.value = false;
         isTripActive.value = false;
         GetStorage().write(_trackingEnabledKey, false);
@@ -391,16 +456,19 @@ class DriverController extends GetxController {
 
       final routeDoc = selectedDoc;
       final routeId = routeDoc.id;
-      final routeData = routeDoc.data()!; // Safe to use ! here because we validated selectedDoc is not null above
-      final stoppings = routeData['stops'] as List<dynamic>? ?? routeData['stoppings'] as List<dynamic>? ?? [];
+      final routeData = routeDoc
+          .data()!; // Safe to use ! here because we validated selectedDoc is not null above
+      final stoppings = routeData['stops'] as List<dynamic>? ??
+          routeData['stoppings'] as List<dynamic>? ??
+          [];
       final routeName = routeData['routeName'] as String? ?? 'Unknown Route';
       routeType = routeData['direction'] as String? ?? 'pickup';
-      
-      print('🎯 [StartTrip] Selected schedule: $routeName (${routeType.toUpperCase()})');
-      
       // Get schedule times (CRITICAL: Must match Cloud Function's tripId generation)
       final scheduleStartTime = routeData['startTime'] as String? ?? '';
       final scheduleEndTime = routeData['endTime'] as String? ?? '23:59';
+      final routeRefId = routeData['routeRefId'] as String?;
+      if (routeRefId != null && routeRefId.isNotEmpty) {
+      }
 
       if (stoppings.isEmpty) {
         Get.snackbar("Error", "Route has no stops defined");
@@ -413,7 +481,7 @@ class DriverController extends GetxController {
       var stops = stoppings.map((stop) {
         final location = stop['location'];
         double lat, lng;
-        
+
         if (location != null && location is Map) {
           lat = ((location['latitude'] ?? 0.0) as num).toDouble();
           lng = ((location['longitude'] ?? 0.0) as num).toDouble();
@@ -421,7 +489,7 @@ class DriverController extends GetxController {
           lat = ((stop['latitude'] ?? 0.0) as num).toDouble();
           lng = ((stop['longitude'] ?? 0.0) as num).toDouble();
         }
-        
+
         return {
           'name': stop['name'] ?? 'Unknown Stop',
           'latitude': lat,
@@ -435,38 +503,29 @@ class DriverController extends GetxController {
       // CRITICAL: Reverse stops for drop direction (Firestore stores them in pickup order)
       if (routeType.toLowerCase() == 'drop') {
         stops = stops.reversed.toList();
-        print('🔄 [StartTrip] Reversed stops for DROP direction');
       }
-
-      print('✅ [StartTrip] Found route: $routeName ($routeType) with ${stops.length} stops');
-
       // Generate currentTripId using SCHEDULE START TIME (not current time)
       // CRITICAL: Must match Cloud Function's tripId format for student queries to work
-      final dateKey = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
-      final currentTripId = '${routeId}_${dateKey}_${scheduleStartTime.replaceAll(':', '')}';
-      print('🎫 [StartTrip] Generated tripId using schedule time: $currentTripId (schedule: $scheduleStartTime)');
-
+      final dateKey =
+          '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+      final currentTripId =
+          '${routeId}_${dateKey}_${scheduleStartTime.replaceAll(':', '')}';
       // Calculate if current time is within schedule window
-      final currentTimeStr = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
-      final isWithinWindow = _isTimeWithinSchedule(currentTimeStr, scheduleStartTime, scheduleEndTime);
-      print('⏰ [StartTrip] Time check: Current=$currentTimeStr, Start=$scheduleStartTime, End=$scheduleEndTime, Within=$isWithinWindow');
-      
+      final currentTimeStr =
+          '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+        final windowTime = forcedScheduleStartTime ?? currentTimeStr;
+        final isWithinWindow =
+          _isTimeWithinSchedule(windowTime, scheduleStartTime, scheduleEndTime);
       if (!isWithinWindow) {
-        print('⚠️ [StartTrip] WARNING: Current time is OUTSIDE schedule window!');
-        print('⚠️ [StartTrip] Notifications may not work because Cloud Function checks isWithinTripWindow');
-        print('⚠️ [StartTrip] Consider updating schedule times to include current time, or wait until schedule time');
       }
 
       // Get driver's ACTUAL current location (not first stop location)
-      print('📍 [StartTrip] Getting driver\'s current GPS location...');
       geolocator.Position currentPosition;
       try {
         currentPosition = await geolocator.Geolocator.getCurrentPosition(
           desiredAccuracy: geolocator.LocationAccuracy.high,
         );
-        print('📍 [StartTrip] Current location: ${currentPosition.latitude}, ${currentPosition.longitude}');
       } catch (e) {
-        print('⚠️ [StartTrip] Could not get current position, using first stop as fallback: $e');
         // Fallback to first stop if GPS fails
         currentPosition = geolocator.Position(
           latitude: stops[0]['latitude'],
@@ -483,67 +542,60 @@ class DriverController extends GetxController {
       }
 
       // Initialize bus status in Realtime Database with ACTUAL driver location
-      print('📝 [StartTrip] Creating bus status in Realtime DB with driver\'s actual location...');
       await FirebaseDatabase.instance
           .ref('bus_locations/$schoolId/$busId')
           .set({
         'isActive': true,
         'activeRouteId': routeId, // Real route ID from route_schedules
+        'routeRefId':
+            routeRefId, // Optional: route doc id from Route Management (multi-route buses)
         'currentTripId': currentTripId, // CRITICAL: Required for notifications
         'tripDirection': routeType,
         'routeName': routeName,
         'currentStatus': 'Active',
-        'latitude': currentPosition.latitude,  // DRIVER'S ACTUAL CURRENT LOCATION
-        'longitude': currentPosition.longitude, // DRIVER'S ACTUAL CURRENT LOCATION
+        'latitude':
+            currentPosition.latitude, // DRIVER'S ACTUAL CURRENT LOCATION
+        'longitude':
+            currentPosition.longitude, // DRIVER'S ACTUAL CURRENT LOCATION
         'speed': currentPosition.speed,
         'accuracy': currentPosition.accuracy,
         'heading': currentPosition.heading,
         'source': 'phone',
-        'remainingStops': stops, // ALL stops including Stop 1 (driver needs to reach it first)
-        'stopsPassedCount': 0,   // No stops passed yet
+        'remainingStops':
+            stops, // ALL stops including Stop 1 (driver needs to reach it first)
+        'stopsPassedCount': 0, // No stops passed yet
         'totalStops': stops.length,
         'lastETACalculation': 0, // Force initial ETA calculation
         'lastRecalculationAt': 0,
-        'scheduleStartTime': scheduleStartTime, // Use schedule's start time, not current time
+        'scheduleStartTime':
+            scheduleStartTime, // Use schedule's start time, not current time
         'scheduleEndTime': scheduleEndTime, // Store end time for reference
         'tripStartedAt': now.millisecondsSinceEpoch,
-        'isWithinTripWindow': isWithinWindow, // Calculate based on schedule times
-        'allStudentsNotified': false, // CRITICAL: Reset notification flags for new trip
-        'noPendingStudents': false, // CRITICAL: Reset to allow notification processing
+        'isWithinTripWindow':
+            isWithinWindow, // Calculate based on schedule times
+        'allStudentsNotified':
+            false, // CRITICAL: Reset notification flags for new trip
+        'noPendingStudents':
+            false, // CRITICAL: Reset to allow notification processing
         'timestamp': ServerValue.timestamp,
       });
-
-      print('✅ [StartTrip] Bus status created in Realtime DB with driver\'s actual location');
-      print('📍 [StartTrip] Driver location: ${currentPosition.latitude}, ${currentPosition.longitude}');
-      print('🎯 [StartTrip] All ${stops.length} stops in remainingStops (driver will reach Stop 1 first)');
+      // ✅ UX: Consider trip "started" as soon as the RTDB write succeeds.
+      // Anything after this (background locator, student reset, etc.) should not block the success message.
+      Get.snackbar("Success", "Trip started successfully");
 
       // Start background location updates IMMEDIATELY (non-blocking)
-      print('🚀 [StartTrip] Starting background location updates...');
       _startBackgroundLocator(schoolId, busId, routeType);
-      print('✅ [StartTrip] Background location updates started');
-
       // Start fallback foreground timer for location updates
       _startForegroundFallback(schoolId, busId);
 
-      // CRITICAL: Reset students in BACKGROUND (non-blocking) to avoid delay
-      // This ensures student.currentTripId matches bus.currentTripId for notification query
-      print('👥 [StartTrip] Resetting students in background (non-blocking)...');
-      _resetStudentsForTrip(schoolId, busId, currentTripId, routeId).then((_) {
-        print('✅ [StartTrip] Student reset completed in background');
-      }).catchError((e) {
-        print('❌ [StartTrip] Failed to reset students: $e');
-        print('⚠️ [StartTrip] NOTIFICATIONS WILL NOT WORK - student tripId won\'t match bus tripId!');
-      });
+      // Auto-stop at schedule end, and if the next schedule starts exactly at
+      // the same time, immediately handoff to the next trip.
+      _scheduleTripEndTimer(schoolId, busId, scheduleEndTime);
 
-      // Bus status is now tracked in Realtime Database only
-      // Refresh bus details to reflect the updated status
-      await fetchBusDetail(schoolId, busId);
-
-      // Note: isTripActive will be updated automatically by the Realtime DB listener
-      Get.snackbar("Success", "Trip started successfully");
+      // Fire-and-forget: send the "bus start" notification without delaying trip start UX.
+      // This is best-effort and should not block the driver.
+      _sendBusStartNotification();
     } catch (e, st) {
-      print('❌ [StartTrip] Error: $e');
-      print('📜 [StartTrip] Stack trace: $st');
       isTripActive.value = false;
       GetStorage().write(_trackingEnabledKey, false);
       Get.snackbar("Error", "Failed to start trip: $e");
@@ -552,34 +604,92 @@ class DriverController extends GetxController {
     }
   }
 
-  // Background method to reset students without blocking trip start
-  Future<void> _resetStudentsForTrip(String schoolId, String busId, String currentTripId, String routeId) async {
-    try {
-      final studentsSnapshot = await FirebaseFirestore.instance
-          .collection('schooldetails/$schoolId/students')
-          .where('assignedBusId', isEqualTo: busId)
-          .get();
+  void _scheduleTripEndTimer(
+      String schoolId, String busId, String scheduleEndTime) {
+    _tripEndTimer?.cancel();
 
-      if (studentsSnapshot.docs.isNotEmpty) {
-        final batch = FirebaseFirestore.instance.batch();
-        for (var doc in studentsSnapshot.docs) {
-          batch.update(doc.reference, {
-            'notified': false,
-            'currentTripId': currentTripId, // MUST MATCH bus.currentTripId for query to work!
-            'tripStartedAt': FieldValue.serverTimestamp(),
-            'lastNotifiedRoute': routeId,
-            'lastNotifiedAt': null,
-          });
-        }
-        await batch.commit();
-        print('✅ Background: Reset ${studentsSnapshot.docs.length} students with matching tripId');
-      } else {
-        print('⚠️ Background: No students assigned to bus $busId');
-      }
-    } catch (e) {
-      throw Exception('Failed to reset students: $e');
+    final endDateTime = _timeToday(scheduleEndTime);
+    if (endDateTime == null) return;
+
+    final now = DateTime.now();
+    // Handle overnight schedules safely.
+    // If the computed end time for "today" is already in the past (e.g., start=23:00 end=01:00
+    // and now=23:30), the real end is on the next day.
+    DateTime effectiveEnd = endDateTime;
+    if (effectiveEnd.isBefore(now)) {
+      effectiveEnd = effectiveEnd.add(const Duration(days: 1));
+    }
+
+    final delay = effectiveEnd.difference(now);
+    if (delay.isNegative) {
+      _tripEndTimer = Timer(const Duration(seconds: 1),
+          () => _handleScheduleBoundary(schoolId, busId, scheduleEndTime));
+      return;
+    }
+
+    _tripEndTimer = Timer(
+        delay, () => _handleScheduleBoundary(schoolId, busId, scheduleEndTime));
+  }
+
+  DateTime? _timeToday(String hhmm) {
+    try {
+      final parts = hhmm.split(':');
+      if (parts.length != 2) return null;
+      final hour = int.parse(parts[0]);
+      final minute = int.parse(parts[1]);
+      final now = DateTime.now();
+      return DateTime(now.year, now.month, now.day, hour, minute);
+    } catch (_) {
+      return null;
     }
   }
+
+    Future<void> _handleScheduleBoundary(
+      String schoolId, String busId, String previousScheduleEndTime) async {
+    try {
+      final storage = GetStorage();
+      final trackingEnabled = storage.read(_trackingEnabledKey) == true;
+      if (!trackingEnabled || isTripActive.value != true) {
+        return;
+      }
+
+      final now = DateTime.now();
+      final currentTime =
+          '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+      // Always stop the current trip at its scheduled end.
+      await _stopTrackingServices(updateRealtimeStatus: true);
+
+      // If the next trip starts exactly at the previous end time, start it immediately.
+      final routeQuery = await FirebaseFirestore.instance
+          .collection('schools')
+          .doc(schoolId)
+          .collection('route_schedules')
+          .where('busId', isEqualTo: busId)
+          .where('isActive', isEqualTo: true)
+          .get();
+
+      DocumentSnapshot<Map<String, dynamic>>? nextSchedule;
+      for (final doc in routeQuery.docs) {
+        final data = doc.data();
+        final startTime = data['startTime'] as String? ?? '';
+        final endTime = data['endTime'] as String? ?? '23:59';
+        if (startTime == previousScheduleEndTime &&
+            _isTimeWithinSchedule(currentTime, startTime, endTime)) {
+          nextSchedule = doc;
+          break;
+        }
+      }
+
+      if (nextSchedule != null) {
+        Get.snackbar('Trip Update', 'Starting next trip automatically');
+        await startTrip(forcedScheduleStartTime: previousScheduleEndTime);
+      } else {
+      }
+    } catch (e) {
+    }
+  }
+
+
 
 // Add this constant to the DriverController class
   static const double STOP_PROXIMITY_THRESHOLD = 200.0; // 200 meters
@@ -594,13 +704,10 @@ class DriverController extends GetxController {
     // 30 seconds interval - optimal balance of precision, battery, and cost
     // 30s = 2,880 calls/day per bus (cost-effective while maintaining good responsiveness)
     _foregroundTimer = Timer.periodic(const Duration(seconds: 30), (_) async {
-      print('⏰ [ForegroundFallback] Triggered (30s interval - cost optimized)');
-
       try {
         final storage = GetStorage();
         final trackingEnabled = storage.read(_trackingEnabledKey) == true;
         if (!trackingEnabled) {
-          print('⏹️ [ForegroundFallback] Tracking disabled flag detected. Stopping timer.');
           _foregroundTimer?.cancel();
           _foregroundTimer = null;
           return;
@@ -614,15 +721,11 @@ class DriverController extends GetxController {
             await geolocator.Geolocator.getCurrentPosition(
           desiredAccuracy: geolocator.LocationAccuracy.high,
         );
-
-        print(
-            '📍 [ForegroundFallback] Position: ${position.latitude}, ${position.longitude}');
-
         // Note: Foreground fallback simplified - just write GPS data to Realtime DB
         // All ETA calculations and stop management handled by Cloud Functions
         final schoolIdFromStorage = storage.read('driverSchoolId') ?? schoolId;
         await FirebaseDatabase.instance
-          .ref('bus_locations/$schoolIdFromStorage/$busId')
+            .ref('bus_locations/$schoolIdFromStorage/$busId')
             .update({
           'latitude': position.latitude,
           'longitude': position.longitude,
@@ -630,10 +733,7 @@ class DriverController extends GetxController {
           'timestamp': ServerValue.timestamp,
           'source': 'foreground_fallback',
         });
-
-        print('✅ [ForegroundFallback] GPS data written to Realtime DB');
       } catch (e) {
-        print('❌ [ForegroundFallback] Error: $e');
       }
     });
   }
@@ -641,30 +741,22 @@ class DriverController extends GetxController {
   Future<void> _startBackgroundLocator(
       String schoolId, String busId, String routeType) async {
     try {
-      print('🚀 [StartTrip] Starting background locator...');
-
       // For Android: Explicitly request exemption from battery optimization
       if (Platform.isAndroid) {
         try {
           if (await Permission.ignoreBatteryOptimizations.isGranted == false) {
-            print('🔋 [StartTrip] Requesting battery optimization exemption');
             await Permission.ignoreBatteryOptimizations.request();
           }
 
           // Also request notification permission for the foreground service
           final notificationStatus = await Permission.notification.request();
-          print(
-              '🔔 [StartTrip] Notification permission status: $notificationStatus');
         } catch (e) {
-          print('⚠️ [StartTrip] Permission error: $e');
         }
       }
 
       // Check if already running and stop it
       final isRunning = await BackgroundLocator.isServiceRunning();
       if (isRunning) {
-        print(
-            '⚠️ [StartTrip] Background locator already running, stopping it first');
         await BackgroundLocator.unRegisterLocationUpdate();
         // Add a small delay to ensure cleanup
         await Future.delayed(const Duration(seconds: 3));
@@ -677,8 +769,6 @@ class DriverController extends GetxController {
         'busRouteType': routeType, // <-- pass route type
         'timestamp': DateTime.now().millisecondsSinceEpoch
       };
-      print('📦 [StartTrip] Init data: $initData');
-
       // Register location update with better settings
       await BackgroundLocator.registerLocationUpdate(
         backgroundLocationCallback,
@@ -699,7 +789,8 @@ class DriverController extends GetxController {
         ),
         androidSettings: const AndroidSettings(
           accuracy: LocationAccuracy.NAVIGATION,
-          interval: 3, // 3 seconds - for smooth live tracking (dual-path system controls actual writes)
+          interval:
+              3, // 3 seconds - for smooth live tracking (dual-path system controls actual writes)
           // distanceFilter: 10, // 10 meters minimum movement
           client: LocationClient.google,
           androidNotificationSettings: AndroidNotificationSettings(
@@ -720,27 +811,21 @@ class DriverController extends GetxController {
           // forceLocationManager: false,
         ),
       );
-      print('✅ [StartTrip] Background locator registered successfully');
-
       // Verify the service is running
       final checkRunning = await BackgroundLocator.isServiceRunning();
-      print('🔍 [StartTrip] Background locator running check: $checkRunning');
     } catch (e, st) {
-      print('❌ [StartTrip] Error starting background locator: $e');
-      print('📜 [StartTrip] Stack trace: $st');
-      
       // Rollback button state on error
       isTripActive.value = false;
-      print('⬅️ [Driver] Rolled back button state to INACTIVE (green) due to error');
-      
       rethrow;
     }
   }
 
   Future<void> stopTrip() async {
     try {
-      print('🛑 [StopTrip] Stopping trip...');
       isLoading.value = true;
+
+      _tripEndTimer?.cancel();
+      _tripEndTimer = null;
 
       final storage = GetStorage();
       final String? schoolId = storage.read('driverSchoolId');
@@ -748,10 +833,7 @@ class DriverController extends GetxController {
 
       // **BUTTON CONTROLS STATE** - Update immediately for instant UI feedback
       isTripActive.value = false;
-      print('🟢 [Driver] Button state set to INACTIVE (green) - USER CLICKED STOP');
-
       if (schoolId != null && busId != null) {
-        print('📝 [StopTrip] Updating Realtime DB: bus_locations/$schoolId/$busId');
         await FirebaseDatabase.instance
             .ref('bus_locations/$schoolId/$busId')
             .update({
@@ -761,7 +843,6 @@ class DriverController extends GetxController {
           'tripEndedAt': ServerValue.timestamp,
           'timestamp': ServerValue.timestamp,
         });
-        print('✅ [StopTrip] Bus status updated to InActive in Realtime DB');
       }
 
       await _stopTrackingServices(updateRealtimeStatus: false);
@@ -772,14 +853,9 @@ class DriverController extends GetxController {
 
       Get.snackbar("Success", "Trip stopped successfully");
     } catch (e, st) {
-      print('❌ [StopTrip] Error: $e');
-      print('📜 [StopTrip] Stack trace: $st');
-      
       // Rollback button state on error
       isTripActive.value = true;
       GetStorage().write(_trackingEnabledKey, true);
-      print('⬅️ [Driver] Rolled back button state to ACTIVE (red) due to error');
-      
       Get.snackbar("Error", "Failed to stop trip: $e");
     } finally {
       isLoading.value = false;
@@ -787,18 +863,14 @@ class DriverController extends GetxController {
   }
 
   Future<void> handleDriverLogout() async {
-    print('🚪 [Driver] Logging out driver...');
     try {
       await _stopTrackingServices(updateRealtimeStatus: true);
     } catch (e) {
-      print('⚠️ [Driver] Error while stopping services during logout: $e');
     }
 
     try {
       await _firebaseAuth.signOut();
-      print('✅ [Driver] Firebase signOut complete');
     } catch (e) {
-      print('⚠️ [Driver] Firebase signOut failed: $e');
     }
 
     await GetStorage().erase();
@@ -813,8 +885,10 @@ class DriverController extends GetxController {
     storage.write(_trackingEnabledKey, false);
     isTripActive.value = false;
 
+    _tripEndTimer?.cancel();
+    _tripEndTimer = null;
+
     if (_foregroundTimer != null) {
-      print('⏱️ [Driver] Cancelling foreground timer (force stop)');
       _foregroundTimer?.cancel();
       _foregroundTimer = null;
     }
@@ -823,10 +897,8 @@ class DriverController extends GetxController {
       final isRunning = await BackgroundLocator.isServiceRunning();
       if (isRunning) {
         await BackgroundLocator.unRegisterLocationUpdate();
-        print('✅ [Driver] Background location updates stopped (force)');
       }
     } catch (e) {
-      print('⚠️ [Driver] Error stopping background locator: $e');
     }
 
     if (updateRealtimeStatus && schoolId != null && busId != null) {
@@ -840,9 +912,7 @@ class DriverController extends GetxController {
           'tripEndedAt': ServerValue.timestamp,
           'timestamp': ServerValue.timestamp,
         });
-        print('📝 [Driver] Realtime DB updated to inactive (force stop)');
       } catch (e) {
-        print('⚠️ [Driver] Failed to update Realtime DB while stopping: $e');
       }
     }
   }
@@ -896,21 +966,20 @@ class DriverController extends GetxController {
     try {
       // Note: removeStop method deprecated - stops are now managed
       // automatically in Realtime Database by Cloud Functions
-      print('⚠️ [RemoveStop] Manual stop removal deprecated - handled by backend');
     } catch (e) {
-      print('❌ [RemoveStop] Error: $e');
       Get.snackbar("Error", "Failed to update stop: $e");
     }
   }
 
   /// Check if current time is within schedule window (startTime <= current <= endTime)
-  bool _isTimeWithinSchedule(String currentTime, String startTime, String endTime) {
+  bool _isTimeWithinSchedule(
+      String currentTime, String startTime, String endTime) {
     try {
       // Parse times as HH:mm format
       final current = _parseTimeToMinutes(currentTime);
       final start = _parseTimeToMinutes(startTime);
       final end = _parseTimeToMinutes(endTime);
-      
+
       // Handle overnight schedules (e.g., 23:00 to 01:00)
       if (end < start) {
         // Overnight: current >= start OR current <= end
@@ -920,7 +989,6 @@ class DriverController extends GetxController {
         return current >= start && current <= end;
       }
     } catch (e) {
-      print('⚠️ [TimeCheck] Error parsing schedule times: $e');
       return true; // Default to true if parsing fails (allow trip to start)
     }
   }

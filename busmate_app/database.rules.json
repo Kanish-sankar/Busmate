@@ -3,28 +3,38 @@
     "bus_locations": {
       "$schoolId": {
         "$busId": {
-          ".read": true,
-          ".write": true
+          ".read": "auth != null && (auth.token.role == 'superior' || auth.token.role == 'super_admin' || (auth.token.schoolId == $schoolId && (auth.token.role == 'schoolAdmin' || auth.token.role == 'schooladmin' || auth.token.role == 'school_admin' || auth.token.role == 'regionalAdmin' || auth.token.role == 'regionaladmin' || auth.token.role == 'driver' || auth.token.role == 'student')))",
+          ".write": "auth != null && (auth.token.role == 'superior' || auth.token.role == 'super_admin' || (((auth.token.role == 'schoolAdmin' || auth.token.role == 'schooladmin' || auth.token.role == 'school_admin' || auth.token.role == 'regionalAdmin' || auth.token.role == 'regionaladmin') && auth.token.schoolId == $schoolId)) || (auth.token.role == 'driver' && auth.token.schoolId == $schoolId && auth.token.assignedBusId == $busId))",
+          ".validate": "newData.hasChildren(['isActive', 'latitude', 'longitude', 'heading', 'speed', 'timestamp'])"
         }
       }
     },
     "live_bus_locations": {
       "$schoolId": {
         "$busId": {
-          ".read": true,
-          ".write": true
+          ".read": "auth != null && (auth.token.role == 'superior' || auth.token.role == 'super_admin' || (auth.token.schoolId == $schoolId && (auth.token.role == 'schoolAdmin' || auth.token.role == 'schooladmin' || auth.token.role == 'school_admin' || auth.token.role == 'regionalAdmin' || auth.token.role == 'regionaladmin' || auth.token.role == 'driver' || auth.token.role == 'student')))",
+          ".write": "auth != null && (auth.token.role == 'superior' || auth.token.role == 'super_admin' || (((auth.token.role == 'schoolAdmin' || auth.token.role == 'schooladmin' || auth.token.role == 'school_admin' || auth.token.role == 'regionalAdmin' || auth.token.role == 'regionaladmin') && auth.token.schoolId == $schoolId)) || (auth.token.role == 'driver' && auth.token.schoolId == $schoolId && auth.token.assignedBusId == $busId))",
+          ".validate": "newData.hasChildren(['latitude', 'longitude', 'timestamp'])"
         }
       }
     },
     "trip_transitions": {
       "$schoolId": {
         "$busId": {
-          ".read": true,
-          ".write": true
+          ".read": "auth != null && (auth.token.role == 'superior' || auth.token.role == 'super_admin' || (auth.token.schoolId == $schoolId && (auth.token.role == 'schoolAdmin' || auth.token.role == 'schooladmin' || auth.token.role == 'school_admin' || auth.token.role == 'regionalAdmin' || auth.token.role == 'regionaladmin' || auth.token.role == 'driver' || auth.token.role == 'student')))",
+          ".write": "auth != null && (auth.token.role == 'superior' || auth.token.role == 'super_admin' || (((auth.token.role == 'schoolAdmin' || auth.token.role == 'schooladmin' || auth.token.role == 'school_admin' || auth.token.role == 'regionalAdmin' || auth.token.role == 'regionaladmin') && auth.token.schoolId == $schoolId)) || (auth.token.role == 'driver' && auth.token.schoolId == $schoolId && auth.token.assignedBusId == $busId))"
         }
       }
     },
-    ".read": false,
-    ".write": false
+    "route_schedules_cache": {
+      "$schoolId": {
+        "$busId": {
+          ".read": "auth != null && (auth.token.role == 'superior' || auth.token.role == 'super_admin' || (auth.token.schoolId == $schoolId && (auth.token.role == 'schoolAdmin' || auth.token.role == 'schooladmin' || auth.token.role == 'school_admin' || auth.token.role == 'regionalAdmin' || auth.token.role == 'regionaladmin' || auth.token.role == 'driver' || auth.token.role == 'student')))",
+          ".write": "auth != null && (auth.token.role == 'superior' || auth.token.role == 'super_admin' || (((auth.token.role == 'schoolAdmin' || auth.token.role == 'schooladmin' || auth.token.role == 'school_admin' || auth.token.role == 'regionalAdmin' || auth.token.role == 'regionaladmin') && auth.token.schoolId == $schoolId)))"
+        }
+      }
+    },
+    ".read": "auth != null && (auth.token.role == 'superior' || auth.token.role == 'super_admin')",
+    ".write": "auth != null && (auth.token.role == 'superior' || auth.token.role == 'super_admin')"
   }
 }
