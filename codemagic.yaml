@@ -9,9 +9,6 @@ workflows:
       cocoapods: default
       groups:
         - app_store_credentials
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.jupenta.busmate
       vars:
         BUNDLE_ID: "com.jupenta.busmate"
         XCODE_WORKSPACE: "Runner.xcworkspace"
@@ -25,15 +22,49 @@ workflows:
         script: |
           cd busmate_app/ios
           pod install
-      - name: Enable Xcode automatic signing
+      - name: Install iOS signing files (from env vars)
         script: |
+          set -euo pipefail
+
+          if [[ -z "${IOS_DISTRIBUTION_P12_BASE64:-}" ]]; then
+            echo "Missing IOS_DISTRIBUTION_P12_BASE64 env var (base64 of .p12 certificate)"
+            exit 1
+          fi
+          if [[ -z "${IOS_DISTRIBUTION_P12_PASSWORD:-}" ]]; then
+            echo "Missing IOS_DISTRIBUTION_P12_PASSWORD env var"
+            exit 1
+          fi
+          if [[ -z "${IOS_PROVISIONING_PROFILE_BASE64:-}" ]]; then
+            echo "Missing IOS_PROVISIONING_PROFILE_BASE64 env var (base64 of .mobileprovision)"
+            exit 1
+          fi
+
+          CERT_PATH="$CM_BUILD_DIR/cert.p12"
+          PROFILE_PATH="$CM_BUILD_DIR/profile.mobileprovision"
+
+          echo "$IOS_DISTRIBUTION_P12_BASE64" | base64 --decode > "$CERT_PATH"
+          echo "$IOS_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$PROFILE_PATH"
+
+          KEYCHAIN_NAME="build.keychain"
+          KEYCHAIN_PASSWORD="${IOS_KEYCHAIN_PASSWORD:-codemagic}"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
+          security default-keychain -s "$KEYCHAIN_NAME"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_NAME"
+
+          security import "$CERT_PATH" -k "$KEYCHAIN_NAME" -P "$IOS_DISTRIBUTION_P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
+
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/"
+
           cd busmate_app/ios
-          xcodebuild -project Runner.xcodeproj -showBuildSettings | grep DEVELOPMENT_TEAM
-          sed -i '' 's/PRODUCT_BUNDLE_IDENTIFIER = com.jupenta.busmate;/PRODUCT_BUNDLE_IDENTIFIER = com.jupenta.busmate;\n\t\t\t\tDEVELOPMENT_TEAM = B6L74QYZVQ;/' Runner.xcodeproj/project.pbxproj
+          xcode-project use-profiles
       - name: Build iOS IPA
         script: |
           cd busmate_app
-          flutter build ipa --release
+          flutter build ipa --release --export-options-plist=ios/ExportOptions.plist
     artifacts:
       - busmate_app/build/ios/ipa/*.ipa
       - busmate_app/build/ios/archive/Runner.xcarchive
