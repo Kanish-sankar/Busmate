@@ -12,6 +12,10 @@ workflows:
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.jupenta.busmate
+      vars:
+        BUNDLE_ID: "com.jupenta.busmate"
+        XCODE_WORKSPACE: "Runner.xcworkspace"
+        XCODE_SCHEME: "Runner"
     scripts:
       - name: Set up Flutter
         script: |
@@ -21,6 +25,18 @@ workflows:
         script: |
           cd busmate_app/ios
           pod install
+      - name: Set up code signing with App Store Connect
+        script: |
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create
+      - name: Use certificate and profile in Xcode
+        script: |
+          keychain initialize
+          app-store-connect certificates list --type IOS_DISTRIBUTION --save || \
+            app-store-connect certificates create --type IOS_DISTRIBUTION --save
+          keychain add-certificates
+          xcode-project use-profiles
       - name: Build iOS IPA
         script: |
           cd busmate_app
