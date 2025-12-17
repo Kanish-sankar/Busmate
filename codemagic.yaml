@@ -25,22 +25,21 @@ workflows:
         script: |
           cd busmate_app/ios
           pod install
-      - name: Set up code signing with App Store Connect
+      - name: Set up code signing
         script: |
-          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+          set -e
+          keychain initialize
+          app-store-connect fetch-signing-files \
+            "com.jupenta.busmate" \
             --type IOS_APP_STORE \
             --create
-      - name: Use certificate and profile in Xcode
-        script: |
-          keychain initialize
-          app-store-connect certificates list --type IOS_DISTRIBUTION --save || \
-            app-store-connect certificates create --type IOS_DISTRIBUTION --save
           keychain add-certificates
           xcode-project use-profiles
       - name: Build iOS IPA
         script: |
           cd busmate_app
-          flutter build ipa --release --export-options-plist=ios/ExportOptions.plist
+          flutter build ipa --release \
+            --export-options-plist=ios/ExportOptions.plist
     artifacts:
       - busmate_app/build/ios/ipa/*.ipa
       - busmate_app/build/ios/archive/Runner.xcarchive
