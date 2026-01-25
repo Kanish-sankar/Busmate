@@ -8,6 +8,10 @@ Widget driverInfoBox(
   void Function()? onTap, 
   {String? imageUrl, String? phoneNumber}
 ) {
+  // Clean phone number - remove any extra characters or formatting
+  final cleanPhoneNumber = phoneNumber?.replaceAll(RegExp(r'[^0-9+]'), '') ?? '';
+  final displayPhoneNumber = phoneNumber ?? 'N/A';
+  
   return Container(
     width: double.infinity,
     padding: EdgeInsets.symmetric(vertical: 10.h, horizontal: 10.w),
@@ -31,7 +35,7 @@ Widget driverInfoBox(
               radius: 27.r,
               backgroundColor: Colors.grey,
               backgroundImage: imageUrl != null && imageUrl.isNotEmpty
-                  ? NetworkImage(imageUrl) // Fetch image from the provided URL
+                  ? NetworkImage(imageUrl)
                   : null,
               child: imageUrl == null || imageUrl.isEmpty
                   ? Icon(
@@ -54,45 +58,24 @@ Widget driverInfoBox(
                       fontWeight: FontWeight.w500,
                     ),
                   ),
-                  if (phoneNumber != null && phoneNumber.isNotEmpty)
-                    GestureDetector(
-                      onTap: onTap,
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.phone,
-                            size: 14.sp,
-                            color: Colors.blue,
-                          ),
-                          SizedBox(width: 4.w),
-                          Text(
-                            phoneNumber,
-                            style: TextStyle(
-                              fontSize: 13.sp,
-                              color: Colors.blue,
-                              decoration: TextDecoration.underline,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
                 ],
               ),
             ),
-            GestureDetector(
-              onTap: onTap,
-              child: Container(
-                padding: EdgeInsets.all(8.w),
-                decoration: BoxDecoration(
-                    color: AppColors.darkteal,
-                    borderRadius: BorderRadius.circular(5.r)),
-                child: Icon(
-                  Icons.call,
-                  color: Colors.white,
-                  size: 20.sp,
+            if (cleanPhoneNumber.isNotEmpty && cleanPhoneNumber != 'N/A')
+              GestureDetector(
+                onTap: onTap,
+                child: Container(
+                  padding: EdgeInsets.all(8.w),
+                  decoration: BoxDecoration(
+                      color: AppColors.darkteal,
+                      borderRadius: BorderRadius.circular(5.r)),
+                  child: Icon(
+                    Icons.call,
+                    color: Colors.white,
+                    size: 20.sp,
+                  ),
                 ),
               ),
-            ),
           ],
         ),
       ],

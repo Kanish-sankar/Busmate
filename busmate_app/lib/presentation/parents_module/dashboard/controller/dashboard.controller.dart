@@ -501,6 +501,12 @@ class DashboardController extends GetxController {
         // 🔥 CACHE STUDENT DATA
         GetStorage().write('cached_student', student.value!.toJson());
 
+        // 🔥 SAVE DRIVER ID AND FETCH DRIVER DATA
+        if (student.value!.assignedDriverId.isNotEmpty) {
+          GetStorage().write('studentDriverId', student.value!.assignedDriverId);
+          fetchDriver(schoolId, student.value!.assignedDriverId);
+        }
+
         // Fetch siblings from PRIMARY student, not current active student
         DocumentSnapshot primaryDoc = await FirebaseFirestore.instance
             .collection(collectionName)

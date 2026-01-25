@@ -7,53 +7,55 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 
-Widget languageList() => AnimatedContainer(
-      width: double.infinity,
-      margin: EdgeInsets.all(10.w),
-      duration: const Duration(
-        seconds: 10,
-      ),
-      decoration: BoxDecoration(
+Widget languageList() => DraggableScrollableSheet(
+      initialChildSize: 0.6,
+      minChildSize: 0.4,
+      maxChildSize: 0.9,
+      expand: false,
+      builder: (context, scrollController) => Container(
+        width: double.infinity,
+        decoration: BoxDecoration(
           color: AppColors.white,
           borderRadius: BorderRadius.only(
             topLeft: Radius.circular(20.r),
             topRight: Radius.circular(20.r),
-          )),
-      curve: Curves.fastOutSlowIn,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              IconButton(
-                onPressed: () {
-                  Get.back();
-                },
-                icon: Icon(
-                  Icons.clear_sharp,
-                  size: 24.sp,
-                ),
-              ),
-              SizedBox(
-                width: 27.w,
-              ),
-              Text(
-                'select'.tr,
-                style: TextStyle(
-                  color: Colors.black,
-                  fontSize: 16.sp,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
           ),
-          SizedBox(
-            height: 15.h,
-          ),
-          ...List.generate(
-            LanguageConstants.languages.length,
-            (index) => ListTile(
+        ),
+        child: Column(
+          children: [
+            // Header
+            Padding(
+              padding: EdgeInsets.all(10.w),
+              child: Row(
+                children: [
+                  IconButton(
+                    onPressed: () {
+                      Get.back();
+                    },
+                    icon: Icon(
+                      Icons.clear_sharp,
+                      size: 24.sp,
+                    ),
+                  ),
+                  SizedBox(width: 27.w),
+                  Text(
+                    'select'.tr,
+                    style: TextStyle(
+                      color: Colors.black,
+                      fontSize: 16.sp,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            SizedBox(height: 15.h),
+            // Scrollable list
+            Expanded(
+              child: ListView.builder(
+                controller: scrollController,
+                itemCount: LanguageConstants.languages.length,
+                itemBuilder: (context, index) => ListTile(
               leading: Text(LanguageConstants.languages[index].imageUrl, 
                   style: TextStyle(
                     fontSize: 14.sp,
@@ -183,7 +185,9 @@ Widget languageList() => AnimatedContainer(
                   ? Colors.blue
                   : Colors.black,
             ),
-          ),
-        ],
+              ),
+            ),
+          ],
+        ),
       ),
     );

@@ -675,15 +675,15 @@ class LiveTrackingScreen extends GetView<DashboardController> {
                       dashLength: 16,
                       lineThickness: 1.7,
                     ),
-                    driverInfoBox(
+                    Obx(() => driverInfoBox(
                       "driverinfo".tr,
-                      "${'name'.tr}: ${controller.busStatus.value?.driverName ?? controller.driver.value?.name ?? 'N/A'}",
+                      "${'name'.tr}: ${controller.driver.value?.name ?? controller.busStatus.value?.driverName ?? 'N/A'}",
                       () async => await EasyLauncher.call(
                         number: controller.driver.value?.contactInfo ?? 'N/A',
                       ),
                       imageUrl: controller.driver.value?.profileImageUrl,
                       phoneNumber: controller.driver.value?.contactInfo,
-                    ),
+                    )),
                     // Add a progress indicator showing completed stops vs total stops
                     Obx(() {
                       final totalStops = controller

@@ -642,6 +642,32 @@ class SignInScreen extends GetView<SignInController> {
                   ),
                 ),
                 ),
+                // Version and Powered by text
+                SizedBox(height: 24.h),
+                Center(
+                  child: Column(
+                    children: [
+                      Text(
+                        'Version 3.4.5',
+                        style: TextStyle(
+                          fontSize: 12.sp,
+                          color: Colors.grey.shade600,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      SizedBox(height: 4.h),
+                      Text(
+                        'Powered by Jupenta Technologies',
+                        style: TextStyle(
+                          fontSize: 10.sp,
+                          color: Colors.grey.shade500,
+                          fontWeight: FontWeight.w400,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                SizedBox(height: 20.h),
               ],
             ),
           ),

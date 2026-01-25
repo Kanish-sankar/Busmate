@@ -234,6 +234,7 @@ class ManageDetailScreen extends GetView<DashboardController> {
                               context: context,
                               enableDrag: true,
                               isScrollControlled: true,
+                              backgroundColor: Colors.transparent,
                               builder: (context) => languageList(),
                             );
                           },
