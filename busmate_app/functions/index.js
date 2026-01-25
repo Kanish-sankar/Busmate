@@ -567,6 +567,30 @@ exports.handleTripTransitions = onSchedule(
           const startTime = schedule.startTime || "";
           const endTime = schedule.endTime || "";
 
+          // 🏁 CRITICAL: Check TRIP END **FIRST** (before any start/direction logic)
+          // This prevents Trip 1's end from overriding Trip 2's start when they occur at the same minute (e.g., Trip 1 ends 08:50, Trip 2 starts 08:50)
+          if (endTime && currentTime === endTime) {
+            console.log(`   🏁 TRIP END MATCH! Current: ${currentTime}, End: ${endTime}`);
+            const ended = await handleTripEnd({
+              db,
+              rtdb,
+              schoolId,
+              busId,
+              routeId,
+              schedule,
+              busData,
+            });
+            if (ended) {
+              tripsEnded++;
+              console.log(`   ✅ Trip ended successfully`);
+              // Refresh busData after ending so subsequent checks see updated state
+              const refreshedSnapshot = await rtdb.ref(`bus_locations/${schoolId}/${busId}`).once('value');
+              Object.assign(busData, refreshedSnapshot.val() || {});
+            }
+          } else if (endTime) {
+            console.log(`   ⏰ End time check: Current=${currentTime}, End=${endTime} (no match)`);
+          }
+
           // 🔄 CHECK IF BUS IS ACTIVE AND WITHIN THIS SCHEDULE'S TIME WINDOW
           // If yes, update trip direction to match this schedule (handles pickup → drop transitions)
           if (busData.isActive === true && isWithinTripWindow(currentTime, startTime, endTime)) {
@@ -679,25 +703,6 @@ exports.handleTripTransitions = onSchedule(
           } else if (startTime) {
             console.log(`   ⏰ Start time check: Current=${currentTime}, Start=${startTime} (no match)`);
           }
-
-          if (endTime && currentTime === endTime) {
-            console.log(`   🏁 TRIP END MATCH! Current: ${currentTime}, End: ${endTime}`);
-            const ended = await handleTripEnd({
-              db,
-              rtdb,
-              schoolId,
-              busId,
-              routeId,
-              schedule,
-              busData,
-            });
-            if (ended) {
-              tripsEnded++;
-              console.log(`   ✅ Trip ended successfully`);
-            }
-          } else if (endTime) {
-            console.log(`   ⏰ End time check: Current=${currentTime}, End=${endTime} (no match)`);
-          }
         }
       }
     }
@@ -761,6 +766,19 @@ async function handleTripStart({ db, rtdb, schoolId, busId, routeId, schedule, b
     delete cleaned.originalETA;
     return cleaned;
   });
+
+  // 🔄 CRITICAL: Reverse stops for drop direction
+  // Firestore stores stops in pickup order (A to Z), but drop runs Z to A
+  const direction = (schedule.direction || 'pickup').toLowerCase();
+  const orderedStops = direction === 'drop' ? [...stops].reverse() : stops;
+
+  console.log(`   🧭 Trip direction: ${direction}`);
+  console.log(`   🚏 Stops order: ${direction === 'drop' ? 'REVERSED (Z→A)' : 'NORMAL (A→Z)'} - ${orderedStops.length} stops`);
+  if (orderedStops.length > 0) {
+    console.log(`   📍 First stop: ${orderedStops[0]?.name || 'Unknown'}`);
+    console.log(`   📍 Last stop: ${orderedStops[orderedStops.length - 1]?.name || 'Unknown'}`);
+  }
+
   await rtdb.ref(`bus_locations/${schoolId}/${busId}`).update({
     isActive: true,
     isWithinTripWindow: true,
@@ -782,8 +800,8 @@ async function handleTripStart({ db, rtdb, schoolId, busId, routeId, schedule, b
     allStudentsNotified: false,
     noPendingStudents: false,
     stopsPassedCount: 0,
-    remainingStops: stops,
-    totalStops: stops.length,
+    remainingStops: orderedStops,
+    totalStops: orderedStops.length,
     routePolyline: schedule.routePolyline || [],
     deactivationReason: null,
     staleDataDetected: false,
