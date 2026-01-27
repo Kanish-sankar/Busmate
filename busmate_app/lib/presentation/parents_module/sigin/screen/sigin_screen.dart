@@ -648,7 +648,7 @@ class SignInScreen extends GetView<SignInController> {
                   child: Column(
                     children: [
                       Text(
-                        'Version 3.4.5',
+                        'Version 2.3.28',
                         style: TextStyle(
                           fontSize: 12.sp,
                           color: Colors.grey.shade600,
