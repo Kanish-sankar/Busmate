@@ -49,7 +49,23 @@ class StopLocation extends GetView<StoplocationController> {
                   padding: EdgeInsets.symmetric(horizontal: 30.w),
                   child: Obx(
                     () => controller.isLoading.value
-                        ? const Center(child: CircularProgressIndicator())
+                        ? Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                CircularProgressIndicator(
+                                  color: AppColors.yellow,
+                                ),
+                                SizedBox(height: 16.h),
+                                Text(
+                                  'Loading stops...',
+                                  style: size14TextStyle(
+                                    color: Colors.white70,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
                         : controller.locationLength.value == 0
                             ? Center(
                                 child: Text(

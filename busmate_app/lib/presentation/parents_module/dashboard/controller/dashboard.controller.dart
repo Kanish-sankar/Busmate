@@ -24,7 +24,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:crypto/crypto.dart';
 import 'package:bcrypt/bcrypt.dart';
 
-class DashboardController extends GetxController {
+class DashboardController extends GetxController with WidgetsBindingObserver {
   late final MapController mapController;
   var lastMapUpdate = DateTime.now().obs;
   static const mapUpdateThreshold = Duration(milliseconds: 100);
@@ -35,12 +35,23 @@ class DashboardController extends GetxController {
   final RxList<Stoppings> currentTripStopsPickupOrder = <Stoppings>[].obs;
   final RxString currentTripRouteName = ''.obs;
   final RxnString currentTripRouteRefId = RxnString();
+
+  // 🔥 CRITICAL: StreamSubscriptions for proper cleanup (prevents memory leaks)
+  StreamSubscription? _busLocationSubscription;
+  StreamSubscription? _liveBusLocationSubscription;
+  StreamSubscription? _routePolylineSubscription;
+
+  // 🔥 CRITICAL: App lifecycle state for background blocking
+  var isAppInForeground = true.obs;
   @override
   void onInit() async {
     mapController = MapController();
     super.onInit();
 
-    // 🔒 Check if user is actually logged in first
+    // � Register lifecycle observer for background detection
+    WidgetsBinding.instance.addObserver(this);
+
+    // �🔒 Check if user is actually logged in first
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null) {
       // Not logged in - don't try to fetch any data
@@ -185,7 +196,20 @@ class DashboardController extends GetxController {
 
   @override
   void onClose() {
+    // Remove lifecycle observer
+    WidgetsBinding.instance.removeObserver(this);
+
+    // Cancel all Firebase listeners (prevents memory leaks)
+    _busLocationSubscription?.cancel();
+    _liveBusLocationSubscription?.cancel();
+    _routePolylineSubscription?.cancel();
+
+    // Cancel timers
+    _polylineUpdateTimer?.cancel();
+
+    // Dispose map controller
     mapController.dispose();
+    
     super.onClose();
   }
 
@@ -314,10 +338,17 @@ class DashboardController extends GetxController {
     }
 
     // Listen for changes in Realtime Database (not Firestore!)
-    FirebaseDatabase.instance
+    // 🔥 CRITICAL: Cancel existing subscription to prevent duplicates
+    await _routePolylineSubscription?.cancel();
+    
+    _routePolylineSubscription = FirebaseDatabase.instance
         .ref('bus_locations/$schoolId/$busId')
         .onValue
         .listen((event) async {
+      // 🔥 BLOCK: Don't process if app is in background
+      if (!isAppInForeground.value) {
+        return;
+      }
       if (event.snapshot.exists && event.snapshot.value != null) {
         final data = Map<String, dynamic>.from(event.snapshot.value as Map);
         final status = BusStatusModel.fromMap(data, busId);
@@ -1214,7 +1245,7 @@ class DashboardController extends GetxController {
   }
 
   // Add method to fetch bus status from Realtime Database
-  void fetchBusStatus(String busId) {
+  void fetchBusStatus(String busId) async {
     // Get schoolId from student (not activeStudent which doesn't exist)
     final schoolId =
         student.value?.schoolId ?? GetStorage().read('studentSchoolId');
@@ -1228,11 +1259,20 @@ class DashboardController extends GetxController {
       return;
     }
 
+    // 🔥 CRITICAL: Cancel existing subscriptions to prevent duplicates and memory leaks
+    await _busLocationSubscription?.cancel();
+    await _liveBusLocationSubscription?.cancel();
+
     // PATH 1: Listen to /bus_locations for ALL data (ETAs, stops, status, active/inactive, route type, etc.)
-    FirebaseDatabase.instance
+    _busLocationSubscription = FirebaseDatabase.instance
         .ref('bus_locations/$schoolId/$busId')
         .onValue
         .listen((event) {
+      // 🔥 BLOCK: Don't process if app is in background
+      if (!isAppInForeground.value) {
+        return;
+      }
+
       if (event.snapshot.exists && event.snapshot.value != null) {
         final data = Map<String, dynamic>.from(event.snapshot.value as Map);
         busStatus.value = BusStatusModel.fromMap(data, busId);
@@ -1243,10 +1283,15 @@ class DashboardController extends GetxController {
     });
 
     // PATH 2: Listen to /live_bus_locations ONLY for smooth GPS updates (map marker position)
-    FirebaseDatabase.instance
+    _liveBusLocationSubscription = FirebaseDatabase.instance
         .ref('live_bus_locations/$schoolId/$busId')
         .onValue
         .listen((event) {
+      // 🔥 BLOCK: Don't process if app is in background
+      if (!isAppInForeground.value) {
+        return;
+      }
+
       if (event.snapshot.exists &&
           event.snapshot.value != null &&
           busStatus.value != null) {
@@ -1300,6 +1345,34 @@ class DashboardController extends GetxController {
         LatLng(status.latitude, status.longitude),
         mapController.camera.zoom,
       );
+    }
+  }
+
+  // 🔥 CRITICAL: Lifecycle observer - BLOCKS all downloads when app goes to background
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    
+    if (state == AppLifecycleState.resumed) {
+      // ✅ App came to foreground - ENABLE downloads
+      isAppInForeground.value = true;
+      
+      // Refresh data when user returns to app
+      GetStorage gs = GetStorage();
+      String? studentId = gs.read('studentId');
+      String? schoolId = gs.read('studentSchoolId');
+      String? busId = gs.read('studentBusId');
+      
+      if (studentId != null && schoolId != null) {
+        fetchStudent(studentId, schoolId);
+      }
+      if (schoolId != null && busId != null) {
+        fetchBusStatus(busId);
+      }
+    } else if (state == AppLifecycleState.paused || 
+               state == AppLifecycleState.inactive) {
+      // ⛔ App went to background - BLOCK all downloads
+      isAppInForeground.value = false;
     }
   }
 }

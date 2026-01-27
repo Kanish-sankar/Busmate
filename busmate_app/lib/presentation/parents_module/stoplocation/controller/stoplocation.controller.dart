@@ -104,8 +104,9 @@ class StoplocationController extends GetxController {
         } else {
           student.value = null;
           Get.snackbar("Error", "Student not found in either collection");
+          isLoading.value = false; // Only set false if error
         }
-        isLoading.value = false;
+        // Don't set isLoading to false here - wait for stops to load
       }, onError: (e) {
         // Silently fail if permission denied
         isLoading.value = false;
@@ -163,8 +164,9 @@ class StoplocationController extends GetxController {
           busDetail.value = null;
           locationLength.value = 0;
           Get.snackbar("Error", "Bus not found in either collection");
+          isLoading.value = false; // Only set false if error
         }
-        isLoading.value = false;
+        // Don't set isLoading to false here - wait for stops to load
       }, onError: (e) {
         // Silently fail if permission denied
         isLoading.value = false;
@@ -189,6 +191,7 @@ class StoplocationController extends GetxController {
           .get();
 
       if (!snap.exists || snap.value == null) {
+        isLoading.value = false; // No cache data, stop loading
         return;
       }
 
@@ -196,6 +199,7 @@ class StoplocationController extends GetxController {
       final studentRouteId = student.value?.assignedRouteId;
 
       if (studentRouteId == null || studentRouteId.isEmpty) {
+        isLoading.value = false; // No route assigned, stop loading
         return;
       }
       // Find schedule where routeRefId matches student's assignedRouteId
@@ -213,12 +217,14 @@ class StoplocationController extends GetxController {
       }
 
       if (matchingSchedule == null) {
+        isLoading.value = false; // No schedule found, stop loading
         return;
       }
 
       final stopsRaw =
           matchingSchedule['stops'] ?? matchingSchedule['stoppings'];
       if (stopsRaw is! List) {
+        isLoading.value = false; // Invalid data, stop loading
         return;
       }
 
@@ -228,13 +234,17 @@ class StoplocationController extends GetxController {
           .toList();
 
       if (parsed.isEmpty) {
+        isLoading.value = false; // Empty stops, stop loading
         return;
       }
 
       availableStops.assignAll(parsed);
       locationLength.value = parsed.length;
+      isLoading.value = false; // Set to false after stops are loaded
       update();
     } catch (e) {
+      // If error loading stops, still stop loading spinner
+      isLoading.value = false;
     }
   }
 
