@@ -363,6 +363,26 @@ class NotificationHelper {
     bool isVoice = true,
   }) async {
     try {
+      print('🔔 showTestNotification called with language: $language, isVoice: $isVoice');
+      
+      // Skip notifications on web - not supported
+      if (kIsWeb) {
+        print('⚠️ Notifications not supported on web platform');
+        return;
+      }
+      
+      // Re-initialize if needed (safety check)
+      try {
+        await flutterLocalNotificationsPlugin.initialize(
+          const InitializationSettings(
+            android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+            iOS: DarwinInitializationSettings(),
+          ),
+        );
+      } catch (e) {
+        print('⚠️ Notification re-initialization skipped: $e');
+      }
+      
       final _VoiceChannelSpec channelSpec =
           _channelForLanguage(language.toLowerCase());
       final String channelId = isVoice ? channelSpec.id : 'busmate_silent_v2';
@@ -372,6 +392,10 @@ class NotificationHelper {
       final languageMessages = _getLanguageUpdateMessage(language.toLowerCase());
       final notificationTitle = languageMessages['title']!;
       final notificationBody = languageMessages['body']!;
+      
+      print('📝 Notification details: $notificationTitle - $notificationBody');
+      print('🔊 Channel: $channelId, Sound: ${channelSpec.sound}');
+      
       final largeIconBitmap = await _loadBusmateLargeIcon();
 
       // On Android 8+, sound is determined by the channel, NOT the notification
@@ -383,22 +407,14 @@ class NotificationHelper {
         channelDescription: 'Language update notification',
         importance: Importance.max,
         priority: Priority.high,
-        ongoing: true,
-        autoCancel: false,
+        ongoing: false,  // Allow notification to be dismissed
+        autoCancel: true,  // Auto-dismiss when tapped
         playSound: true,  // Let channel handle the actual sound
         // DO NOT specify sound here - channel already has it bound
         enableVibration: true,
         icon: '@drawable/ic_busmate_notification',
         largeIcon:
             largeIconBitmap ?? const DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
-        actions: <AndroidNotificationAction>[
-          const AndroidNotificationAction(
-            'ACKNOWLEDGE_ACTION',
-            'Acknowledge',
-            showsUserInterface: true,
-            cancelNotification: true,
-          ),
-        ],
       );
 
       // ✅ iOS notification with proper sound handling
@@ -418,13 +434,18 @@ class NotificationHelper {
       );
 
       int notificationId = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      print('📤 Sending notification with ID: $notificationId');
+      
       await flutterLocalNotificationsPlugin.show(
         notificationId,
         notificationTitle,
         notificationBody,
         platformChannelSpecifics,
       );
+      
+      print('✅ Notification show() called successfully');
     } catch (e) {
+      print('❌ Error in showTestNotification: $e');
       rethrow;
     }
   }

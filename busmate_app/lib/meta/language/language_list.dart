@@ -164,17 +164,21 @@ Widget languageList() => DraggableScrollableSheet(
                   final box = GetStorage();
                 }
                 
-                // Send test notification ONLY if Firestore update succeeded
-                if (firestoreSuccess) {
-                  try {
-                    await NotificationHelper.showTestNotification(
-                      language: langName,
-                      isVoice: true,
-                    );
-                  } catch (e, stackTrace) {
-                  }
-                } else {
+                // Send test notification with audio in selected language
+                // Always send notification to test the audio, regardless of Firestore success
+                try {
+                  print('🔔 Attempting to show test notification for language: $langName');
+                  await NotificationHelper.showTestNotification(
+                    language: langName,
+                    isVoice: true,
+                  );
+                  print('✅ Test notification sent successfully');
+                } catch (e, stackTrace) {
+                  // Log error but don't block language change
+                  print('❌ Failed to show test notification: $e');
+                  print('Stack trace: $stackTrace');
                 }
+                
                 Get.updateLocale(Locale(
                   storage.read('langCode'),
                   storage.read('langCountryCode'),
