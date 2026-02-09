@@ -64,7 +64,7 @@ class AddStudentScreenUpgraded extends StatelessWidget {
     } else {
       credentialCheck = Get.put(
         UniquenessCheckController(
-          UniquenessCheckType.adminusersEmailOrPhone,
+          UniquenessCheckType.firebaseAuthEmail,
           schoolId: effectiveSchoolId,
           authTypeGetter: () => 'email',
         ),
@@ -252,7 +252,8 @@ class AddStudentScreenUpgraded extends StatelessWidget {
         } else {
           // CREATING NEW STUDENT with Firebase Authentication
           
-          // Check if email already exists
+          // Check if email already exists in Firestore (our source of truth)
+          final credential = credentialController.text.trim();
           final existingQuery = FirebaseFirestore.instance
               .collection('adminusers')
               .where('email', isEqualTo: credential)
@@ -263,7 +264,7 @@ class AddStudentScreenUpgraded extends StatelessWidget {
           if (existingDocs.docs.isNotEmpty) {
             Get.snackbar(
               'Duplicate Email',
-              'This email is already registered: "$credential"',
+              'This email is already registered in your school records: "$credential"',
               backgroundColor: Colors.red[100],
               colorText: Colors.red[900],
               snackPosition: SnackPosition.BOTTOM,
@@ -386,13 +387,98 @@ class AddStudentScreenUpgraded extends StatelessWidget {
         print('❌ Error saving student: $e');
         print('❌ Stack trace: $stackTrace');
         
+        // ✅ Handle "email-already-in-use" - check if it's an orphaned account
+        if (e.toString().contains('email-already-in-use')) {
+          // Check if this email exists in OUR Firestore database
+          final credential = credentialController.text.trim();
+          FirebaseFirestore.instance
+              .collection('adminusers')
+              .where('email', isEqualTo: credential)
+              .limit(1)
+              .get()
+              .then((snapshot) {
+            if (snapshot.docs.isEmpty) {
+              // ORPHANED ACCOUNT: Exists in Firebase Auth but NOT in Firestore
+              Get.dialog(
+                AlertDialog(
+                  title: const Text('⚠️ Orphaned Account Detected'),
+                  content: SizedBox(
+                    width: 500,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'This email exists in Firebase Authentication but has no associated student data. '
+                          'This usually happens when a previous registration attempt failed halfway.',
+                          style: TextStyle(fontSize: 14),
+                        ),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Email:',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        Text(credential),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'To fix this, please:',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        const Text('1. Contact your system administrator'),
+                        const Text('2. Ask them to delete this orphaned account from Firebase Authentication Console'),
+                        const Text('3. Or try using a different email address'),
+                      ],
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Get.back(),
+                      child: const Text('OK'),
+                    ),
+                  ],
+                ),
+                barrierDismissible: true,
+              );
+            } else {
+              // Account exists in BOTH Auth and Firestore - legitimate duplicate
+              Get.snackbar(
+                'Email Already Exists',
+                'This email "$credential" is already registered as a student in your school. '
+                'Please use a different email or edit the existing student.',
+                backgroundColor: Colors.red[100],
+                colorText: Colors.red[900],
+                snackPosition: SnackPosition.BOTTOM,
+                duration: const Duration(seconds: 8),
+                maxWidth: 500,
+              );
+            }
+          });
+          return;
+        }
+        
+        // ✅ Other error types with specific messages
+        String errorTitle = 'Error';
+        String errorMessage = 'Failed to save student: ${e.toString()}';
+        
+        if (e.toString().contains('invalid-email')) {
+          errorTitle = 'Invalid Email';
+          errorMessage = 'The email address format is invalid. Please check and try again.';
+        } else if (e.toString().contains('weak-password')) {
+          errorTitle = 'Weak Password';
+          errorMessage = 'The password is too weak. Please use a stronger password (at least 6 characters).';
+        } else if (e.toString().contains('network')) {
+          errorTitle = 'Network Error';
+          errorMessage = 'Network connection issue. Please check your internet connection and try again.';
+        }
+        
         Get.snackbar(
-          'Error',
-          'Failed to save student: ${e.toString()}',
+          errorTitle,
+          errorMessage,
           backgroundColor: Colors.red[100],
           colorText: Colors.red[900],
           snackPosition: SnackPosition.BOTTOM,
-          duration: const Duration(seconds: 5),
+          duration: const Duration(seconds: 8),
+          maxWidth: 500,
         );
       }
     }

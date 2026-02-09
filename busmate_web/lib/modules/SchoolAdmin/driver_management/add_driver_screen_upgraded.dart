@@ -64,7 +64,7 @@ class _AddDriverScreenUpgradedState extends State<AddDriverScreenUpgraded> {
     } else {
       credentialCheck = Get.put(
         UniquenessCheckController(
-          UniquenessCheckType.adminusersEmailOrPhone,
+          UniquenessCheckType.firebaseAuthEmail,
           schoolId: schoolId,
           authTypeGetter: () => 'email',
         ),
@@ -624,12 +624,100 @@ class _AddDriverScreenUpgradedState extends State<AddDriverScreenUpgraded> {
         await _registerDriver();
       }
     } catch (e) {
+      // ✅ Handle "email-already-in-use" - check if it's an orphaned account
+      if (e.toString().contains('email-already-in-use') || 
+          e.toString().contains('email is already registered')) {
+        
+        // Check if this email exists in OUR Firestore database
+        final credential = emailController.text.trim();
+        FirebaseFirestore.instance
+            .collection('adminusers')
+            .where('email', isEqualTo: credential)
+            .limit(1)
+            .get()
+            .then((snapshot) {
+          if (snapshot.docs.isEmpty) {
+            // ORPHANED ACCOUNT: Exists in Firebase Auth but NOT in Firestore
+            Get.dialog(
+              AlertDialog(
+                title: const Text('⚠️ Orphaned Account Detected'),
+                content: SizedBox(
+                  width: 500,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'This email exists in Firebase Authentication but has no associated driver data. '
+                        'This usually happens when a previous registration attempt failed halfway.',
+                        style: TextStyle(fontSize: 14),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Email:',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      Text(credential),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'To fix this, please:',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      const Text('1. Contact your system administrator'),
+                      const Text('2. Ask them to delete this orphaned account from Firebase Authentication Console'),
+                      const Text('3. Or try using a different email address'),
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Get.back(),
+                    child: const Text('OK'),
+                  ),
+                ],
+              ),
+              barrierDismissible: true,
+            );
+          } else {
+            // Account exists in BOTH Auth and Firestore - legitimate duplicate
+            Get.snackbar(
+              'Email Already Exists',
+              'This email "$credential" is already registered as a driver in your school. '
+              'Please use a different email or edit the existing driver.',
+              backgroundColor: Colors.red,
+              colorText: Colors.white,
+              snackPosition: SnackPosition.BOTTOM,
+              duration: const Duration(seconds: 8),
+              maxWidth: 500,
+            );
+          }
+        });
+        return;
+      }
+      
+      // ✅ Provide specific error messages based on error type
+      String errorTitle = 'Error';
+      String errorMessage = 'Failed to ${isEdit ? 'update' : 'add'} driver: $e';
+      
+      if (e.toString().contains('invalid-email')) {
+        errorTitle = 'Invalid Email';
+        errorMessage = 'The email address format is invalid. Please check and try again.';
+      } else if (e.toString().contains('weak-password')) {
+        errorTitle = 'Weak Password';
+        errorMessage = 'The password is too weak. Please use a stronger password (at least 6 characters).';
+      } else if (e.toString().contains('network')) {
+        errorTitle = 'Network Error';
+        errorMessage = 'Network connection issue. Please check your internet connection and try again.';
+      }
+      
       Get.snackbar(
-        'Error',
-        'Failed to ${isEdit ? 'update' : 'add'} driver: $e',
+        errorTitle,
+        errorMessage,
         snackPosition: SnackPosition.BOTTOM,
         backgroundColor: Colors.red,
         colorText: Colors.white,
+        duration: const Duration(seconds: 8),
+        maxWidth: 500,
       );
     } finally {
       isLoading.value = false;
@@ -643,6 +731,27 @@ class _AddDriverScreenUpgradedState extends State<AddDriverScreenUpgraded> {
 
       // For software drivers, create Firebase Auth account
       if (driverType.value == 'software') {
+        final credential = emailController.text.trim();
+        
+        // Check if email already exists in Firestore (our source of truth)
+        final existingQuery = await FirebaseFirestore.instance
+            .collection('adminusers')
+            .where('email', isEqualTo: credential)
+            .where('schoolId', isEqualTo: schoolId)
+            .limit(1)
+            .get();
+            
+        if (existingQuery.docs.isNotEmpty) {
+          Get.snackbar(
+            'Duplicate Email',
+            'This email is already registered in your school records: "$credential"',
+            backgroundColor: Colors.red[100],
+            colorText: Colors.red[900],
+            snackPosition: SnackPosition.BOTTOM,
+          );
+          return;
+        }
+        
         // Create a secondary Firebase app instance for driver creation
         // This prevents logging out the current admin
         FirebaseApp secondaryApp;
@@ -764,21 +873,6 @@ class _AddDriverScreenUpgradedState extends State<AddDriverScreenUpgraded> {
 
   Future<void> _updateDriver() async {
     try {
-      if (driverType.value == 'software') {
-        final credential = emailController.text.trim();
-        final existingCredential = await FirebaseFirestore.instance
-            .collection('adminusers')
-            .where('email', isEqualTo: credential)
-          .where('schoolId', isEqualTo: schoolId)
-            .limit(1)
-            .get();
-
-        if (existingCredential.docs.isNotEmpty &&
-            existingCredential.docs.first.id != driver!.id) {
-          throw Exception('Duplicate Credential: "$credential"');
-        }
-      }
-
       final updatedDriver = Driver(
         id: driver!.id,
         email: emailController.text.trim(),
@@ -793,7 +887,26 @@ class _AddDriverScreenUpgradedState extends State<AddDriverScreenUpgraded> {
         schoolId: schoolId,
       );
 
+      // Update driver document in schooldetails/{schoolId}/drivers/{driverId}
       await driverController.updateDriver(driver!.id, updatedDriver);
+
+      // Update adminusers document if this is a software driver
+      if (driverType.value == 'software') {
+        try {
+          await FirebaseFirestore.instance.collection('adminusers').doc(driver!.id).update({
+            'email': emailController.text.trim(),
+            'name': nameController.text.trim(),
+            'contactInfo': contactController.text.trim(),
+            'licenseNumber': licenseController.text.trim(),
+            'employeeId': licenseController.text.trim(),
+            'assignedBusId': selectedBusId.value.isNotEmpty ? selectedBusId.value : null,
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+          print('✅ Updated adminusers doc for driver: ${driver!.id}');
+        } catch (e) {
+          print('⚠️ Failed to update adminusers (non-critical): $e');
+        }
+      }
 
       // Update bus assignment if changed
       if (driver!.assignedBusId != selectedBusId.value) {

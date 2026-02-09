@@ -884,14 +884,6 @@ class LiveTrackingScreen extends GetView<DashboardController> {
                                                 ),
                                               ),
                                               SizedBox(height: 2.h),
-                                              if (!isCompleted &&
-                                                  remainingStop
-                                                          .estimatedTimeOfArrival != null)
-                                                Text(
-                                                  "ETA: ${formatETA(remainingStop.estimatedTimeOfArrival!)}",
-                                                  style: TextStyle(
-                                                      fontSize: 12.sp),
-                                                ),
                                               Text(
                                                 "Lat: ${stop.latitude.toStringAsFixed(6)}, Lng: ${stop.longitude.toStringAsFixed(6)}",
                                                 style: TextStyle(

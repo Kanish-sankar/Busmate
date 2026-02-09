@@ -63,7 +63,7 @@ class OlaDistanceMatrixService {
       stopIndices.add(destinations.length - 1); // Record position of actual stop
     }
     
-    print('🚀 Calculating ETAs: ${stops.length} stops + ${destinations.length - stops.length} waypoints = ${destinations.length} destinations in ONE call');
+    // Calculate ETAs for all stops in ONE API call
     
     // ONE API CALL for all destinations
     final allResults = await _fetchDistanceMatrix(
@@ -80,7 +80,7 @@ class OlaDistanceMatrixService {
       }
     }
     
-    print('✅ Initial ETA calculation complete: ${stopETAs.length}/${stops.length} stops');
+    // Initial ETA calculation complete
     return stopETAs;
   }
 
@@ -102,7 +102,7 @@ class OlaDistanceMatrixService {
     final remainingStops = allStops.sublist(stopsPassedCount);
     final remainingWaypoints = allWaypoints?.sublist(stopsPassedCount);
     
-    print('🔄 Recalculating ETAs for ${remainingStops.length} remaining stops (passed $stopsPassedCount stops)');
+    // Recalculating ETAs for remaining stops
     
     // Calculate ETAs for remaining stops in ONE API call
     final remainingETAs = await calculateAllStopETAs(
@@ -117,7 +117,7 @@ class OlaDistanceMatrixService {
       adjustedETAs[stopsPassedCount + localIndex] = eta.copyWith(stopIndex: stopsPassedCount + localIndex);
     });
     
-    print('✅ Recalculation complete: ${adjustedETAs.length} ETAs updated');
+    // Recalculation complete
     return adjustedETAs;
   }
 

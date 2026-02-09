@@ -1,27 +1,21 @@
-import { onRequest } from "firebase-functions/v2/https";
+import { onRequest, onCall, HttpsError, Request } from "firebase-functions/v2/https";
 import { defineSecret, defineString } from "firebase-functions/params";
 import * as admin from "firebase-admin";
 import * as logger from "firebase-functions/logger";
-import * as functions from 'firebase-functions';
-import corsLib from 'cors';
 import axios from 'axios';
-import { Request, Response } from 'express';
 
-// Initialize Firebase Admin SDK
+// Initialize Firebase Admin SDK once
 if (!admin.apps.length) {
   admin.initializeApp();
 }
 
-// Initialize CORS middleware to allow cross-origin requests
-const cors = corsLib({ origin: true });
-
-// Secure API key management using Firebase Functions config
-const API_KEY = functions.config().google?.maps_api_key || process.env.GOOGLE_MAPS_API_KEY;
+// Secure API key management using environment variables (v2 compatible)
+const API_KEY = process.env.GOOGLE_MAPS_API_KEY;
 const OLA_MAPS_API_KEY = defineSecret("OLA_MAPS_API_KEY");
 const ENABLE_DEBUG_ENDPOINTS = defineString("ENABLE_DEBUG_ENDPOINTS");
 
 function extractBearerToken(req: Request): string | null {
-  const authHeader = req.header("authorization") || req.header("Authorization");
+  const authHeader = req.headers["authorization"] as string | undefined;
   if (!authHeader) return null;
   const parts = authHeader.split(" ");
   if (parts.length === 2 && parts[0].toLowerCase() === "bearer") return parts[1];
@@ -55,111 +49,127 @@ async function getCallerProfile(uid: string): Promise<{ role?: string; schoolId?
 }
 
 
-export const autocomplete = functions.https.onRequest(
-  (req: Request, res: Response) => {
-    cors(req, res, async () => {
-      const input = req.query.input as string | undefined;
-      const session = req.query.sessiontoken as string | undefined;
+export const autocomplete = onRequest(
+  { cors: true },
+  async (req, res) => {
+    const input = req.query.input as string | undefined;
+    const session = req.query.sessiontoken as string | undefined;
 
-      if (!API_KEY) {
-        logger.error("API key not configured");
-        return res
-          .status(500)
-          .json({ error: 'API key not configured in functions config.' });
-      }
+    if (!API_KEY) {
+      logger.error("API key not configured");
+      res.status(500).json({ error: 'API key not configured in functions config.' });
+      return;
+    }
+    
+    if (!input) {
+      logger.warn("Missing input parameter");
+      res.status(400).json({ error: 'Missing required query parameter: input.' });
+      return;
+    }
+
+    try {
+      logger.info(`Autocomplete request for: ${input}`);
+      const response = await axios.get(
+        'https://maps.googleapis.com/maps/api/place/autocomplete/json',
+        {
+          params: {
+            input,
+            key: API_KEY,
+            components: 'country:in',
+            sessiontoken: session,
+          },
+        }
+      );
       
-      if (!input) {
-        logger.warn("Missing input parameter");
-        return res
-          .status(400)
-          .json({ error: 'Missing required query parameter: input.' });
-      }
-
-      try {
-        logger.info(`Autocomplete request for: ${input}`);
-        const response = await axios.get(
-          'https://maps.googleapis.com/maps/api/place/autocomplete/json',
-          {
-            params: {
-              input,
-              key: API_KEY,
-              components: 'country:in',
-              sessiontoken: session,
-            },
-          }
-        );
-        
-        logger.info(`Autocomplete response status: ${response.data.status}`);
-        return res.status(200).json(response.data);
-      } catch (err) {
-        const errorMessage = err instanceof Error ? err.toString() : String(err);
-        logger.error(`Autocomplete error: ${errorMessage}`, { error: err });
-        return res.status(500).json({ error: errorMessage });
-      }
-    });
+      logger.info(`Autocomplete response status: ${response.data.status}`);
+      res.status(200).json(response.data);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.toString() : String(err);
+      logger.error(`Autocomplete error: ${errorMessage}`, { error: err });
+      res.status(500).json({ error: errorMessage });
+    }
   }
 );
 
 /**
  * Proxy for Google Geocoding (by Place ID)
  */
-export const geocode = functions.https.onRequest(
-  (req: Request, res: Response) => {
-    cors(req, res, async () => {
-      const placeId = req.query.place_id as string | undefined;
-      
-      if (!API_KEY) {
-        logger.error("API key not configured");
-        return res
-          .status(500)
-          .json({ status: 'ERROR', error: 'API key not configured in functions config.' });
-      }
-      
-      if (!placeId) {
-        logger.warn("Missing place_id parameter");
-        return res
-          .status(400)
-          .json({ status: 'ERROR', error: 'Missing required query parameter: place_id.' });
-      }
+export const geocode = onRequest(
+  { cors: true },
+  async (req, res) => {
+    const placeId = req.query.place_id as string | undefined;
+    
+    if (!API_KEY) {
+      logger.error("API key not configured");
+      res.status(500).json({ status: 'ERROR', error: 'API key not configured in functions config.' });
+      return;
+    }
+    
+    if (!placeId) {
+      logger.warn("Missing place_id parameter");
+      res.status(400).json({ status: 'ERROR', error: 'Missing required query parameter: place_id.' });
+      return;
+    }
 
-      try {
-        logger.info(`Geocode request for place_id: ${placeId}`);
-        const response = await axios.get(
-          'https://maps.googleapis.com/maps/api/geocode/json',
-          {
-            params: {
-              place_id: placeId,
-              key: API_KEY,
-            },
-          }
-        );
-        
-        // Log response for debugging
-        logger.info(`Geocode response status: ${response.data.status}`);
-        
-        if (response.data.status !== 'OK') {
-          logger.warn(`Geocode API returned non-OK status: ${response.data.status}`, 
-            { response: response.data });
+    try {
+      logger.info(`Geocode request for place_id: ${placeId}`);
+      const response = await axios.get(
+        'https://maps.googleapis.com/maps/api/geocode/json',
+        {
+          params: {
+            place_id: placeId,
+            key: API_KEY,
+          },
         }
-        
-        // Make sure we return exactly what the client expects
-        return res.status(200).json(response.data);
-      } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : "An unknown error occurred";
-        logger.error(`Geocode error: ${errorMessage}`, { error: err });
-        return res.status(500).json({ 
-          status: 'ERROR',
-          error_message: errorMessage 
-        });
+      );
+      
+      // Log response for debugging
+      logger.info(`Geocode response status: ${response.data.status}`);
+      
+      if (response.data.status !== 'OK') {
+        logger.warn(`Geocode API returned non-OK status: ${response.data.status}`, 
+          { response: response.data });
       }
-    });
+      
+      // Make sure we return exactly what the client expects
+      res.status(200).json(response.data);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "An unknown error occurred";
+      logger.error(`Geocode error: ${errorMessage}`, { error: err });
+      res.status(500).json({ 
+        status: 'ERROR',
+        error_message: errorMessage 
+      });
+    }
   }
 );
 
-// Initialize Firebase Admin SDK if not already initialized
-if (!admin.apps.length) {
-  admin.initializeApp();
-}
+//
+// Email existence check (Auth) via callable function (v2)
+//
+export const checkEmailExists = onCall(async (request) => {
+  const email = request.data?.email as string | undefined;
+
+  if (!email || typeof email !== "string") {
+    throw new HttpsError("invalid-argument", "Missing required field: email");
+  }
+
+  try {
+    await admin.auth().getUserByEmail(email);
+    logger.info("Email exists in Auth", { email });
+    return { exists: true };
+  } catch (err: any) {
+    if (err?.code === "auth/user-not-found") {
+      logger.info("Email does not exist in Auth", { email });
+      return { exists: false };
+    }
+
+    // For any other error, log it but return false (optimistic - allow the email)
+    // The actual account creation will catch duplicates anyway
+    logger.warn("checkEmailExists encountered error, returning false (optimistic)", { error: err, email, code: err?.code });
+    return { exists: false };
+  }
+});
 
 export const createSchoolUser = onRequest(async (req, res): Promise<void> => {
   // Log the incoming request
@@ -399,73 +409,75 @@ export const migrateRegionalAdmins = onRequest(async (req, res): Promise<void> =
  */
 export const olaDistanceMatrix = onRequest(
   { cors: true, secrets: [OLA_MAPS_API_KEY] },
-  async (req: Request, res: Response) => {
-    cors(req, res, async () => {
-      // Only allow POST requests
-      if (req.method !== 'POST') {
-        return res.status(405).json({ error: 'Method not allowed. Use POST.' });
-      }
+  async (req, res) => {
+    // Only allow POST requests
+    if (req.method !== 'POST') {
+      res.status(405).json({ error: 'Method not allowed. Use POST.' });
+      return;
+    }
 
-      try {
-        await requireFirebaseAuth(req);
-      } catch (e) {
-        return res.status(401).json({ error: 'Unauthorized' });
-      }
+    try {
+      await requireFirebaseAuth(req);
+    } catch (e) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
 
-      const { origins, destinations, mode } = req.body;
-      const olaKey = OLA_MAPS_API_KEY.value();
+    const { origins, destinations, mode } = req.body;
+    const olaKey = OLA_MAPS_API_KEY.value();
 
-      if (!olaKey) {
-        logger.error("Ola Maps API key not configured");
-        return res.status(500).json({ error: 'Ola Maps API key not configured.' });
-      }
+    if (!olaKey) {
+      logger.error("Ola Maps API key not configured");
+      res.status(500).json({ error: 'Ola Maps API key not configured.' });
+      return;
+    }
 
-      if (!origins || !destinations) {
-        logger.warn("Missing required parameters");
-        return res.status(400).json({
-          error: 'Missing required parameters: origins and destinations are required.'
+    if (!origins || !destinations) {
+      logger.warn("Missing required parameters");
+      res.status(400).json({
+        error: 'Missing required parameters: origins and destinations are required.'
+      });
+      return;
+    }
+
+    try {
+      logger.info(`Ola Maps Distance Matrix request: ${origins.length} origins, ${destinations.length} destinations`);
+
+      const response = await axios.post(
+        'https://api.olamaps.io/routing/v1/distanceMatrix',
+        {
+          origins,
+          destinations,
+          mode: mode || 'driving'
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${olaKey}`,
+            'Content-Type': 'application/json',
+            'X-Request-Id': Date.now().toString()
+          },
+          timeout: 10000 // 10 second timeout
+        }
+      );
+
+      logger.info("Ola Maps API call successful");
+      res.status(200).json(response.data);
+    } catch (error: any) {
+      logger.error("Ola Maps API error:", error.response?.data || error.message);
+
+      if (error.response) {
+        res.status(error.response.status).json({
+          error: error.response.data?.message || 'Ola Maps API error',
+          details: error.response.data
+        });
+      } else if (error.code === 'ECONNABORTED') {
+        res.status(504).json({ error: 'Request timeout' });
+      } else {
+        res.status(500).json({
+          error: 'Failed to connect to Ola Maps API',
+          message: error.message
         });
       }
-
-      try {
-        logger.info(`Ola Maps Distance Matrix request: ${origins.length} origins, ${destinations.length} destinations`);
-
-        const response = await axios.post(
-          'https://api.olamaps.io/routing/v1/distanceMatrix',
-          {
-            origins,
-            destinations,
-            mode: mode || 'driving'
-          },
-          {
-            headers: {
-              'Authorization': `Bearer ${olaKey}`,
-              'Content-Type': 'application/json',
-              'X-Request-Id': Date.now().toString()
-            },
-            timeout: 10000 // 10 second timeout
-          }
-        );
-
-        logger.info("Ola Maps API call successful");
-        return res.status(200).json(response.data);
-      } catch (error: any) {
-        logger.error("Ola Maps API error:", error.response?.data || error.message);
-
-        if (error.response) {
-          return res.status(error.response.status).json({
-            error: error.response.data?.message || 'Ola Maps API error',
-            details: error.response.data
-          });
-        } else if (error.code === 'ECONNABORTED') {
-          return res.status(504).json({ error: 'Request timeout' });
-        } else {
-          return res.status(500).json({
-            error: 'Failed to connect to Ola Maps API',
-            message: error.message
-          });
-        }
-      }
-    });
+    }
   }
 );

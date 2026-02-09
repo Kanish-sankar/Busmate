@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:busmate/meta/nav/pages.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -194,7 +196,20 @@ class AuthLogin extends GetxController {
 
       // Update FCM token and last login (non-blocking)
       try {
-        String? fcmToken = await FirebaseMessaging.instance.getToken();
+        String? fcmToken;
+        
+        // ✅ iOS requires APNS token before FCM token can be retrieved
+        if (!kIsWeb && Platform.isIOS) {
+          String? apnsToken = await FirebaseMessaging.instance.getAPNSToken();
+          if (apnsToken == null) {
+            // Wait and retry - APNS token may not be immediately available
+            await Future.delayed(const Duration(seconds: 2));
+            apnsToken = await FirebaseMessaging.instance.getAPNSToken();
+          }
+          debugPrint('✅ iOS APNS Token during login: ${apnsToken != null ? "Available" : "NOT Available"}');
+        }
+        
+        fcmToken = await FirebaseMessaging.instance.getToken();
         GetStorage().write('fcmToken', fcmToken);
 
         final adminDoc =

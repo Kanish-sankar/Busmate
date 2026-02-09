@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:get/get.dart';
 
@@ -62,12 +63,13 @@ class UniquenessCheckController extends GetxController {
 
         isTaken.value = taken;
         errorText.value = taken ? 'Already exists' : '';
-      } catch (_) {
+      } catch (error) {
         if (currentRequestId != _requestId) return;
 
-        // Don’t hard-block on network errors; keep submit-time guard.
-        isTaken.value = false;
-        errorText.value = 'Could not verify';
+        print('❌ UniquenessCheck error: $error');
+        // On error, assume taken to be safe (prevent false positives)
+        isTaken.value = true;
+        errorText.value = 'Verification failed - may be taken';
       } finally {
         if (currentRequestId == _requestId) {
           isChecking.value = false;
@@ -94,9 +96,68 @@ class UniquenessCheckController extends GetxController {
       case UniquenessCheckType.firebaseAuthEmail:
         // Avoid calling Auth for clearly invalid inputs.
         if (!GetUtils.isEmail(value)) return false;
-        final methods =
-            await FirebaseAuth.instance.fetchSignInMethodsForEmail(value);
-        return methods.isNotEmpty;
+        
+        try {
+          print('🔍 Checking email in Firestore/Auth: $value');
+
+          // First check Firestore to avoid the callable when we already know it's taken.
+          final firestoreResults = await Future.wait([
+            FirebaseFirestore.instance
+                .collection('adminusers')
+                .where('email', isEqualTo: value)
+                .limit(1)
+                .get(),
+            FirebaseFirestore.instance
+                .collection('admins')
+                .where('email', isEqualTo: value)
+                .limit(1)
+                .get(),
+          ]);
+          
+          final adminusersQuery = firestoreResults[0] as QuerySnapshot;
+          final adminsQuery = firestoreResults[1] as QuerySnapshot;
+          
+          if (adminusersQuery.docs.isNotEmpty) {
+            if (excludeDocId != null && adminusersQuery.docs.first.id == excludeDocId) {
+              print('✅ Email $value belongs to current user in adminusers (editing), allowing it');
+              return false;
+            }
+            print('❌ Email $value is TAKEN (adminusers collection)');
+            return true;
+          }
+          
+          if (adminsQuery.docs.isNotEmpty) {
+            if (excludeDocId != null && adminsQuery.docs.first.id == excludeDocId) {
+              print('✅ Email $value belongs to current user in admins (editing), allowing it');
+              return false;
+            }
+            print('❌ Email $value is TAKEN (admins collection)');
+            return true;
+          }
+
+          // Firestore is clear; now ask the callable (Auth-backed) for the final verdict.
+          try {
+            final callable = FirebaseFunctions.instance.httpsCallable('checkEmailExists');
+            final result = await callable.call({'email': value});
+            final data = result.data;
+            final exists = (data is Map && data['exists'] == true);
+
+            print(exists
+                ? '❌ Email $value is TAKEN (Auth)'
+                : '✅ Email $value is AVAILABLE (Auth)');
+
+            return exists;
+          } catch (e) {
+            print('⚠️ Warning: Could not verify email $value with Auth (callable error), assuming AVAILABLE: $e');
+            // On callable error, be optimistic - Firestore is already checked
+            // Final duplicate check happens at account creation anyway
+            return false;
+          }
+        } catch (e) {
+          print('❌ Error checking email $value in Firestore: $e');
+          // On Firestore error, be safe and assume taken
+          return true;
+        }
         
       case UniquenessCheckType.adminusersEmailOrPhone:
         // Determine if checking email or phone based on authType

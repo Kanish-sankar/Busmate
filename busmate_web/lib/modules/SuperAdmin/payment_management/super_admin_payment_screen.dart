@@ -103,95 +103,147 @@ class _SuperAdminPaymentManagementScreenState
   Widget _buildStatsSection() {
     return Obx(() {
       final stats = controller.getStats(null);
-      return Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Colors.indigo[700]!, Colors.indigo[500]!],
-          ),
-        ),
-        child: Row(
-          children: [
-            _buildStatCard(
-              'Total Pending',
-              '₹${stats['totalPending'].toStringAsFixed(0)}',
-              '${stats['countPending']} payments',
-              Colors.orange,
-              Icons.hourglass_empty,
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          final isMobile = constraints.maxWidth < 600;
+          return Container(
+            padding: EdgeInsets.all(isMobile ? 12 : 16),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Colors.indigo[700]!, Colors.indigo[500]!],
+              ),
             ),
-            const SizedBox(width: 12),
-            _buildStatCard(
-              'Total Paid',
-              '₹${stats['totalPaid'].toStringAsFixed(0)}',
-              '${stats['countPaid']} payments',
-              Colors.green,
-              Icons.check_circle,
-            ),
-            const SizedBox(width: 12),
-            _buildStatCard(
-              'Overdue',
-              '${stats['countOverdue']}',
-              'Need attention',
-              Colors.red,
-              Icons.warning_amber,
-            ),
-          ],
-        ),
+            child: isMobile
+                ? Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildStatCard(
+                        'Total Pending',
+                        '₹${stats['totalPending'].toStringAsFixed(0)}',
+                        '${stats['countPending']} payments',
+                        Colors.orange,
+                        Icons.hourglass_empty,
+                        isMobile,
+                        useExpanded: false,
+                      ),
+                      const SizedBox(height: 12),
+                      _buildStatCard(
+                        'Total Paid',
+                        '₹${stats['totalPaid'].toStringAsFixed(0)}',
+                        '${stats['countPaid']} payments',
+                        Colors.green,
+                        Icons.check_circle,
+                        isMobile,
+                        useExpanded: false,
+                      ),
+                      const SizedBox(height: 12),
+                      _buildStatCard(
+                        'Overdue',
+                        '${stats['countOverdue']}',
+                        'Need attention',
+                        Colors.red,
+                        Icons.warning_amber,
+                        isMobile,
+                        useExpanded: false,
+                      ),
+                    ],
+                  )
+                : Row(
+                    children: [
+                      _buildStatCard(
+                        'Total Pending',
+                        '₹${stats['totalPending'].toStringAsFixed(0)}',
+                        '${stats['countPending']} payments',
+                        Colors.orange,
+                        Icons.hourglass_empty,
+                        isMobile,
+                        useExpanded: true,
+                      ),
+                      const SizedBox(width: 12),
+                      _buildStatCard(
+                        'Total Paid',
+                        '₹${stats['totalPaid'].toStringAsFixed(0)}',
+                        '${stats['countPaid']} payments',
+                        Colors.green,
+                        Icons.check_circle,
+                        isMobile,
+                        useExpanded: true,
+                      ),
+                      const SizedBox(width: 12),
+                      _buildStatCard(
+                        'Overdue',
+                        '${stats['countOverdue']}',
+                        'Need attention',
+                        Colors.red,
+                        Icons.warning_amber,
+                        isMobile,
+                        useExpanded: true,
+                      ),
+                    ],
+                  ),
+          );
+        },
       );
     });
   }
 
-  Widget _buildStatCard(String title, String value, String subtitle, Color color, IconData icon) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(icon, color: color, size: 24),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    title,
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: Colors.grey[600],
-                      fontWeight: FontWeight.w500,
-                    ),
+  Widget _buildStatCard(String title, String value, String subtitle, Color color, IconData icon, bool isMobile, {bool useExpanded = true}) {
+    final cardWidget = Container(
+      padding: EdgeInsets.all(isMobile ? 12 : 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: color, size: isMobile ? 20 : 24),
+              SizedBox(width: isMobile ? 6 : 8),
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: isMobile ? 12 : 13,
+                    color: Colors.grey[600],
+                    fontWeight: FontWeight.w500,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: color,
               ),
+            ],
+          ),
+          SizedBox(height: isMobile ? 6 : 8),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: isMobile ? 20 : 24,
+              fontWeight: FontWeight.bold,
+              color: color,
             ),
-            Text(
-              subtitle,
-              style: TextStyle(fontSize: 12, color: Colors.grey[500]),
-            ),
-          ],
-        ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          Text(
+            subtitle,
+            style: TextStyle(fontSize: isMobile ? 11 : 12, color: Colors.grey[500]),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
       ),
     );
+    
+    return useExpanded ? Expanded(child: cardWidget) : cardWidget;
   }
 
   Widget _buildFilterSection() {
@@ -241,131 +293,164 @@ class _SuperAdminPaymentManagementScreenState
             ? Colors.red
             : Colors.orange;
     
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: InkWell(
-        onTap: () => _showPaymentDetailsDialog(payment),
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isMobile = constraints.maxWidth < 600;
+        return Card(
+          margin: EdgeInsets.only(bottom: isMobile ? 10 : 12),
+          elevation: 2,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: InkWell(
+            onTap: () => _showPaymentDetailsDialog(payment),
+            borderRadius: BorderRadius.circular(12),
+            child: Padding(
+              padding: EdgeInsets.all(isMobile ? 12 : 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // School Info
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          payment.schoolName,
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
+                  Row(
+                    children: [
+                      // School Info
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              payment.schoolName,
+                              style: TextStyle(
+                                fontSize: isMobile ? 16 : 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            SizedBox(height: isMobile ? 3 : 4),
+                            Text(
+                              payment.title,
+                              style: TextStyle(
+                                fontSize: isMobile ? 13 : 14,
+                                color: Colors.grey[600],
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          payment.title,
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey[600],
+                      ),
+                      
+                      SizedBox(width: isMobile ? 8 : 12),
+                      
+                      // Amount
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            '₹${payment.amount.toStringAsFixed(2)}',
+                            style: TextStyle(
+                              fontSize: isMobile ? 20 : 24,
+                              fontWeight: FontWeight.bold,
+                              color: statusColor,
+                            ),
                           ),
+                          Container(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: isMobile ? 8 : 12,
+                              vertical: isMobile ? 3 : 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: statusColor.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              payment.status.toUpperCase(),
+                              style: TextStyle(
+                                fontSize: isMobile ? 10 : 12,
+                                fontWeight: FontWeight.bold,
+                                color: statusColor,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  
+                  SizedBox(height: isMobile ? 12 : 16),
+                  Divider(height: 1),
+                  SizedBox(height: isMobile ? 10 : 12),
+                  
+                  // Details Row - Make scrollable on mobile if needed
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _buildDetailChip(Icons.calendar_today, 'Due: ${payment.dueDate}', isMobile),
+                        SizedBox(width: isMobile ? 8 : 12),
+                        _buildDetailChip(Icons.category, payment.type.toUpperCase(), isMobile),
+                        SizedBox(width: isMobile ? 8 : 12),
+                        _buildDetailChip(
+                          Icons.receipt,
+                          payment.invoiceNumber ?? payment.paymentId.substring(0, 8),
+                          isMobile,
                         ),
                       ],
                     ),
                   ),
                   
-                  // Amount
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
+                  SizedBox(height: isMobile ? 10 : 12),
+                  
+                  // Action Button
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
                     children: [
-                      Text(
-                        '₹${payment.amount.toStringAsFixed(2)}',
-                        style: TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                          color: statusColor,
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: statusColor.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          payment.status.toUpperCase(),
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: statusColor,
+                      if (!isPaid) ...[
+                        ElevatedButton.icon(
+                          onPressed: () => _confirmMarkAsPaid(payment),
+                          icon: Icon(Icons.check, size: isMobile ? 16 : 18),
+                          label: Text(isMobile ? 'Mark Paid' : 'Mark Paid', style: TextStyle(fontSize: isMobile ? 13 : 14)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green,
+                            padding: EdgeInsets.symmetric(
+                              horizontal: isMobile ? 12 : 16,
+                              vertical: isMobile ? 8 : 12,
+                            ),
                           ),
                         ),
-                      ),
+                      ] else ...[
+                        Icon(Icons.check_circle, color: Colors.green[600], size: isMobile ? 20 : 24),
+                        SizedBox(width: isMobile ? 6 : 8),
+                        Flexible(
+                          child: Text(
+                            payment.paidAt != null 
+                              ? 'Paid on ${DateFormat('MMM dd, yyyy').format(payment.paidAt!)}'
+                              : 'Paid',
+                            style: TextStyle(
+                              color: Colors.green[700],
+                              fontWeight: FontWeight.w500,
+                              fontSize: isMobile ? 12 : 14,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ],
               ),
-              
-              const SizedBox(height: 16),
-              const Divider(height: 1),
-              const SizedBox(height: 12),
-              
-              // Details Row
-              Row(
-                children: [
-                  _buildDetailChip(Icons.calendar_today, 'Due: ${payment.dueDate}'),
-                  const SizedBox(width: 12),
-                  _buildDetailChip(Icons.category, payment.type.toUpperCase()),
-                  const SizedBox(width: 12),
-                  _buildDetailChip(
-                    Icons.receipt,
-                    payment.invoiceNumber ?? payment.paymentId.substring(0, 8),
-                  ),
-                ],
-              ),
-              
-              const SizedBox(height: 12),
-              
-              // Action Button
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  if (!isPaid) ...[
-                    ElevatedButton.icon(
-                      onPressed: () => _confirmMarkAsPaid(payment),
-                      icon: const Icon(Icons.check, size: 18),
-                      label: const Text('Mark Paid'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green,
-                      ),
-                    ),
-                  ] else ...[
-                    Icon(Icons.check_circle, color: Colors.green[600], size: 24),
-                    const SizedBox(width: 8),
-                    Text(
-                      payment.paidAt != null 
-                        ? 'Paid on ${DateFormat('MMM dd, yyyy').format(payment.paidAt!)}'
-                        : 'Paid',
-                      style: TextStyle(color: Colors.green[700], fontWeight: FontWeight.w500),
-                    ),
-                  ],
-                ],
-              ),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
-  Widget _buildDetailChip(IconData icon, String label) {
+  Widget _buildDetailChip(IconData icon, String label, bool isMobile) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: EdgeInsets.symmetric(
+        horizontal: isMobile ? 8 : 10,
+        vertical: isMobile ? 5 : 6,
+      ),
       decoration: BoxDecoration(
         color: Colors.grey[100],
         borderRadius: BorderRadius.circular(20),
@@ -373,11 +458,14 @@ class _SuperAdminPaymentManagementScreenState
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: Colors.grey[600]),
-          const SizedBox(width: 6),
+          Icon(icon, size: isMobile ? 12 : 14, color: Colors.grey[600]),
+          SizedBox(width: isMobile ? 4 : 6),
           Text(
             label,
-            style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+            style: TextStyle(
+              fontSize: isMobile ? 11 : 12,
+              color: Colors.grey[700],
+            ),
           ),
         ],
       ),

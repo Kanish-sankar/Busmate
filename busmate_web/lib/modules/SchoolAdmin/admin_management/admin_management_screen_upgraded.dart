@@ -35,10 +35,10 @@ class _SchoolAdminManagementScreenUpgradedState
     "busManagement": true,
     "driverManagement": true,
     "routeManagement": true,
+    "timeControl": true,
     "viewingBusStatus": true,
     "studentManagement": true,
     "paymentManagement": true,
-    "notifications": true,
     "adminManagement":
         false, // Regional admins can't manage other admins by default
   }.obs;
@@ -173,30 +173,37 @@ class _SchoolAdminManagementScreenUpgradedState
 
   Future<void> _editAdmin(String docId, Map<String, dynamic> adminData) async {
     _populateForm(adminData);
-    // Create a new form key for the edit dialog
     _formKey = GlobalKey<FormState>();
     Get.dialog(
-      Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        child: Container(
-          width: 600,
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      LayoutBuilder(
+        builder: (context, constraints) {
+          final dialogWidth = constraints.maxWidth < 700 ? constraints.maxWidth * 0.95 : 600.0;
+          return Dialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: Container(
+              width: dialogWidth,
+              padding: EdgeInsets.all(constraints.maxWidth < 600 ? 16 : 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text(
-                    "Edit Regional Admin",
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          "Edit Regional Admin",
+                          style: TextStyle(
+                            fontSize: constraints.maxWidth < 600 ? 18 : 20,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Get.back(),
+                      ),
+                    ],
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.close),
-                    onPressed: () => Get.back(),
-                  ),
-                ],
-              ),
               const Divider(),
               const SizedBox(height: 16),
               Flexible(
@@ -271,7 +278,9 @@ class _SchoolAdminManagementScreenUpgradedState
               ),
             ],
           ),
-        ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -379,10 +388,10 @@ class _SchoolAdminManagementScreenUpgradedState
       "busManagement": true,
       "driverManagement": true,
       "routeManagement": true,
+      "timeControl": true,
       "viewingBusStatus": true,
       "studentManagement": true,
       "paymentManagement": true,
-      "notifications": true,
       "adminManagement": false,
     };
   }
@@ -394,10 +403,33 @@ class _SchoolAdminManagementScreenUpgradedState
 
     Map<String, dynamic>? permissions = adminData['permissions'];
     if (permissions != null) {
+      // Define the current valid permission keys
+      final validKeys = {
+        "busManagement",
+        "driverManagement",
+        "routeManagement",
+        "timeControl",
+        "viewingBusStatus",
+        "studentManagement",
+        "paymentManagement",
+        "adminManagement",
+      };
+      
       _permissions.clear();
+      
+      // Add permissions from Firestore, filtering obsolete keys
       permissions.forEach((key, value) {
-        _permissions[key] = value as bool;
+        if (validKeys.contains(key)) {
+          _permissions[key] = value as bool;
+        }
       });
+      
+      // Ensure all valid keys exist with default values if missing
+      for (var key in validKeys) {
+        if (!_permissions.containsKey(key)) {
+          _permissions[key] = key != 'adminManagement'; // Default true except adminManagement
+        }
+      }
     }
   }
 
@@ -409,14 +441,14 @@ class _SchoolAdminManagementScreenUpgradedState
         return 'Driver Management';
       case 'routeManagement':
         return 'Route Management';
+      case 'timeControl':
+        return 'Time Control';
       case 'viewingBusStatus':
         return 'View Bus Status';
       case 'studentManagement':
         return 'Student Management';
       case 'paymentManagement':
         return 'Payment Management';
-      case 'notifications':
-        return 'Notifications';
       case 'adminManagement':
         return 'Admin Management';
       default:
@@ -432,14 +464,14 @@ class _SchoolAdminManagementScreenUpgradedState
         return Icons.person;
       case 'routeManagement':
         return Icons.route;
+      case 'timeControl':
+        return Icons.access_time;
       case 'viewingBusStatus':
         return Icons.visibility;
       case 'studentManagement':
         return Icons.school;
       case 'paymentManagement':
         return Icons.payment;
-      case 'notifications':
-        return Icons.notifications;
       case 'adminManagement':
         return Icons.admin_panel_settings;
       default:
@@ -468,11 +500,13 @@ class _SchoolAdminManagementScreenUpgradedState
                   children: [
                     Icon(Icons.person, color: Colors.blue[700]),
                     const SizedBox(width: 8),
-                    const Text(
-                      "Basic Information",
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
+                    const Expanded(
+                      child: Text(
+                        "Basic Information",
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
                   ],
@@ -599,11 +633,13 @@ class _SchoolAdminManagementScreenUpgradedState
                   children: [
                     Icon(Icons.admin_panel_settings, color: Colors.green[700]),
                     const SizedBox(width: 8),
-                    const Text(
-                      "Screen Access Permissions",
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
+                    const Expanded(
+                      child: Text(
+                        "Screen Access Permissions",
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
                   ],
@@ -617,44 +653,70 @@ class _SchoolAdminManagementScreenUpgradedState
                   ),
                 ),
                 const SizedBox(height: 12),
-                Obx(() => Column(
-                      children: _permissions.keys.map((key) {
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 8),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(
-                              color: _permissions[key]!
-                                  ? Colors.green[300]!
-                                  : Colors.grey[300]!,
-                            ),
-                          ),
-                          child: SwitchListTile(
-                            secondary: Icon(
-                              _getPermissionIcon(key),
-                              color: _permissions[key]!
-                                  ? Colors.green[700]
-                                  : Colors.grey,
-                            ),
-                            title: Text(
-                              _getPermissionLabel(key),
-                              style: TextStyle(
-                                fontWeight: FontWeight.w500,
-                                color: _permissions[key]!
-                                    ? Colors.black87
-                                    : Colors.grey,
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final isMobile = constraints.maxWidth < 500;
+                    return Column(
+                          children: _permissions.keys.map((key) {
+                            return Obx(() => Container(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: _permissions[key]!
+                                      ? Colors.green[300]!
+                                      : Colors.grey[300]!,
+                                ),
                               ),
-                            ),
-                            value: _permissions[key]!,
-                            onChanged: (value) {
-                              _permissions[key] = value;
-                            },
-                            activeColor: Colors.green[700],
-                          ),
+                              child: SwitchListTile(
+                                secondary: isMobile ? null : Icon(
+                                  _getPermissionIcon(key),
+                                  color: _permissions[key]!
+                                      ? Colors.green[700]
+                                      : Colors.grey,
+                                ),
+                                title: Row(
+                                  children: [
+                                    if (isMobile) ...[
+                                      Icon(
+                                        _getPermissionIcon(key),
+                                        size: 20,
+                                        color: _permissions[key]!
+                                            ? Colors.green[700]
+                                            : Colors.grey,
+                                      ),
+                                      const SizedBox(width: 8),
+                                    ],
+                                    Expanded(
+                                      child: Text(
+                                        _getPermissionLabel(key),
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w500,
+                                          fontSize: isMobile ? 14 : 15,
+                                          color: _permissions[key]!
+                                              ? Colors.black87
+                                              : Colors.grey,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                value: _permissions[key]!,
+                                onChanged: (value) {
+                                  _permissions[key] = value;
+                                },
+                                activeColor: Colors.green[700],
+                                contentPadding: EdgeInsets.symmetric(
+                                  horizontal: isMobile ? 8 : 16,
+                                  vertical: 4,
+                                ),
+                              ),
+                            ));
+                          }).toList(),
                         );
-                      }).toList(),
-                    )),
+                      },
+                    ),
               ],
             ),
           ),
@@ -669,119 +731,172 @@ class _SchoolAdminManagementScreenUpgradedState
     int accessibleScreens =
         permissions?.values.where((v) => v == true).length ?? 0;
 
-    return Card(
-      elevation: 2,
-      margin: const EdgeInsets.only(bottom: 16),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isMobile = constraints.maxWidth < 600;
+        return Card(
+          elevation: 2,
+          margin: const EdgeInsets.only(bottom: 16),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: Padding(
+            padding: EdgeInsets.all(isMobile ? 12 : 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                CircleAvatar(
-                  backgroundColor: Colors.blue[100],
-                  radius: 24,
-                  child: Icon(Icons.person, color: Colors.blue[700], size: 28),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        adminData['adminName'] ?? 'Unknown Admin',
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
+                Row(
+                  children: [
+                    CircleAvatar(
+                      backgroundColor: Colors.blue[100],
+                      radius: isMobile ? 20 : 24,
+                      child: Icon(Icons.person, color: Colors.blue[700], size: isMobile ? 24 : 28),
+                    ),
+                    SizedBox(width: isMobile ? 12 : 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            adminData['adminName'] ?? 'Unknown Admin',
+                            style: TextStyle(
+                              fontSize: isMobile ? 16 : 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            adminData['email'] ?? 'No Email',
+                            style: TextStyle(
+                              fontSize: isMobile ? 12 : 14,
+                              color: Colors.grey[600],
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        adminData['email'] ?? 'No Email',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
+                if (!isMobile) ...[
+                  const SizedBox(height: 8),
+                ],
+                if (isMobile) const SizedBox(height: 12),
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isMobile ? 10 : 12,
+                    vertical: isMobile ? 5 : 6,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.purple[50],
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(color: Colors.purple[200]!),
                   ),
                   child: Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.shield, size: 16, color: Colors.purple[700]),
+                      Icon(Icons.shield, size: isMobile ? 14 : 16, color: Colors.purple[700]),
                       const SizedBox(width: 4),
                       Text(
                         'Regional Admin',
                         style: TextStyle(
                           color: Colors.purple[700],
                           fontWeight: FontWeight.w600,
-                          fontSize: 12,
+                          fontSize: isMobile ? 11 : 12,
                         ),
                       ),
                     ],
                   ),
                 ),
+                SizedBox(height: isMobile ? 12 : 16),
+                const Divider(),
+                SizedBox(height: isMobile ? 10 : 12),
+                Wrap(
+                  spacing: isMobile ? 12 : 24,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.badge, size: isMobile ? 14 : 16, color: Colors.grey[600]),
+                        const SizedBox(width: 6),
+                        Text(
+                          'ID: ${adminData['adminID'] ?? 'N/A'}',
+                          style: TextStyle(
+                            color: Colors.grey[700],
+                            fontSize: isMobile ? 12 : 14,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.screen_share, size: isMobile ? 14 : 16, color: Colors.grey[600]),
+                        const SizedBox(width: 6),
+                        Text(
+                          '$accessibleScreens screens',
+                          style: TextStyle(
+                            color: Colors.grey[700],
+                            fontSize: isMobile ? 12 : 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                SizedBox(height: isMobile ? 12 : 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () => _editAdmin(doc.id, adminData),
+                        icon: Icon(Icons.edit, size: isMobile ? 16 : 18),
+                        label: Text(
+                          'Edit',
+                          style: TextStyle(fontSize: isMobile ? 13 : 14),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.blue[700],
+                          side: BorderSide(color: Colors.blue[300]!),
+                          padding: EdgeInsets.symmetric(
+                            horizontal: isMobile ? 8 : 16,
+                            vertical: isMobile ? 8 : 12,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () =>
+                            _deleteAdmin(doc.id, adminData['adminName'] ?? 'Admin'),
+                        icon: Icon(Icons.delete, size: isMobile ? 16 : 18),
+                        label: Text(
+                          'Delete',
+                          style: TextStyle(fontSize: isMobile ? 13 : 14),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.red[700],
+                          side: BorderSide(color: Colors.red[300]!),
+                          padding: EdgeInsets.symmetric(
+                            horizontal: isMobile ? 8 : 16,
+                            vertical: isMobile ? 8 : 12,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ],
             ),
-            const SizedBox(height: 16),
-            const Divider(),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Icon(Icons.badge, size: 16, color: Colors.grey[600]),
-                const SizedBox(width: 8),
-                Text(
-                  'ID: ${adminData['adminID'] ?? 'N/A'}',
-                  style: TextStyle(color: Colors.grey[700]),
-                ),
-                const SizedBox(width: 24),
-                Icon(Icons.screen_share, size: 16, color: Colors.grey[600]),
-                const SizedBox(width: 8),
-                Text(
-                  '$accessibleScreens screens accessible',
-                  style: TextStyle(color: Colors.grey[700]),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                OutlinedButton.icon(
-                  onPressed: () => _editAdmin(doc.id, adminData),
-                  icon: const Icon(Icons.edit, size: 18),
-                  label: const Text('Edit'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.blue[700],
-                    side: BorderSide(color: Colors.blue[300]!),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                OutlinedButton.icon(
-                  onPressed: () =>
-                      _deleteAdmin(doc.id, adminData['adminName'] ?? 'Admin'),
-                  icon: const Icon(Icons.delete, size: 18),
-                  label: const Text('Delete'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.red[700],
-                    side: BorderSide(color: Colors.red[300]!),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -854,101 +969,121 @@ class _SchoolAdminManagementScreenUpgradedState
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[50],
-      body: Row(
-        children: [
-          // Form Section
-          Expanded(
-            flex: 2,
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.grey.withOpacity(0.1),
-                    spreadRadius: 1,
-                    blurRadius: 5,
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final isMobile = constraints.maxWidth < 900;
+          return isMobile
+              ? SingleChildScrollView(
+                  child: Column(
+                    children: [
+                      _buildFormSection(constraints.maxWidth),
+                      SizedBox(
+                        height: 700,
+                        child: _buildListSection(),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                )
+              : Row(
                   children: [
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.blue[50],
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Icon(Icons.person_add,
-                              color: Colors.blue[700], size: 28),
-                        ),
-                        const SizedBox(width: 16),
-                        const Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                "Create Regional Admin",
-                                style: TextStyle(
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              SizedBox(height: 4),
-                              Text(
-                                "Add a new Regional Admin with custom permissions",
-                                style: TextStyle(
-                                  color: Colors.grey,
-                                  fontSize: 14,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-                    _buildAdminForm(),
-                    const SizedBox(height: 24),
-                    SizedBox(
-                      width: double.infinity,
-                      height: 50,
-                      child: ElevatedButton.icon(
-                        onPressed: (emailCheck.isChecking.value ||
-                                emailCheck.isTaken.value)
-                            ? null
-                            : _registerNewAdmin,
-                        icon: const Icon(Icons.add, color: Colors.white),
-                        label: const Text(
-                          "Register Regional Admin",
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white,
-                          ),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue[700],
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          elevation: 2,
+                    Expanded(flex: 2, child: _buildFormSection(constraints.maxWidth)),
+                    Expanded(flex: 3, child: _buildListSection()),
+                  ],
+                );
+        },
+      ),
+    );
+  }
+
+  Widget _buildFormSection(double screenWidth) {
+    final isMobile = screenWidth < 900;
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            spreadRadius: 1,
+            blurRadius: 5,
+          ),
+        ],
+      ),
+      child: SingleChildScrollView(
+        padding: EdgeInsets.all(isMobile ? 16 : 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.blue[50],
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(Icons.person_add, color: Colors.blue[700], size: isMobile ? 24 : 28),
+                ),
+                SizedBox(width: isMobile ? 12 : 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "Create Regional Admin",
+                        style: TextStyle(
+                          fontSize: isMobile ? 18 : 22,
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 4),
+                      Text(
+                        "Add a new Regional Admin with custom permissions",
+                        style: TextStyle(
+                          color: Colors.grey,
+                          fontSize: isMobile ? 12 : 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: isMobile ? 16 : 24),
+            _buildAdminForm(),
+            SizedBox(height: isMobile ? 16 : 24),
+            Obx(() => SizedBox(
+              width: double.infinity,
+              height: isMobile ? 45 : 50,
+              child: ElevatedButton.icon(
+                onPressed: (emailCheck.isChecking.value || emailCheck.isTaken.value)
+                    ? null
+                    : _registerNewAdmin,
+                icon: const Icon(Icons.add, color: Colors.white),
+                label: Text(
+                  "Register Regional Admin",
+                  style: TextStyle(
+                    fontSize: isMobile ? 14 : 16,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue[700],
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  elevation: 2,
                 ),
               ),
-            ),
-          ),
-          // List Section
-          Expanded(
-            flex: 3,
-            child: Column(
+            )),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildListSection() {
+    return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Container(
@@ -992,10 +1127,6 @@ class _SchoolAdminManagementScreenUpgradedState
                 ),
                 Expanded(child: _buildAdminList()),
               ],
-            ),
-          ),
-        ],
-      ),
-    );
+            );
   }
 }

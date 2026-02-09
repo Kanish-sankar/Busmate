@@ -130,44 +130,73 @@ class ViewBusStatusScreen extends StatelessWidget {
             return _buildBusSelectionScreen(controller);
           }
           
-          return Row(
-            children: [
-              // Left Sidebar - Bus List
-              Container(
-                width: 380,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.05),
-                      blurRadius: 10,
-                      offset: const Offset(2, 0),
-                    ),
-                  ],
-                ),
-                child: Column(
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              final isMobile = constraints.maxWidth < 900;
+              
+              if (isMobile) {
+                // Mobile layout - Full map with floating button
+                return Stack(
                   children: [
-                    // Show Filter Tabs only when viewing all buses
-                    Obx(() {
-                      if (controller.showAllBusesOnMap.value) {
-                        return _buildModernFilterTabs(controller);
-                      }
-                      return const SizedBox.shrink();
-                    }),
-                    // Bus List
-                    Expanded(
-                      child: _buildBusList(controller),
+                    _buildMapView(controller),
+                    // Floating bus list button
+                    Positioned(
+                      bottom: 16,
+                      right: 16,
+                      child: FloatingActionButton.extended(
+                        onPressed: () {
+                          _showBusListBottomSheet(context, controller);
+                        },
+                        icon: const Icon(Icons.list),
+                        label: const Text('Bus List'),
+                        backgroundColor: Colors.blue[700],
+                      ),
                     ),
-                    // "View All Buses" button at the bottom
-                    _buildViewAllBusesButton(controller),
                   ],
-                ),
-              ),
-              // Right Side - Map View
-              Expanded(
-                child: _buildMapView(controller),
-              ),
-            ],
+                );
+              }
+              
+              // Desktop layout - Sidebar + Map
+              return Row(
+                children: [
+                  // Left Sidebar - Bus List
+                  Container(
+                    width: 380,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 10,
+                          offset: const Offset(2, 0),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      children: [
+                        // Show Filter Tabs only when viewing all buses
+                        Obx(() {
+                          if (controller.showAllBusesOnMap.value) {
+                            return _buildModernFilterTabs(controller);
+                          }
+                          return const SizedBox.shrink();
+                        }),
+                        // Bus List
+                        Expanded(
+                          child: _buildBusList(controller),
+                        ),
+                        // "View All Buses" button at the bottom
+                        _buildViewAllBusesButton(controller),
+                      ],
+                    ),
+                  ),
+                  // Right Side - Map View
+                  Expanded(
+                    child: _buildMapView(controller),
+                  ),
+                ],
+              );
+            },
           );
         });
       }),
@@ -334,7 +363,7 @@ class ViewBusStatusScreen extends StatelessWidget {
         onTap: () => controller.selectBus(bus),
         child: Container(
           margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             color: isSelected ? bus.statusColor.withOpacity(0.05) : Colors.grey[50],
             borderRadius: BorderRadius.circular(12),
@@ -360,6 +389,7 @@ class ViewBusStatusScreen extends StatelessWidget {
           ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
             // Bus Number & Status
             Row(
@@ -376,7 +406,7 @@ class ViewBusStatusScreen extends StatelessWidget {
                     size: 22,
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -389,6 +419,8 @@ class ViewBusStatusScreen extends StatelessWidget {
                           fontSize: 17,
                           letterSpacing: 0.5,
                         ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                       const SizedBox(height: 2),
                       Text(
@@ -397,64 +429,49 @@ class ViewBusStatusScreen extends StatelessWidget {
                           color: Colors.grey[600],
                           fontSize: 12,
                         ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ],
                   ),
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: bus.statusColor.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: bus.statusColor.withOpacity(0.5)),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 6,
-                        height: 6,
-                        decoration: BoxDecoration(
-                          color: bus.statusColor,
-                          shape: BoxShape.circle,
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: bus.statusColor.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: bus.statusColor.withOpacity(0.5)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 6,
+                          height: 6,
+                          decoration: BoxDecoration(
+                            color: bus.statusColor,
+                            shape: BoxShape.circle,
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        bus.statusText,
-                        style: TextStyle(
-                          color: bus.statusColor,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 11,
+                        const SizedBox(width: 6),
+                        Text(
+                          bus.statusText,
+                          style: TextStyle(
+                            color: bus.statusColor,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 11,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             // Route Info
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.05),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.route_rounded, size: 16, color: Colors.white.withOpacity(0.6)),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      bus.routeName,
-                      style: TextStyle(fontSize: 13, color: Colors.white.withOpacity(0.8)),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 4),
             Row(
               children: [
                 Icon(Icons.route, size: 14, color: Colors.grey[600]),
@@ -469,23 +486,31 @@ class ViewBusStatusScreen extends StatelessWidget {
             ),
             // Live data
             if (bus.isOnline && bus.location != null) ...[
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               const Divider(height: 1),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               Row(
                 children: [
                   Icon(Icons.speed, size: 14, color: Colors.grey[600]),
                   const SizedBox(width: 4),
-                  Text(
-                    '${(bus.location!.speed ?? 0).toStringAsFixed(1)} km/h',
-                    style: TextStyle(fontSize: 11, color: Colors.grey[700]),
+                  Flexible(
+                    child: Text(
+                      '${(bus.location!.speed ?? 0).toStringAsFixed(1)} km/h',
+                      style: TextStyle(fontSize: 11, color: Colors.grey[700]),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-                  const SizedBox(width: 16),
+                  const SizedBox(width: 12),
                   Icon(Icons.battery_std, size: 14, color: Colors.grey[600]),
                   const SizedBox(width: 4),
-                  Text(
-                    '${bus.location!.batteryLevel ?? 0}%',
-                    style: TextStyle(fontSize: 11, color: Colors.grey[700]),
+                  Flexible(
+                    child: Text(
+                      '${bus.location!.batteryLevel ?? 0}%',
+                      style: TextStyle(fontSize: 11, color: Colors.grey[700]),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 ],
               ),
@@ -755,15 +780,17 @@ class ViewBusStatusScreen extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         child: Container(
           width: 320,
-          padding: const EdgeInsets.all(16),
+          constraints: const BoxConstraints(maxHeight: 600),
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(12),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
               Row(
                 children: [
                   Icon(bus.statusIcon, color: bus.statusColor, size: 24),
@@ -877,6 +904,7 @@ class ViewBusStatusScreen extends StatelessWidget {
             ],
           ),
         ),
+        ),
       ),
     );
   }
@@ -921,92 +949,121 @@ class ViewBusStatusScreen extends StatelessWidget {
   }
   
   Widget _buildBusSelectionScreen(ViewBusStatusController controller) {
-    return Container(
-      color: const Color(0xFFF8F9FA),
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        children: [
-          // Compact Header
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Determine grid columns based on width
+        int crossAxisCount;
+        double childAspectRatio;
+        
+        if (constraints.maxWidth < 600) {
+          crossAxisCount = 1; // Mobile: 1 column
+          childAspectRatio = 2.5;
+        } else if (constraints.maxWidth < 900) {
+          crossAxisCount = 2; // Tablet: 2 columns
+          childAspectRatio = 1.5;
+        } else if (constraints.maxWidth < 1200) {
+          crossAxisCount = 3; // Small desktop: 3 columns
+          childAspectRatio = 1.3;
+        } else {
+          crossAxisCount = 4; // Large desktop: 4 columns
+          childAspectRatio = 1.3;
+        }
+        
+        return Container(
+          color: const Color(0xFFF8F9FA),
+          padding: EdgeInsets.all(constraints.maxWidth < 600 ? 16 : 24),
+          child: Column(
+            children: [
+              // Compact Header
+              Container(
+                padding: EdgeInsets.symmetric(
+                  horizontal: constraints.maxWidth < 600 ? 16 : 24,
+                  vertical: 16,
                 ),
-              ],
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.directions_bus, size: 32, color: Colors.blue[600]),
-                const SizedBox(width: 16),
-                const Text(
-                  'Select a Bus to Track',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF1A1A1A),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.05),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.directions_bus,
+                      size: constraints.maxWidth < 600 ? 28 : 32,
+                      color: Colors.blue[600],
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Text(
+                        'Select a Bus to Track',
+                        style: TextStyle(
+                          fontSize: constraints.maxWidth < 600 ? 18 : 20,
+                          fontWeight: FontWeight.bold,
+                          color: const Color(0xFF1A1A1A),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              
+              SizedBox(height: constraints.maxWidth < 600 ? 16 : 24),
+              
+              // Bus Grid
+              Expanded(
+                child: Obx(() {
+                  final buses = controller.buses;
+                  
+                  return GridView.builder(
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: crossAxisCount,
+                      childAspectRatio: childAspectRatio,
+                      crossAxisSpacing: constraints.maxWidth < 600 ? 12 : 16,
+                      mainAxisSpacing: constraints.maxWidth < 600 ? 12 : 16,
+                    ),
+                    itemCount: buses.length,
+                    itemBuilder: (context, index) {
+                      final bus = buses[index];
+                      return _buildBusSelectionCard(bus, controller);
+                    },
+                  );
+                }),
+              ),
+              
+              const SizedBox(height: 16),
+              
+              // "View All Buses" Button at bottom
+              Container(
+                width: double.infinity,
+                constraints: const BoxConstraints(maxWidth: 400),
+                child: ElevatedButton.icon(
+                  onPressed: () => controller.showAllBuses(),
+                  icon: const Icon(Icons.map, size: 22),
+                  label: const Text(
+                    'View All Buses on Map',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 18),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    elevation: 4,
                   ),
                 ),
-              ],
-            ),
-          ),
-          
-          const SizedBox(height: 24),
-          
-          // Bus Grid
-          Expanded(
-            child: Obx(() {
-              final buses = controller.buses;
-              
-              return GridView.builder(
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 4,
-                  childAspectRatio: 1.3,
-                  crossAxisSpacing: 16,
-                  mainAxisSpacing: 16,
-                ),
-                itemCount: buses.length,
-                itemBuilder: (context, index) {
-                  final bus = buses[index];
-                  return _buildBusSelectionCard(bus, controller);
-                },
-              );
-            }),
-          ),
-          
-          const SizedBox(height: 16),
-          
-          // "View All Buses" Button at bottom
-          Container(
-            width: double.infinity,
-            constraints: const BoxConstraints(maxWidth: 400),
-            child: ElevatedButton.icon(
-              onPressed: () => controller.showAllBuses(),
-              icon: const Icon(Icons.map, size: 22),
-              label: const Text(
-                'View All Buses on Map',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
               ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 18),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                elevation: 4,
-              ),
-            ),
+            ],
           ),
-          
-          const SizedBox(height: 8),
-        ],
-      ),
+        );
+      },
     );
   }
   
@@ -1018,7 +1075,7 @@ class ViewBusStatusScreen extends StatelessWidget {
       },
       borderRadius: BorderRadius.circular(16),
       child: Container(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
@@ -1036,24 +1093,27 @@ class ViewBusStatusScreen extends StatelessWidget {
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
               bus.statusIcon,
-              size: 40,
+              size: 32,
               color: bus.statusColor,
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             Text(
               bus.busNo,
               style: const TextStyle(
-                fontSize: 24,
+                fontSize: 20,
                 fontWeight: FontWeight.bold,
                 color: Color(0xFF1A1A1A),
               ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 2),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
               decoration: BoxDecoration(
                 color: bus.statusColor.withOpacity(0.2),
                 borderRadius: BorderRadius.circular(12),
@@ -1062,30 +1122,32 @@ class ViewBusStatusScreen extends StatelessWidget {
               child: Text(
                 bus.statusText,
                 style: TextStyle(
-                  fontSize: 12,
+                  fontSize: 11,
                   fontWeight: FontWeight.bold,
                   color: bus.statusColor,
                 ),
               ),
             ),
             if (bus.isOnline && bus.location != null) ...[
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               Text(
                 bus.location!.timeSinceUpdate,
                 style: TextStyle(
-                  fontSize: 11,
+                  fontSize: 10,
                   color: Colors.grey[600],
                 ),
               ),
             ],
             if (!bus.isOnline && bus.location != null) ...[
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               Text(
                 'Last seen: ${bus.location!.timeSinceUpdate}',
                 style: TextStyle(
-                  fontSize: 11,
+                  fontSize: 10,
                   color: Colors.grey[600],
                 ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
             ],
           ],
@@ -1158,6 +1220,98 @@ class ViewBusStatusScreen extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+  
+  void _showBusListBottomSheet(BuildContext context, ViewBusStatusController controller) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        minChildSize: 0.3,
+        maxChildSize: 0.9,
+        builder: (context, scrollController) => Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: Column(
+            children: [
+              // Handle bar
+              Container(
+                margin: const EdgeInsets.only(top: 12, bottom: 8),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              // Header
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Live Buses',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+              ),
+              // Filter tabs if showing all buses
+              Obx(() {
+                if (controller.showAllBusesOnMap.value) {
+                  return _buildModernFilterTabs(controller);
+                }
+                return const SizedBox.shrink();
+              }),
+              // Bus list
+              Expanded(
+                child: ListView(
+                  controller: scrollController,
+                  padding: const EdgeInsets.only(bottom: 16),
+                  children: [
+                    Obx(() {
+                      final filteredBuses = controller.filteredBuses;
+                      if (filteredBuses.isEmpty) {
+                        return Padding(
+                          padding: const EdgeInsets.all(20),
+                          child: Text(
+                            'No ${controller.filterStatus.value} buses',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Colors.grey[600]),
+                          ),
+                        );
+                      }
+                      return Column(
+                        children: filteredBuses.map((bus) {
+                          return _buildBusListItem(bus, controller);
+                        }).toList(),
+                      );
+                    }),
+                  ],
+                ),
+              ),
+              // View All Buses button
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: _buildViewAllBusesButton(controller),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

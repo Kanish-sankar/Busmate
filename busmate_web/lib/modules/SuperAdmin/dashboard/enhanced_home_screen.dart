@@ -37,7 +37,7 @@ class _EnhancedSuperAdminHomeScreenState extends State<EnhancedSuperAdminHomeScr
 
     try {
       // Use schooldetails as primary collection (matches the rest of the app)
-      final schoolsSnap = await _firestore.collection('schooldetails').get();
+      final schoolsSnap = await _firestore.collection('schooldetails').limit(50).get();
       final busesSnap = await _firestore.collectionGroup('buses').get();
       final driversSnap = await _firestore.collectionGroup('drivers').get();
       final studentsSnap = await _firestore.collectionGroup('students').get();
@@ -292,22 +292,30 @@ class _EnhancedSuperAdminHomeScreenState extends State<EnhancedSuperAdminHomeScr
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        greeting,
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.95),
-                          fontSize: isMedium ? 36 : 24,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: -0.5,
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          greeting,
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.95),
+                            fontSize: isMedium ? 36 : 24,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.5,
+                          ),
                         ),
                       ),
                       const SizedBox(height: 8),
-                      Text(
-                        'Super Admin Dashboard',
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.85),
-                          fontSize: isMedium ? 18 : 14,
-                          fontWeight: FontWeight.w500,
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'Super Admin Dashboard',
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.85),
+                            fontSize: isMedium ? 18 : 14,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
                       ),
                     ],
@@ -356,7 +364,7 @@ class _EnhancedSuperAdminHomeScreenState extends State<EnhancedSuperAdminHomeScr
 
   Widget _buildHeaderStat(String label, String value, IconData icon) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.15),
         borderRadius: BorderRadius.circular(100),
@@ -365,25 +373,32 @@ class _EnhancedSuperAdminHomeScreenState extends State<EnhancedSuperAdminHomeScr
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: Colors.white, size: 20),
-          const SizedBox(width: 10),
+          Icon(icon, color: Colors.white, size: 18),
+          const SizedBox(width: 8),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
               Text(
                 label,
                 style: TextStyle(
                   color: Colors.white.withOpacity(0.8),
-                  fontSize: 11,
+                  fontSize: 10,
                   fontWeight: FontWeight.w500,
                 ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
-              Text(
-                value,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  value,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                  ),
+                  maxLines: 1,
                 ),
               ),
             ],
@@ -539,28 +554,37 @@ class _EnhancedSuperAdminHomeScreenState extends State<EnhancedSuperAdminHomeScr
                 ],
               ),
               const SizedBox(height: 12),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    data.label,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey[600],
-                      fontWeight: FontWeight.w600,
+              Flexible(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      data.label,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey[600],
+                        fontWeight: FontWeight.w600,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    data.value.toString(),
-                    style: TextStyle(
-                      fontSize: 32,
-                      fontWeight: FontWeight.w800,
-                      color: data.color,
-                      letterSpacing: -1,
+                    const SizedBox(height: 6),
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        data.value.toString(),
+                        style: TextStyle(
+                          fontSize: 32,
+                          fontWeight: FontWeight.w800,
+                          color: data.color,
+                          letterSpacing: -1,
+                        ),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ],
           ),
@@ -798,7 +822,7 @@ class _EnhancedSuperAdminHomeScreenState extends State<EnhancedSuperAdminHomeScr
                 crossAxisCount: isMedium ? 3 : 2,
                 crossAxisSpacing: 12,
                 mainAxisSpacing: 12,
-                childAspectRatio: isMedium ? 1.4 : 1.2,
+                childAspectRatio: isMedium ? 1.4 : 1.0,
               ),
               itemCount: actions.length,
               itemBuilder: (context, index) {
@@ -823,6 +847,7 @@ class _EnhancedSuperAdminHomeScreenState extends State<EnhancedSuperAdminHomeScr
                       ),
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisSize: MainAxisSize.min,
                         children: [
                           Container(
                             padding: const EdgeInsets.all(12),
@@ -842,13 +867,17 @@ class _EnhancedSuperAdminHomeScreenState extends State<EnhancedSuperAdminHomeScr
                             child: Icon(action.icon, color: Colors.white, size: 24),
                           ),
                           const SizedBox(height: 10),
-                          Text(
-                            action.label,
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: action.color,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 13,
+                          Flexible(
+                            child: Text(
+                              action.label,
+                              textAlign: TextAlign.center,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: action.color,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13,
+                              ),
                             ),
                           ),
                         ],
@@ -925,21 +954,25 @@ class _EnhancedSuperAdminHomeScreenState extends State<EnhancedSuperAdminHomeScr
                   child: const Icon(Icons.school, color: Colors.white, size: 22),
                 ),
                 const SizedBox(width: 14),
-                const Text(
-                  'Recently Added Schools',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF1F2937),
+                Expanded(
+                  child: Text(
+                    'Recently Added Schools',
+                    style: TextStyle(
+                      fontSize: isMedium ? 20 : 16,
+                      fontWeight: FontWeight.w800,
+                      color: const Color(0xFF1F2937),
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                const Spacer(),
-                TextButton(
-                  onPressed: () {
-                    controller.changePage(1); // Navigate to School Management
-                  },
-                  child: const Text('View All →'),
-                ),
+                if (isMedium)
+                  TextButton(
+                    onPressed: () {
+                      controller.changePage(1);
+                    },
+                    child: const Text('View All →'),
+                  ),
               ],
             ),
             const SizedBox(height: 20),
@@ -1002,6 +1035,8 @@ class _EnhancedSuperAdminHomeScreenState extends State<EnhancedSuperAdminHomeScr
                               fontSize: 15,
                               color: Color(0xFF1F2937),
                             ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                           const SizedBox(height: 4),
                           Text(
@@ -1010,6 +1045,8 @@ class _EnhancedSuperAdminHomeScreenState extends State<EnhancedSuperAdminHomeScr
                               color: Colors.grey[600],
                               fontSize: 13,
                             ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ],
                       ),
@@ -1081,49 +1118,53 @@ class _EnhancedSuperAdminHomeScreenState extends State<EnhancedSuperAdminHomeScr
                   child: const Icon(Icons.payments, color: Colors.white, size: 22),
                 ),
                 const SizedBox(width: 14),
-                const Text(
-                  'Pending Payments',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF1F2937),
+                Expanded(
+                  child: Text(
+                    'Pending Payments',
+                    style: TextStyle(
+                      fontSize: isMedium ? 20 : 16,
+                      fontWeight: FontWeight.w800,
+                      color: const Color(0xFF1F2937),
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                const Spacer(),
-                GestureDetector(
-                  onTap: () {
-                    controller.changePage(2); // Navigate to Payment Management
-                  },
-                  child: MouseRegion(
-                    cursor: SystemMouseCursors.click,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF59E0B).withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            '${_pendingPayments.length} pending',
-                            style: const TextStyle(
-                              color: Color(0xFFF59E0B),
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
+                if (isMedium)
+                  GestureDetector(
+                    onTap: () {
+                      controller.changePage(2);
+                    },
+                    child: MouseRegion(
+                      cursor: SystemMouseCursors.click,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF59E0B).withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              '${_pendingPayments.length} pending',
+                              style: const TextStyle(
+                                color: Color(0xFFF59E0B),
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 4),
-                          const Icon(
-                            Icons.arrow_forward,
-                            size: 14,
-                            color: Color(0xFFF59E0B),
-                          ),
-                        ],
+                            const SizedBox(width: 4),
+                            const Icon(
+                              Icons.arrow_forward,
+                              size: 14,
+                              color: Color(0xFFF59E0B),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                ),
               ],
             ),
             const SizedBox(height: 20),
@@ -1187,6 +1228,8 @@ class _EnhancedSuperAdminHomeScreenState extends State<EnhancedSuperAdminHomeScr
                               fontSize: 15,
                               color: Color(0xFF1F2937),
                             ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                           const SizedBox(height: 4),
                           Text(
@@ -1196,6 +1239,8 @@ class _EnhancedSuperAdminHomeScreenState extends State<EnhancedSuperAdminHomeScr
                               fontSize: 16,
                               fontWeight: FontWeight.w800,
                             ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ],
                       ),

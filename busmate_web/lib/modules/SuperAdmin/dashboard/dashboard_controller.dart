@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -9,6 +10,9 @@ class SuperAdminDashboardController extends GetxController {
   final RxString selectedSchoolId = "".obs;
   final RxList<DocumentSnapshot> schools = RxList<DocumentSnapshot>([]);
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  
+  // Stream subscriptions to cancel on logout
+  StreamSubscription<QuerySnapshot>? _schoolsSubscription;
 
   @override
   void onInit() {
@@ -18,30 +22,25 @@ class SuperAdminDashboardController extends GetxController {
 
   Future<void> fetchSchools() async {
     try {
-      print('🏫 Starting to fetch schools from Firestore...');
+      // Cancel existing listener
+      _schoolsSubscription?.cancel();
+      
+      // Starting to fetch schools from Firestore
       // Try schooldetails collection first (primary collection)
-      _firestore.collection('schooldetails').snapshots().listen((snapshot) {
-        print('🏫 ✅ Received ${snapshot.docs.length} schools from schooldetails collection');
+      _schoolsSubscription = _firestore.collection('schooldetails').snapshots().listen((snapshot) {
         schools.value = snapshot.docs;
-        for (var doc in snapshot.docs) {
-          var data = doc.data();
-          print('   - ${data['school_name'] ?? data['schoolName'] ?? 'Unnamed'} (${doc.id})');
-        }
       }, onError: (error) {
-        print('🏫 ❌ Error fetching schools: $error');
         // If schooldetails fails, try schools collection as fallback
-        _firestore.collection('schools').snapshots().listen((snapshot) {
-          print('🏫 ✅ Fallback: Received ${snapshot.docs.length} schools from schools collection');
+        _schoolsSubscription?.cancel();
+        _schoolsSubscription = _firestore.collection('schools').snapshots().listen((snapshot) {
           schools.value = snapshot.docs;
         }, onError: (fallbackError) {
-          print('🏫 ❌ Fallback also failed: $fallbackError');
           if (kDebugMode) {
             print("Error fetching schools from both collections: $fallbackError");
           }
         });
       });
     } catch (e) {
-      print('🏫 ❌ Error setting up schools listener: $e');
       if (kDebugMode) {
         print("Error setting up schools listener: $e");
       }
@@ -57,6 +56,14 @@ class SuperAdminDashboardController extends GetxController {
   String getSelectedSchoolId() {
     return selectedSchoolId.value;
   }
+  
+  @override
+  void onClose() {
+    // Cancel Firestore listener when controller is disposed
+    _schoolsSubscription?.cancel();
+    pageController.dispose();
+    super.onClose();
+  }
 
   Map<String, dynamic>? getSelectedSchoolData() {
     if (selectedSchoolId.value.isEmpty) return null;
@@ -70,11 +77,5 @@ class SuperAdminDashboardController extends GetxController {
     if (pageController.hasClients) {
       pageController.jumpToPage(index);
     }
-  }
-
-  @override
-  void onClose() {
-    pageController.dispose();
-    super.onClose();
   }
 }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:get/get.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'bus_model.dart';
@@ -67,7 +68,7 @@ class BusController extends GetxController {
       });
       Get.snackbar('Success', 'Bus updated with driver information');
     } catch (e) {
-      Get.snackbar('Error', 'Failed to update bus with driver info: $e');
+      Get.snackbar('Error', 'Unable to update bus information. Please try again.');
     }
   }
 
@@ -92,9 +93,15 @@ class BusController extends GetxController {
     }
   }
 
+  // Store bus status subscriptions
+  final Map<String, StreamSubscription<DocumentSnapshot>> _busStatusSubscriptions = {};
+  
   void fetchBusStatus(String busId) {
     try {
-      busStatusCollection.doc(busId).snapshots().listen((doc) {
+      // Cancel existing subscription for this bus if any
+      _busStatusSubscriptions[busId]?.cancel();
+      
+      _busStatusSubscriptions[busId] = busStatusCollection.doc(busId).snapshots().listen((doc) {
         if (doc.exists) {
           final status = BusStatusModel.fromDocument(doc);
           busStatuses[busId] =
@@ -103,7 +110,7 @@ class BusController extends GetxController {
         }
       });
     } catch (e) {
-      Get.snackbar('Error', 'Failed to fetch bus status: $e');
+      Get.snackbar('Error', 'Unable to fetch bus status. Please try again.');
     }
   }
 
@@ -120,7 +127,7 @@ class BusController extends GetxController {
           ).toMap());
       Get.snackbar('Success', 'Bus added successfully');
     } catch (e) {
-      Get.snackbar('Error', 'Failed to add bus: $e');
+      Get.snackbar('Error', 'Unable to add bus. Please try again.');
     }
   }
 
@@ -129,7 +136,7 @@ class BusController extends GetxController {
       await busCollection.doc(id).update(bus.toMap());
       Get.snackbar('Success', 'Bus updated successfully');
     } catch (e) {
-      Get.snackbar('Error', 'Failed to update bus: $e');
+      Get.snackbar('Error', 'Unable to update bus. Please try again.');
     }
   }
 
@@ -138,7 +145,7 @@ class BusController extends GetxController {
       await busCollection.doc(id).delete();
       Get.snackbar('Success', 'Bus deleted successfully');
     } catch (e) {
-      Get.snackbar('Error', 'Failed to delete bus: $e');
+      Get.snackbar('Error', 'Unable to delete bus. Please try again.');
     }
   }
 
@@ -149,7 +156,7 @@ class BusController extends GetxController {
         'assignedStudents': FieldValue.arrayUnion([studentId]),
       });
     } catch (e) {
-      Get.snackbar('Error', 'Failed to assign student to bus: $e');
+      Get.snackbar('Error', 'Unable to assign student to bus. Please try again.');
     }
   }
 
@@ -171,5 +178,15 @@ class BusController extends GetxController {
     } catch (e) {
       Get.snackbar('Error', 'Failed to update bus status: $e');
     }
+  }
+  
+  @override
+  void onClose() {
+    // Cancel all bus status subscriptions
+    for (var subscription in _busStatusSubscriptions.values) {
+      subscription.cancel();
+    }
+    _busStatusSubscriptions.clear();
+    super.onClose();
   }
 }

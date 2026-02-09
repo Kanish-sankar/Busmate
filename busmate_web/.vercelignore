@@ -1,0 +1,24 @@
+# Flutter build artifacts
+.dart_tool/
+.packages
+build/
+!build/web/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Misc
+.DS_Store
+*.log
+pubspec.lock
+
+# Don't upload source files, only build output
+lib/
+test/
+android/
+ios/
+linux/
+macos/
+windows/

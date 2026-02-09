@@ -76,7 +76,7 @@ class ViewBusStatusController extends GetxController {
     } catch (e) {
       print('❌ Error loading buses: $e');
       isLoading.value = false;
-      Get.snackbar('Error', 'Failed to load buses: $e');
+      Get.snackbar('Error', 'Unable to load buses. Please refresh the page.');
     }
   }
   

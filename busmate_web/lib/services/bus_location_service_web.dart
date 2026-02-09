@@ -17,7 +17,7 @@ class BusLocationServiceWeb {
 
   /// Stream all bus locations for a school
   static Stream<Map<String, BusLocation>> streamBusLocations(String schoolId) {
-    print('📡 Streaming bus locations from Firestore for school: $schoolId');
+    // Streaming bus locations from Firestore
     
     return _busLocationsRef(schoolId).snapshots().map((snapshot) {
       print('📦 Received ${snapshot.docs.length} bus location documents');

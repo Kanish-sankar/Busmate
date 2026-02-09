@@ -39,7 +39,7 @@ class NotificationController extends GetxController {
               NotificationModel.fromJson(doc.data() as Map<String, dynamic>))
           .toList();
     } catch (e) {
-      Get.snackbar('Error', 'Failed to fetch notifications: $e');
+      Get.snackbar('Error', 'Unable to load notifications. Please try again.');
     } finally {
       isLoading.value = false;
     }
@@ -92,7 +92,7 @@ class NotificationController extends GetxController {
 
       await _sendPushNotifications(notification);
     } catch (e) {
-      Get.snackbar('Error', 'Failed to send notification: $e');
+      Get.snackbar('Error', 'Unable to send notification. Please try again.');
     }
   }
 
@@ -186,7 +186,7 @@ class NotificationController extends GetxController {
         );
       }
     } catch (e) {
-      Get.snackbar('Error', 'Failed to update notification status: $e');
+      Get.snackbar('Error', 'Unable to update notification status. Please try again.');
     }
   }
 }

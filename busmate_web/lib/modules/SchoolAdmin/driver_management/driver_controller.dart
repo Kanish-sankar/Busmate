@@ -2,6 +2,8 @@
 import 'package:busmate_web/modules/Authentication/auth_controller.dart';
 import 'package:get/get.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
 import 'driver_model.dart';
 
 class DriverController extends GetxController {
@@ -58,7 +60,30 @@ class DriverController extends GetxController {
       await driverCollection.doc(driver.id).set(driver.toMap());
       Get.snackbar('Success', 'Driver added successfully');
     } catch (e) {
-      Get.snackbar('Error', 'Failed to add driver: $e');
+      print('❌ Error saving driver: $e');
+      
+      // Handle specific Firebase Auth errors with helpful messages
+      String errorMessage = 'Failed to add driver';
+      
+      if (e.toString().contains('email-already-in-use')) {
+        errorMessage = 'This email is already registered in Firebase Authentication. '
+            'Please use a different email or contact support if this is unexpected.';
+      } else if (e.toString().contains('invalid-email')) {
+        errorMessage = 'Invalid email format. Please check the email address.';
+      } else if (e.toString().contains('weak-password')) {
+        errorMessage = 'Password is too weak. Please use a stronger password.';
+      } else {
+        errorMessage = 'Failed to add driver: ${e.toString()}';
+      }
+      
+      Get.snackbar(
+        'Error', 
+        errorMessage,
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+        duration: const Duration(seconds: 5),
+      );
     }
   }
 

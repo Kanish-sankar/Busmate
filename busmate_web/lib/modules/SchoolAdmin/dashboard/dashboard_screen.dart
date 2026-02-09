@@ -8,10 +8,8 @@ import 'package:busmate_web/modules/SchoolAdmin/driver_management/driver_managem
 import 'package:busmate_web/modules/SchoolAdmin/route_management/routes_list_screen.dart';
 import 'package:busmate_web/modules/SchoolAdmin/time_control/time_control_screen.dart';
 import 'package:busmate_web/modules/SchoolAdmin/view_bus_status/view_bus_status_screen.dart';
-import 'package:busmate_web/modules/SchoolAdmin/view_bus_status/bus_simulator_screen.dart';
 import 'package:busmate_web/modules/SchoolAdmin/student_management/student_management_screen_upgraded.dart';
 import 'package:busmate_web/modules/SchoolAdmin/payments/school_admin_payment_screen.dart';
-import 'package:busmate_web/modules/SchoolAdmin/notifications/notifications_screen.dart';
 import 'package:busmate_web/modules/SchoolAdmin/admin_management/admin_management_screen_upgraded.dart';
 
 class SchoolAdminDashboard extends StatefulWidget {
@@ -82,7 +80,7 @@ class _SchoolAdminDashboardState extends State<SchoolAdminDashboard> {
         'icon': Icons.access_time,
         'label': 'Time Control',
         'builder': () => TimeControlScreen(schoolId: controller.schoolId.value),
-        'permissionKey': 'routeManagement', // Same permission as route management
+        'permissionKey': 'timeControl',
       },
       {
         'icon': Icons.lan_rounded,
@@ -106,12 +104,6 @@ class _SchoolAdminDashboardState extends State<SchoolAdminDashboard> {
         'permissionKey': 'paymentManagement',
       },
       {
-        'icon': Icons.notifications_active,
-        'label': 'Notification Management',
-        'builder': () => SchoolNotificationsScreen(controller.schoolId.value),
-        'permissionKey': 'notifications',
-      },
-      {
         'icon': Icons.add_moderator_outlined,
         'label': 'Admin Management',
         'builder': () => SchoolAdminManagementScreenUpgraded(
@@ -119,12 +111,6 @@ class _SchoolAdminDashboardState extends State<SchoolAdminDashboard> {
           fromSuperAdmin: fromSuperAdmin,
         ),
         'permissionKey': 'adminManagement',
-      },
-      {
-        'icon': Icons.settings_remote,
-        'label': 'Bus Simulator',
-        'builder': () => BusSimulatorScreen(schoolId: controller.schoolId.value),
-        'permissionKey': 'viewingBusStatus', // Same permission as View Bus Status
       },
     ];
   }
@@ -138,19 +124,124 @@ class _SchoolAdminDashboardState extends State<SchoolAdminDashboard> {
     super.dispose();
   }
 
+  Widget _buildSidebar(BuildContext context, List<Map<String, dynamic>> filteredMenuItems) {
+    final bool isMobile = MediaQuery.of(context).size.width < 1024;
+    return SidebarX(
+      controller: sidebarController,
+      theme: SidebarXTheme(
+        margin: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              const Color(0xFF2196F3),
+              const Color(0xFF1976D2),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF2196F3).withOpacity(0.3),
+              blurRadius: 20,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        textStyle: TextStyle(
+          color: Colors.white.withOpacity(0.9),
+          fontSize: 15,
+          fontWeight: FontWeight.w500,
+        ),
+        selectedTextStyle: const TextStyle(
+          color: Colors.white,
+          fontSize: 15,
+          fontWeight: FontWeight.w700,
+        ),
+        itemTextPadding: const EdgeInsets.only(left: 16),
+        selectedItemDecoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.2),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: Colors.white.withOpacity(0.3),
+            width: 1.5,
+          ),
+        ),
+        hoverColor: Colors.white.withOpacity(0.1),
+        itemMargin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        itemPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        iconTheme: IconThemeData(
+          color: Colors.white.withOpacity(0.8),
+          size: 22,
+        ),
+        selectedIconTheme: const IconThemeData(
+          color: Colors.white,
+          size: 22,
+        ),
+      ),
+      extendedTheme: SidebarXTheme(
+        width: 240,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              const Color(0xFF2196F3),
+              const Color(0xFF1976D2),
+            ],
+          ),
+        ),
+        padding: const EdgeInsets.symmetric(vertical: 16),
+      ),
+      items: filteredMenuItems.map((item) {
+        return SidebarXItem(
+          icon: item['icon'],
+          label: item['label'],
+          onTap: () {
+            sidebarController.selectIndex(filteredMenuItems.indexOf(item));
+            controller.changePage(filteredMenuItems.indexOf(item));
+            if (MediaQuery.of(context).size.width < 1024) {
+              Navigator.of(context).pop();
+            }
+          },
+        );
+      }).toList(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isDesktop = MediaQuery.of(context).size.width >= 1024;
+    
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: Colors.blue[50],
-        shadowColor: Colors.black,
-        elevation: 0.6,
-        actionsPadding: const EdgeInsets.only(right: 20),
+        leading: isDesktop
+            ? null
+            : Builder(
+                builder: (context) => IconButton(
+                  icon: const Icon(Icons.menu_rounded, color: Colors.white),
+                  onPressed: () => Scaffold.of(context).openDrawer(),
+                  tooltip: 'Menu',
+                ),
+              ),
+        title: Text(
+          "School Admin",
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            fontSize: isDesktop ? 20 : 18,
+          ),
+        ),
+        backgroundColor: const Color(0xFF2196F3),
+        foregroundColor: Colors.white,
+        elevation: 0,
+        centerTitle: !isDesktop,
         actions: [
           IconButton(
-            icon: const Icon(Icons.logout, color: Colors.black),
+            icon: const Icon(Icons.logout_rounded),
             onPressed: () => authController.logout(),
+            tooltip: 'Logout',
           ),
+          SizedBox(width: isDesktop ? 8 : 4),
         ],
       ),
       body: Obx(() {
@@ -158,69 +249,21 @@ class _SchoolAdminDashboardState extends State<SchoolAdminDashboard> {
           return const Center(child: CircularProgressIndicator());
         }
 
-        // Debug: Log permissions to verify the issue
         final permissions = controller.schoolData['permissions'] ?? {};
-        
-        print('🔑 School Admin Permissions: $permissions');
-        
-        // Check if Superior Admin is accessing (they should see all menu items)
         final arguments = Get.arguments as Map<String, dynamic>?;
         final fromSuperAdmin = arguments?['fromSuperAdmin'] ?? false;
         final isSuperiorAdmin = authController.isSuperiorAdmin;
 
-        // Filter menu items based on permissions (Superior Admin bypasses permission check)
         final filteredMenuItems = menuItems.where((item) {
-          // If Superior Admin, show all items
           if (isSuperiorAdmin || fromSuperAdmin) {
-            print('📋 ${item['label']}: SUPERIOR ADMIN - Full Access ✅');
             return true;
           }
-          
-          // Otherwise, check permissions
-          final hasPermission = permissions[item['permissionKey']] ?? false;
-          print('📋 ${item['label']}: ${item['permissionKey']} = $hasPermission');
-
-          return hasPermission;
+          return permissions[item['permissionKey']] ?? false;
         }).toList();
-        
-        print('✅ Filtered Menu Items Count: ${filteredMenuItems.length}');
 
         return Row(
           children: [
-            SidebarX(
-              controller: sidebarController,
-              theme: SidebarXTheme(
-                margin: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.blue[50],
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                textStyle: const TextStyle(color: Colors.black),
-                selectedTextStyle: const TextStyle(color: Colors.blue),
-                itemTextPadding: const EdgeInsets.only(left: 20),
-                selectedItemDecoration: BoxDecoration(
-                  color: Colors.blue[100],
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-              extendedTheme: SidebarXTheme(
-                width: 250,
-                decoration: BoxDecoration(
-                  color: Colors.blue[50],
-                ),
-              ),
-              items: filteredMenuItems.map((item) {
-                return SidebarXItem(
-                  icon: item['icon'],
-                  label: item['label'],
-                  onTap: () {
-                    sidebarController
-                        .selectIndex(filteredMenuItems.indexOf(item));
-                    controller.changePage(filteredMenuItems.indexOf(item));
-                  },
-                );
-              }).toList(),
-            ),
+            if (isDesktop) _buildSidebar(context, filteredMenuItems),
             Expanded(
               child: Obx(() {
                 final currentIndex = controller.currentPageIndex.value;
@@ -234,7 +277,6 @@ class _SchoolAdminDashboardState extends State<SchoolAdminDashboard> {
                   return const Center(child: CircularProgressIndicator());
                 }
                 
-                // Call the builder function to create the screen widget fresh
                 final builder = filteredMenuItems[currentIndex]['builder'] as Widget Function();
                 return builder();
               }),
@@ -242,6 +284,131 @@ class _SchoolAdminDashboardState extends State<SchoolAdminDashboard> {
           ],
         );
       }),
+      drawer: !isDesktop
+          ? Obx(() {
+              if (controller.schoolData.isEmpty) {
+                return const Drawer(
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+
+              final permissions = controller.schoolData['permissions'] ?? {};
+              final arguments = Get.arguments as Map<String, dynamic>?;
+              final fromSuperAdmin = arguments?['fromSuperAdmin'] ?? false;
+              final isSuperiorAdmin = authController.isSuperiorAdmin;
+
+              final filteredMenuItems = menuItems.where((item) {
+                if (isSuperiorAdmin || fromSuperAdmin) {
+                  return true;
+                }
+                return permissions[item['permissionKey']] ?? false;
+              }).toList();
+
+              return Drawer(
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        const Color(0xFF2196F3),
+                        const Color(0xFF1976D2),
+                      ],
+                    ),
+                  ),
+                  child: Column(
+                    children: [
+                      DrawerHeader(
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.1),
+                        ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.2),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.school_rounded,
+                                size: 48,
+                                color: Colors.white,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            const Text(
+                              'School Admin',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child: ListView.builder(
+                          itemCount: filteredMenuItems.length,
+                          itemBuilder: (context, index) {
+                            final item = filteredMenuItems[index];
+                            final isSelected = sidebarController.selectedIndex == index;
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                              child: Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  onTap: () {
+                                    sidebarController.selectIndex(index);
+                                    controller.changePage(index);
+                                    Navigator.of(context).pop();
+                                  },
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                                    decoration: BoxDecoration(
+                                      color: isSelected ? Colors.white.withOpacity(0.2) : Colors.transparent,
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        color: isSelected ? Colors.white.withOpacity(0.3) : Colors.transparent,
+                                        width: 1.5,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          item['icon'],
+                                          color: Colors.white,
+                                          size: 22,
+                                        ),
+                                        const SizedBox(width: 16),
+                                        Expanded(
+                                          child: Text(
+                                            item['label'],
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 15,
+                                              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            })
+          : null,
     );
   }
 }

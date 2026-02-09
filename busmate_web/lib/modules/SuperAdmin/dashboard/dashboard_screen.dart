@@ -55,7 +55,7 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> {
       case 2:
         return const SuperAdminPaymentManagementScreen(key: ValueKey('payment_page'));
       case 3:
-        return SendNotificationScreen(key: const ValueKey('notification_page'));
+        return const SendNotificationScreen(key: ValueKey('notification_page'));
       case 4:
         return const SuperAdminSchoolSelectorScreen(key: ValueKey('school_selector_page'));
       default:
@@ -71,95 +71,226 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> {
     super.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text("Dashboard"),
-        backgroundColor: Colors.blue[50],
-        shadowColor: Colors.black,
-        elevation: 0.6,
-        actionsPadding: const EdgeInsets.only(right: 20),
-        actions: [
-          IconButton(
-            icon: const Icon(
-              Icons.logout,
-              color: Colors.black,
-            ),
-            onPressed: () => authController.logout(),
-          )
-        ],
-      ),
-      body: Row(
-        children: [
-          SidebarX(
-            controller: sidebarController,
-            theme: SidebarXTheme(
-              margin: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.blue[50],
-                borderRadius: BorderRadius.circular(10),
-              ),
-              textStyle: const TextStyle(color: Colors.black),
-              selectedTextStyle: const TextStyle(color: Colors.blue),
-              itemTextPadding: const EdgeInsets.only(left: 20),
-              selectedItemDecoration: BoxDecoration(
-                color: Colors.blue[100],
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
-            extendedTheme: SidebarXTheme(
-              width: 250,
-              decoration: BoxDecoration(
-                color: Colors.blue[50],
-              ),
-            ),
-            items: [
-              SidebarXItem(
-                icon: Icons.dashboard,
-                label: 'Dashboard',
-                onTap: () {
-                  sidebarController.selectIndex(0);
-                  controller.changePage(0);
-                },
-              ),
-              SidebarXItem(
-                icon: Icons.school,
-                label: 'School Management',
-                onTap: () {
-                  sidebarController.selectIndex(1);
-                  controller.changePage(1);
-                },
-              ),
-              SidebarXItem(
-                icon: Icons.monetization_on,
-                label: 'Payment Management',
-                onTap: () {
-                  sidebarController.selectIndex(2);
-                  controller.changePage(2);
-                },
-              ),
-              SidebarXItem(
-                icon: Icons.edit_notifications,
-                label: 'Notify All',
-                onTap: () {
-                  sidebarController.selectIndex(3);
-                  controller.changePage(3);
-                },
-              ),
-              SidebarXItem(
-                icon: Icons.account_balance,
-                label: 'Manage Schools',
-                onTap: () {
-                  sidebarController.selectIndex(4);
-                  controller.changePage(4);
-                },
-              ),
+  Widget _buildSidebar(BuildContext context) {
+    return SidebarX(
+      controller: sidebarController,
+      theme: SidebarXTheme(
+        margin: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              const Color(0xFF667EEA),
+              const Color(0xFF764BA2),
             ],
           ),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF667EEA).withOpacity(0.3),
+              blurRadius: 20,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        textStyle: TextStyle(
+          color: Colors.white.withOpacity(0.9),
+          fontSize: 15,
+          fontWeight: FontWeight.w500,
+        ),
+        selectedTextStyle: const TextStyle(
+          color: Colors.white,
+          fontSize: 15,
+          fontWeight: FontWeight.w700,
+        ),
+        itemTextPadding: const EdgeInsets.only(left: 16),
+        selectedItemDecoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.2),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: Colors.white.withOpacity(0.3),
+            width: 1.5,
+          ),
+        ),
+        hoverColor: Colors.white.withOpacity(0.1),
+        itemMargin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        itemPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        iconTheme: IconThemeData(
+          color: Colors.white.withOpacity(0.8),
+          size: 22,
+        ),
+        selectedIconTheme: const IconThemeData(
+          color: Colors.white,
+          size: 22,
+        ),
+      ),
+      extendedTheme: SidebarXTheme(
+        width: 240,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              const Color(0xFF667EEA),
+              const Color(0xFF764BA2),
+            ],
+          ),
+        ),
+        padding: const EdgeInsets.symmetric(vertical: 16),
+      ),
+      items: [
+        SidebarXItem(
+          icon: Icons.dashboard_rounded,
+          label: 'Dashboard',
+          onTap: () {
+            sidebarController.selectIndex(0);
+            controller.changePage(0);
+            if (MediaQuery.of(context).size.width < 1024) {
+              Navigator.of(context).pop();
+            }
+          },
+        ),
+        SidebarXItem(
+          icon: Icons.school_rounded,
+          label: 'School Management',
+          onTap: () {
+            sidebarController.selectIndex(1);
+            controller.changePage(1);
+            if (MediaQuery.of(context).size.width < 1024) {
+              Navigator.of(context).pop();
+            }
+          },
+        ),
+        SidebarXItem(
+          icon: Icons.attach_money_rounded,
+          label: 'Payments',
+          onTap: () {
+            sidebarController.selectIndex(2);
+            controller.changePage(2);
+            if (MediaQuery.of(context).size.width < 1024) {
+              Navigator.of(context).pop();
+            }
+          },
+        ),
+        SidebarXItem(
+          icon: Icons.notifications_active_rounded,
+          label: 'Notify All',
+          onTap: () {
+            sidebarController.selectIndex(3);
+            controller.changePage(3);
+            if (MediaQuery.of(context).size.width < 1024) {
+              Navigator.of(context).pop();
+            }
+          },
+        ),
+        SidebarXItem(
+          icon: Icons.business_rounded,
+          label: 'Manage Schools',
+          onTap: () {
+            sidebarController.selectIndex(4);
+            controller.changePage(4);
+            if (MediaQuery.of(context).size.width < 1024) {
+              Navigator.of(context).pop();
+            }
+          },
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDesktop = MediaQuery.of(context).size.width >= 1024;
+    
+    return Scaffold(
+      appBar: AppBar(
+        leading: isDesktop
+            ? null
+            : Builder(
+                builder: (context) => IconButton(
+                  icon: const Icon(Icons.menu_rounded, color: Colors.white),
+                  onPressed: () => Scaffold.of(context).openDrawer(),
+                  tooltip: 'Menu',
+                ),
+              ),
+        title: Text(
+          "Super Admin Dashboard",
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            fontSize: isDesktop ? 20 : 18,
+          ),
+        ),
+        backgroundColor: const Color(0xFF667EEA),
+        foregroundColor: Colors.white,
+        elevation: 0,
+        centerTitle: !isDesktop,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout_rounded),
+            onPressed: () => authController.logout(),
+            tooltip: 'Logout',
+          ),
+          SizedBox(width: isDesktop ? 8 : 4),
+        ],
+      ),
+      drawer: !isDesktop
+          ? Drawer(
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      const Color(0xFF667EEA),
+                      const Color(0xFF764BA2),
+                    ],
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    DrawerHeader(
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.1),
+                      ),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.2),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.admin_panel_settings_rounded,
+                              size: 48,
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          const Text(
+                            'Super Admin',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Expanded(child: _buildSidebar(context)),
+                  ],
+                ),
+              ),
+            )
+          : null,
+      body: Row(
+        children: [
+          if (isDesktop) _buildSidebar(context),
           Expanded(
             child: Obx(() {
-              // Build only the current page to avoid GlobalKey conflicts
               return AnimatedSwitcher(
                 duration: const Duration(milliseconds: 200),
                 child: _buildPage(controller.currentPageIndex.value),
@@ -196,11 +327,11 @@ class _SuperAdminHomeScreenState extends State<SuperAdminHomeScreen> {
     setState(() => loading = true);
     final firestore = FirebaseFirestore.instance;
 
-    final schoolsSnap = await firestore.collection('schools').get();
-    final busesSnap = await firestore.collectionGroup('buses').get();
-    final driversSnap = await firestore.collection('drivers').get();
-    final studentsSnap = await firestore.collection('students').get();
-    final busStatusSnap = await firestore.collection('bus_status').get();
+    final schoolsSnap = await firestore.collection('schools').limit(50).get();
+    final busesSnap = await firestore.collectionGroup('buses').limit(200).get();
+    final driversSnap = await firestore.collection('drivers').limit(200).get();
+    final studentsSnap = await firestore.collection('students').limit(500).get();
+    final busStatusSnap = await firestore.collection('bus_status').limit(200).get();
 
     final recentSchoolsSnap = await firestore
         .collection('schools')
@@ -1074,22 +1205,24 @@ class _SuperAdminSchoolSelectorScreenState extends State<SuperAdminSchoolSelecto
                         return LayoutBuilder(
                           builder: (context, constraints) {
                             final width = constraints.maxWidth;
+                            final isMobile = width <= 600;
+                            final isTablet = width > 600 && width <= 1024;
                             final crossAxisCount = width > 1400
                                 ? 3
                                 : width > 900
                                     ? 2
                                     : 1;
                             final aspectRatio = width > 1400
-                                ? 1.9
+                                ? 1.8
                                 : width > 900
-                                    ? 1.7
-                                    : 2.4;
+                                    ? 1.6
+                                    : 1.2; // Changed from 2.4 to 1.2 for mobile
 
                             return GridView.builder(
                               gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                                 crossAxisCount: crossAxisCount,
-                                mainAxisSpacing: 24,
-                                crossAxisSpacing: 24,
+                                mainAxisSpacing: isMobile ? 16 : 24,
+                                crossAxisSpacing: isMobile ? 16 : 24,
                                 childAspectRatio: aspectRatio,
                               ),
                               itemCount: filtered.length,
@@ -1116,6 +1249,8 @@ class _SuperAdminSchoolSelectorScreenState extends State<SuperAdminSchoolSelecto
                                       ? studentCount
                                       : int.tryParse(studentCount.toString()) ?? 0,
                                   onTap: () => _handleSchoolTap(doc.id, superController, schoolController),
+                                  isMobile: isMobile,
+                                  isTablet: isTablet,
                                 );
                               },
                             );
@@ -1188,6 +1323,8 @@ class _SchoolSummaryCard extends StatelessWidget {
     required this.busCount,
     required this.studentCount,
     required this.onTap,
+    this.isMobile = false,
+    this.isTablet = false,
   });
 
   final String name;
@@ -1198,17 +1335,25 @@ class _SchoolSummaryCard extends StatelessWidget {
   final int busCount;
   final int studentCount;
   final VoidCallback onTap;
+  final bool isMobile;
+  final bool isTablet;
 
   @override
   Widget build(BuildContext context) {
+    final cardPadding = isMobile ? 12.0 : (isTablet ? 16.0 : 24.0);
+    final iconSize = isMobile ? 14.0 : (isTablet ? 16.0 : 20.0);
+    final titleSize = isMobile ? 14.0 : (isTablet ? 16.0 : 18.0);
+    final bodySize = isMobile ? 11.0 : (isTablet ? 12.0 : 14.0);
+    final statSize = isMobile ? 16.0 : (isTablet ? 18.0 : 20.0);
+    
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(24),
+      borderRadius: BorderRadius.circular(isMobile ? 16 : 24),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 250),
-        padding: const EdgeInsets.all(24),
+        padding: EdgeInsets.all(cardPadding),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: BorderRadius.circular(isMobile ? 16 : 24),
           color: Colors.white,
           border: Border.all(color: const Color(0xFFE2E8F0)),
           boxShadow: const [
@@ -1221,72 +1366,112 @@ class _SchoolSummaryCard extends StatelessWidget {
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
             Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(10),
+                  padding: EdgeInsets.all(isMobile ? 6 : (isTablet ? 8 : 10)),
                   decoration: const BoxDecoration(
                     color: Color(0xFFDDEBFF),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(Icons.apartment, color: Color(0xFF1D4ED8)),
+                  child: Icon(
+                    Icons.apartment,
+                    color: const Color(0xFF1D4ED8),
+                    size: isMobile ? 16 : (isTablet ? 18 : 20),
+                  ),
                 ),
-                const SizedBox(width: 12),
+                SizedBox(width: isMobile ? 8 : 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
                         name,
-                        style: const TextStyle(
-                          fontSize: 18,
+                        style: TextStyle(
+                          fontSize: titleSize,
                           fontWeight: FontWeight.w700,
                         ),
+                        maxLines: isMobile ? 1 : 2,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      const SizedBox(height: 4),
+                      SizedBox(height: isMobile ? 2 : 4),
                       Text(
                         'ID: $schoolId',
-                        style: TextStyle(color: Colors.blueGrey[600]),
+                        style: TextStyle(
+                          color: Colors.blueGrey[600],
+                          fontSize: bodySize - 1,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ],
                   ),
                 ),
-                const Icon(Icons.arrow_outward, color: Color(0xFF1D4ED8)),
+                Icon(
+                  Icons.arrow_outward,
+                  color: const Color(0xFF1D4ED8),
+                  size: isMobile ? 16 : (isTablet ? 18 : 20),
+                ),
               ],
             ),
-            const SizedBox(height: 16),
+            SizedBox(height: isMobile ? 8 : (isTablet ? 12 : 16)),
             Row(
               children: [
-                Icon(Icons.location_on_outlined, size: 20, color: Colors.blueGrey[400]),
-                const SizedBox(width: 6),
+                Icon(Icons.location_on_outlined, size: iconSize, color: Colors.blueGrey[400]),
+                SizedBox(width: isMobile ? 4 : 6),
                 Expanded(
                   child: Text(
                     city,
-                    style: TextStyle(color: Colors.blueGrey[600]),
+                    style: TextStyle(
+                      color: Colors.blueGrey[600],
+                      fontSize: bodySize,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: isMobile ? 6 : (isTablet ? 10 : 12)),
             Row(
               children: [
-                Icon(Icons.person_outline, size: 20, color: Colors.blueGrey[400]),
-                const SizedBox(width: 6),
+                Icon(Icons.person_outline, size: iconSize, color: Colors.blueGrey[400]),
+                SizedBox(width: isMobile ? 4 : 6),
                 Expanded(
                   child: Text(
                     '$contactName · $contactPhone',
-                    style: TextStyle(color: Colors.blueGrey[600]),
+                    style: TextStyle(
+                      color: Colors.blueGrey[600],
+                      fontSize: bodySize,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],
             ),
-            const Spacer(),
+            if (!isMobile) const Spacer(),
+            if (isMobile) SizedBox(height: isMobile ? 8 : 12),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                _SchoolStat(label: 'Buses', value: busCount.toString()),
-                _SchoolStat(label: 'Students', value: studentCount.toString()),
+                _SchoolStat(
+                  label: 'Buses',
+                  value: busCount.toString(),
+                  isMobile: isMobile,
+                  isTablet: isTablet,
+                  fontSize: statSize,
+                ),
+                _SchoolStat(
+                  label: 'Students',
+                  value: studentCount.toString(),
+                  isMobile: isMobile,
+                  isTablet: isTablet,
+                  fontSize: statSize,
+                ),
               ],
             )
           ],
@@ -1297,28 +1482,43 @@ class _SchoolSummaryCard extends StatelessWidget {
 }
 
 class _SchoolStat extends StatelessWidget {
-  const _SchoolStat({required this.label, required this.value});
+  const _SchoolStat({
+    required this.label,
+    required this.value,
+    this.isMobile = false,
+    this.isTablet = false,
+    this.fontSize = 20,
+  });
 
   final String label;
   final String value;
+  final bool isMobile;
+  final bool isTablet;
+  final double fontSize;
 
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: [
         Text(
           value,
-          style: const TextStyle(
-            fontSize: 20,
+          style: TextStyle(
+            fontSize: fontSize,
             fontWeight: FontWeight.w700,
-            color: Color(0xFF1D4ED8),
+            color: const Color(0xFF1D4ED8),
           ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
         ),
-        const SizedBox(height: 4),
+        SizedBox(height: isMobile ? 2 : 4),
         Text(
           label,
-          style: TextStyle(color: Colors.blueGrey[500]),
+          style: TextStyle(
+            color: Colors.blueGrey[500],
+            fontSize: isMobile ? 10 : (isTablet ? 11 : 12),
+          ),
         ),
       ],
     );

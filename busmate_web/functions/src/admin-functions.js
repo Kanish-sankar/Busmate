@@ -9,6 +9,72 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 
 /**
+ * Cloud Function to set custom claims on user authentication token
+ * This function reads admin data from Firestore and sets role and schoolId claims
+ * Required for Firestore security rules to work properly
+ */
+exports.setUserClaims = functions.https.onCall(async (data, context) => {
+  try {
+    console.log('🔑 setUserClaims called with data:', data);
+
+    // Must be authenticated
+    if (!context.auth) {
+      throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated');
+    }
+
+    // Get the user ID - use provided uid or caller's uid
+    const uid = data.uid || context.auth.uid;
+    
+    console.log(`📋 Fetching admin data for UID: ${uid}`);
+    
+    // Try to find the user in the admins collection
+    const adminDoc = await db.collection('admins').doc(uid).get();
+    
+    if (!adminDoc.exists) {
+      console.log(`❌ Admin not found in database for UID: ${uid}`);
+      throw new functions.https.HttpsError(
+        'not-found', 
+        'Admin user not found in database'
+      );
+    }
+
+    const adminData = adminDoc.data();
+    const role = adminData.role;
+    const schoolId = adminData.schoolId || '';
+    
+    console.log(`✅ Found admin data - Role: ${role}, SchoolId: ${schoolId}`);
+
+    // Set custom claims on the user's auth token
+    const claims = {
+      role: role,
+      schoolId: schoolId
+    };
+
+    await admin.auth().setCustomUserClaims(uid, claims);
+    
+    console.log(`✅ Custom claims set successfully for UID: ${uid}`, claims);
+
+    return {
+      success: true,
+      message: 'Custom claims set successfully',
+      claims: claims
+    };
+
+  } catch (error) {
+    console.error('❌ Error setting custom claims:', error);
+    
+    if (error instanceof functions.https.HttpsError) {
+      throw error;
+    }
+    
+    throw new functions.https.HttpsError(
+      'internal',
+      `Failed to set custom claims: ${error.message}`
+    );
+  }
+});
+
+/**
  * Secure Cloud Function to create a new school admin
  * Only super admins can create school admins
  */

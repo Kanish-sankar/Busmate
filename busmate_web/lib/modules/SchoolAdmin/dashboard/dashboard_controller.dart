@@ -18,31 +18,19 @@ class SchoolAdminDashboardController extends GetxController {
   @override
   void onInit() {
     super.onInit();
-    print('🚀 SchoolAdminDashboardController onInit called');
-    print('📦 Get.arguments: ${Get.arguments}');
     initializeData();
   }
 
   void initializeData() {
-    print('🔧 initializeData called');
+    // Only initialize if we have valid arguments with schoolId
     if (Get.arguments != null && Get.arguments['schoolId'] != null) {
       schoolId.value = Get.arguments['schoolId'];
       role.value = Get.arguments['role'] ?? '';
-      print('✅ SchoolId set to: ${schoolId.value}');
-      print('✅ Role set to: ${role.value}');
       fetchSchoolData();
-    } else {
-      print('❌ No schoolId in Get.arguments!');
-      print('❌ Get.arguments: ${Get.arguments}');
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        Get.snackbar(
-          'Error',
-          'School ID is missing. Unable to load school dashboard.',
-          backgroundColor: Colors.red,
-          colorText: Colors.white,
-        );
-      });
     }
+    // If no arguments, this controller is being used for navigation only
+    // (tagged as 'forNavigation' in SuperAdminDashboard)
+    // Don't show errors - it's expected behavior
   }
 
   Future<void> fetchSchoolData() async {
@@ -130,10 +118,10 @@ class SchoolAdminDashboardController extends GetxController {
                   'busManagement': true,
                   'driverManagement': true,
                   'routeManagement': true,
+                  'timeControl': true,
                   'viewingBusStatus': true,
                   'studentManagement': true,
                   'paymentManagement': true,
-                  'notifications': true,
                   'adminManagement': true,
                 };
               } else {
@@ -146,15 +134,16 @@ class SchoolAdminDashboardController extends GetxController {
                   'busManagement': true,
                   'driverManagement': true,
                   'routeManagement': true,
+                  'timeControl': true,
                   'viewingBusStatus': true,
                   'studentManagement': true,
                   'paymentManagement': true,
-                  'notifications': true,
                   'adminManagement': true,
                 };
                 
                 // Check if this is a Regional Admin (limited permissions)
-                final isRegionalAdmin = adminData['role'] == 'regionalAdmin';
+                final role = adminData['role']?.toString().toLowerCase() ?? '';
+                final isRegionalAdmin = role == 'regionaladmin';
                 
                 if (dbPermissions != null && dbPermissions is Map) {
                   if (isRegionalAdmin) {
@@ -177,10 +166,10 @@ class SchoolAdminDashboardController extends GetxController {
                 'busManagement': true,
                 'driverManagement': true,
                 'routeManagement': true,
+                'timeControl': true,
                 'viewingBusStatus': true,
                 'studentManagement': true,
                 'paymentManagement': true,
-                'notifications': true,
                 'adminManagement': true,
               };
             }

@@ -1791,6 +1791,7 @@ async function processNotificationsForBus(schoolId, busId, busData) {
             headers: {
               "apns-priority": "10",
               "apns-expiration": "120000",
+              "apns-push-type": "alert",
             },
             payload: {
               aps: {
@@ -1799,9 +1800,12 @@ async function processNotificationsForBus(schoolId, busId, busData) {
                   body: `Bus will arrive in approximately ${eta.toFixed(0)} minutes.`,
                 },
                 sound: `${soundName}.wav`, // iOS needs .wav extension
-                contentAvailable: true,
+                "content-available": 1, // ✅ FIXED: Use hyphenated key for iOS background
+                "mutable-content": 1, // ✅ Allow notification modification
                 badge: 1,
                 category: "BUSMATE_CATEGORY",
+                "thread-id": "bus_arrival",
+                "interruption-level": "time-sensitive", // ✅ Breakthrough Focus mode
               },
             },
           },
@@ -2235,72 +2239,42 @@ exports.onBusLocationUpdate = onValueWritten(
       }
       
       // 🚏 INSTANT STOP DETECTION: Check if bus passed any stops (runs on every GPS update!)
+      // CRITICAL: For both PICKUP and DROP, stops are in traversal order in remainingStops array.
+      // PICKUP: [Stop1, Stop2, Stop3, Stop4, Stop5] - traverse start to end
+      // DROP: [Stop5, Stop4, Stop3, Stop2, Stop1] - also traverse start to end (already reversed in startTrip)
+      // Therefore, ALWAYS remove from the START (index 0) for both directions!
       if (busData.remainingStops && busData.remainingStops.length > 0) {
         const STOP_PROXIMITY_THRESHOLD = 200; // meters
         const busLocation = { lat: busData.latitude, lng: busData.longitude };
         const tripDirection = busData.tripDirection || 'pickup';
         let stopsRemoved = 0;
         
-        if (tripDirection === 'pickup') {
-          // PICKUP: Check stops from START of array (first stop should be reached first)
-          const firstStop = busData.remainingStops[0];
-          if (firstStop && firstStop.latitude && firstStop.longitude) {
-            const distanceToFirst = calculateDistance(busLocation, { lat: firstStop.latitude, lng: firstStop.longitude });
-            
-            if (distanceToFirst <= STOP_PROXIMITY_THRESHOLD) {
-              console.log(`🚏 [PICKUP] Bus ${busId} reached first stop: ${firstStop.name} - REMOVING FROM START`);
-              busData.remainingStops.shift(); // Remove from start for pickup
-              stopsRemoved = 1;
-            } else {
-              // Check if bus skipped stops and is near a later stop
-              for (let i = 1; i < Math.min(3, busData.remainingStops.length); i++) {
-                const stop = busData.remainingStops[i];
-                if (!stop || !stop.latitude || !stop.longitude) continue;
-                
-                const distance = calculateDistance(busLocation, { lat: stop.latitude, lng: stop.longitude });
-                
-                if (distance <= STOP_PROXIMITY_THRESHOLD) {
-                  console.log(`⚠️ [PICKUP] Bus ${busId} skipped ${i} stop(s) and reached stop ${i + 1}: ${stop.name}`);
-                  // Remove all skipped stops plus current stop from START
-                  for (let j = 0; j <= i; j++) {
-                    const removed = busData.remainingStops.shift();
-                    console.log(`   🚏 Removed ${j === i ? 'reached' : 'skipped'} stop: ${removed.name}`);
-                  }
-                  stopsRemoved = i + 1;
-                  break;
+        // UNIFIED LOGIC: Check stops from START of array for both PICKUP and DROP
+        const firstStop = busData.remainingStops[0];
+        if (firstStop && firstStop.latitude && firstStop.longitude) {
+          const distanceToFirst = calculateDistance(busLocation, { lat: firstStop.latitude, lng: firstStop.longitude });
+          
+          if (distanceToFirst <= STOP_PROXIMITY_THRESHOLD) {
+            console.log(`🚏 [${tripDirection.toUpperCase()}] Bus ${busId} reached first stop: ${firstStop.name} - REMOVING FROM START`);
+            busData.remainingStops.shift(); // Remove from start
+            stopsRemoved = 1;
+          } else {
+            // Check if bus skipped stops and is near a later stop
+            for (let i = 1; i < Math.min(3, busData.remainingStops.length); i++) {
+              const stop = busData.remainingStops[i];
+              if (!stop || !stop.latitude || !stop.longitude) continue;
+              
+              const distance = calculateDistance(busLocation, { lat: stop.latitude, lng: stop.longitude });
+              
+              if (distance <= STOP_PROXIMITY_THRESHOLD) {
+                console.log(`⚠️ [${tripDirection.toUpperCase()}] Bus ${busId} skipped ${i} stop(s) and reached stop ${i + 1}: ${stop.name}`);
+                // Remove all skipped stops plus current stop from START
+                for (let j = 0; j <= i; j++) {
+                  const removed = busData.remainingStops.shift();
+                  console.log(`   🚏 Removed ${j === i ? 'reached' : 'skipped'} stop: ${removed.name}`);
                 }
-              }
-            }
-          }
-        } else {
-          // DROP: Check stops from END of array (last stop should be reached first)
-          const lastStop = busData.remainingStops[busData.remainingStops.length - 1];
-          if (lastStop && lastStop.latitude && lastStop.longitude) {
-            const distanceToLast = calculateDistance(busLocation, { lat: lastStop.latitude, lng: lastStop.longitude });
-            
-            if (distanceToLast <= STOP_PROXIMITY_THRESHOLD) {
-              console.log(`🚏 [DROP] Bus ${busId} reached last stop: ${lastStop.name} - REMOVING FROM END`);
-              busData.remainingStops.pop(); // Remove from end for drop
-              stopsRemoved = 1;
-            } else {
-              // Check if bus skipped stops and is near an earlier stop
-              for (let i = busData.remainingStops.length - 2; i >= Math.max(0, busData.remainingStops.length - 3); i--) {
-                const stop = busData.remainingStops[i];
-                if (!stop || !stop.latitude || !stop.longitude) continue;
-                
-                const distance = calculateDistance(busLocation, { lat: stop.latitude, lng: stop.longitude });
-                
-                if (distance <= STOP_PROXIMITY_THRESHOLD) {
-                  const skippedCount = busData.remainingStops.length - 1 - i;
-                  console.log(`⚠️ [DROP] Bus ${busId} skipped ${skippedCount} stop(s) and reached stop ${i + 1}: ${stop.name}`);
-                  // Remove all skipped stops plus current stop from END
-                  for (let j = 0; j <= skippedCount; j++) {
-                    const removed = busData.remainingStops.pop();
-                    console.log(`   🚏 Removed ${j === skippedCount ? 'reached' : 'skipped'} stop: ${removed.name}`);
-                  }
-                  stopsRemoved = skippedCount + 1;
-                  break;
-                }
+                stopsRemoved = i + 1;
+                break;
               }
             }
           }

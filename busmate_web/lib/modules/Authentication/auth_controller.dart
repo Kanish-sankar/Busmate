@@ -128,11 +128,17 @@ class AuthController extends GetxController {
         return;
       }
 
-      Map<String, dynamic> adminData = adminDoc.data() as Map<String, dynamic>;
+      Map<String, dynamic>? adminData = adminDoc.data() as Map<String, dynamic>?;
+      
+      if (adminData == null || !adminData.containsKey('role')) {
+        await _auth.signOut();
+        Get.snackbar('Access Denied', 'Invalid admin configuration');
+        Get.offAllNamed(Routes.LOGIN);
+        return;
+      }
+      
       String role = adminData['role'] ?? 'unknown';
       adminEmail.value = adminData['email'] ?? user.value!.email ?? '';
-      
-      print('✅ Found admin - Role: $role, Email: ${adminEmail.value}');
 
       // Ensure custom claims are set before proceeding
       await _ensureCustomClaims(user.value!, role, adminData['schoolId']);
@@ -142,8 +148,6 @@ class AuthController extends GetxController {
         userRole.value = UserRole.superior;
         permissions.value = AdminPermissions.allGranted();
         schoolId.value = '';
-        
-        print('🚀 Superior Admin logged in - Redirecting to Super Admin Dashboard');
         Get.offAllNamed(Routes.SUPER_ADMIN_DASHBOARD);
         
       } else if (role == 'schoolAdmin' || role == 'school_admin' || role == 'regionalAdmin') {
@@ -153,15 +157,11 @@ class AuthController extends GetxController {
         permissions.value = AdminPermissions.fromMap(adminData['permissions']);
         
         if (schoolId.value.isEmpty) {
-          print('❌ $role missing schoolId');
           await _auth.signOut();
           Get.snackbar('Error', 'Invalid admin configuration - missing school ID');
           Get.offAllNamed(Routes.LOGIN);
           return;
         }
-        
-        print('🏫 ${role == 'regionalAdmin' ? 'Regional Admin' : 'School Admin'} logged in - School ID: ${schoolId.value}');
-        print('📋 Permissions: ${permissions.value.toMap()}');
         
         Get.offAllNamed(Routes.SCHOOL_ADMIN_DASHBOARD, arguments: {
           'schoolId': schoolId.value,
@@ -170,15 +170,13 @@ class AuthController extends GetxController {
         });
         
       } else {
-        print('❌ Unknown role: $role');
         await _auth.signOut();
         Get.snackbar('Access Denied', 'Invalid admin role');
         Get.offAllNamed(Routes.LOGIN);
       }
       
     } catch (e) {
-      print('❌ Error in _fetchUserRole: $e');
-      Get.snackbar('Error', 'Failed to fetch admin data: ${e.toString()}');
+      Get.snackbar('Error', 'Unable to load user data. Please try again.');
       await _auth.signOut();
       Get.offAllNamed(Routes.LOGIN);
     }
@@ -307,7 +305,7 @@ class AuthController extends GetxController {
       }
       Get.snackbar('Error', errorMessage);
     } catch (e) {
-      Get.snackbar('Error', 'An unexpected error occurred: ${e.toString()}');
+      Get.snackbar('Error', 'Login failed. Please check your credentials.');
     } finally {
       isLoading.value = false;
     }
@@ -375,7 +373,7 @@ class AuthController extends GetxController {
       }
       Get.snackbar('Error', errorMessage);
     } catch (e) {
-      Get.snackbar('Error', 'Registration error: ${e.toString()}');
+      Get.snackbar('Error', 'Registration failed. Please try again.');
     } finally {
       isLoading.value = false;
     }
@@ -392,7 +390,7 @@ class AuthController extends GetxController {
       permissions.value = AdminPermissions();
       schoolId.value = '';
     } catch (e) {
-      Get.snackbar('Error', 'Failed to logout: ${e.toString()}');
+      Get.snackbar('Error', 'Logout failed. Please try again.');
     }
   }
 
@@ -415,10 +413,10 @@ class AuthController extends GetxController {
         Get.snackbar('Success',
             'OTP sent to $email, If you haven\'t received it within a few minutes, kindly check your spam/junk folder.');
       } else {
-        Get.snackbar('Error', 'Failed to send OTP: ${response.body}');
+        Get.snackbar('Error', 'Unable to send OTP. Please try again.');
       }
     } catch (e) {
-      Get.snackbar('Error', 'Failed to send OTP: $e');
+      Get.snackbar('Error', 'Unable to send OTP. Please check your connection.');
     } finally {
       isLoading.value = false;
     }
@@ -436,7 +434,7 @@ class AuthController extends GetxController {
         return false;
       }
     } catch (e) {
-      Get.snackbar('Error', 'Failed to verify OTP: $e');
+      Get.snackbar('Error', 'Unable to verify OTP. Please try again.');
       return false;
     } finally {
       isVerifyingOtp.value = false;

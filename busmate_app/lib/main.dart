@@ -61,14 +61,29 @@ void main() async {
     if (Platform.isIOS) {
       Permission.location.request();
       Permission.locationAlways.request();
+      
+      // ✅ CRITICAL FOR iOS: Get APNS token first before FCM can work
+      // iOS requires APNS token to be available before FCM registration
+      String? apnsToken = await FirebaseMessaging.instance.getAPNSToken();
+      if (apnsToken == null) {
+        // Wait a bit and retry - APNS token may take time on first launch
+        await Future.delayed(const Duration(seconds: 2));
+        apnsToken = await FirebaseMessaging.instance.getAPNSToken();
+      }
+      debugPrint('✅ iOS APNS Token: ${apnsToken != null ? "Available" : "NOT Available"}');
     }
     await BackgroundLocator.initialize();
   }
 
+  // ✅ Request notification permission with critical alert for iOS
   FirebaseMessaging.instance.requestPermission(
     alert: true,
     badge: true,
     sound: true,
+    criticalAlert: true, // ✅ For time-sensitive bus arrival notifications
+    provisional: false,
+    announcement: true,  // ✅ Announce notifications via Siri
+    carPlay: true,       // ✅ Show notifications in CarPlay
   );
 
   FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(

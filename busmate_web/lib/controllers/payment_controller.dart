@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
 import 'package:busmate_web/models/payment_model.dart';
@@ -9,13 +10,19 @@ class PaymentController extends GetxController {
   var isLoading = false.obs;
   var selectedFilter = 'all'.obs; // 'all', 'pending', 'paid', 'overdue'
   
+  // Stream subscription to cancel on logout
+  StreamSubscription<QuerySnapshot>? _paymentsSubscription;
+  
   // Get payments collection reference (ROOT level)
   CollectionReference get paymentsCollection => _firestore.collection('payments');
   
   /// Fetch all payments (for Super Admin)
   void fetchAllPayments() {
+    // Cancel existing listener before creating new one
+    _paymentsSubscription?.cancel();
+    
     isLoading.value = true;
-    paymentsCollection
+    _paymentsSubscription = paymentsCollection
         .snapshots()
         .listen((snapshot) {
       // Sort in memory to avoid index requirement
@@ -33,15 +40,16 @@ class PaymentController extends GetxController {
   
   /// Fetch payments for a specific school (for School Admin)
   void fetchSchoolPayments(String schoolId) {
-    print('🔍 Fetching payments for schoolId: $schoolId');
+    // Cancel existing listener before creating new one
+    _paymentsSubscription?.cancel();
+    
     isLoading.value = true;
     
-    paymentsCollection
+    _paymentsSubscription = paymentsCollection
         .where('schoolId', isEqualTo: schoolId)
         .snapshots()
         .listen(
           (snapshot) {
-            print('✅ Received ${snapshot.docs.length} payments for school $schoolId');
             // Sort in memory instead of in query to avoid index requirement
             final paymentsList = snapshot.docs
                 .map((doc) => PaymentModel.fromDocument(doc))
@@ -54,11 +62,10 @@ class PaymentController extends GetxController {
             isLoading.value = false;
           },
           onError: (error) {
-            print('❌ Error fetching payments: $error');
             isLoading.value = false;
             Get.snackbar(
-              '❌ Error',
-              'Failed to load payments: $error',
+              'Error',
+              'Unable to load payments. Please try again.',
               snackPosition: SnackPosition.BOTTOM,
             );
           },
@@ -220,5 +227,12 @@ class PaymentController extends GetxController {
       'countOverdue': countOverdue,
       'totalPayments': relevantPayments.length,
     };
+  }
+  
+  @override
+  void onClose() {
+    // Cancel Firestore listener when controller is disposed
+    _paymentsSubscription?.cancel();
+    super.onClose();
   }
 }

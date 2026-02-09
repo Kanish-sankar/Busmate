@@ -215,70 +215,44 @@ void backgroundLocationCallback(LocationDto locationDto) async {
       final routeType = status.busRouteType ?? "pickup";
       final currentStops = List<StopWithETA>.from(status.remainingStops);
 
-      if (routeType == "pickup") {
-        // For pickup route: Check if we're near any stop beyond the first one
-        for (int i = 1;
-            i < currentStops.length && i <= MAX_SKIPPED_STOPS;
-            i++) {
-          final stop = currentStops[i];
-          final stopLocation = LatLng(stop.latitude, stop.longitude);
-          final distanceToStop =
-              distance.as(LengthUnit.Meter, busLocation, stopLocation);
+      // For both PICKUP and DROP: Stops are already in traversal order
+      // PICKUP: [Stop1, Stop2, Stop3, Stop4, Stop5] - traverse start to end
+      // DROP: [Stop5, Stop4, Stop3, Stop2, Stop1] - also traverse start to end (already reversed in startTrip)
+      // So we always remove from the FRONT (index 0) for both directions
+      
+      // Check if we're near any stop beyond the first one (skip detection)
+      for (int i = 1;
+          i < currentStops.length && i <= MAX_SKIPPED_STOPS;
+          i++) {
+        final stop = currentStops[i];
+        final stopLocation = LatLng(stop.latitude, stop.longitude);
+        final distanceToStop =
+            distance.as(LengthUnit.Meter, busLocation, stopLocation);
 
-          if (distanceToStop <= STOP_PROXIMITY_THRESHOLD) {
-            // We're near a later stop, so complete all previous stops
-            for (int j = 0; j < i; j++) {
-              final skippedStop = currentStops[j];
-              status.remainingStops.removeAt(0); // Remove from front for pickup
-            }
-            // Now remove the current stop we're at
-            status.remainingStops.removeAt(0);
-            break;
+        if (distanceToStop <= STOP_PROXIMITY_THRESHOLD) {
+          // We're near a later stop, so complete all previous stops
+          print('🎯 Near stop $i (${stop.name}), removing ${i} skipped stops + current');
+          for (int j = 0; j < i; j++) {
+            final skippedStop = currentStops[j];
+            print('  ⏭️ Skipped: ${skippedStop.name}');
+            status.remainingStops.removeAt(0); // Remove from front
           }
+          // Now remove the current stop we're at
+          print('  ✂️ Completed: ${stop.name}');
+          status.remainingStops.removeAt(0);
+          break;
         }
+      }
 
-        // Normal proximity check for first stop
-        if (status.remainingStops.isNotEmpty) {
-          final firstStop = status.remainingStops.first;
-          final stopLocation = LatLng(firstStop.latitude, firstStop.longitude);
-          final distanceToStop =
-              distance.as(LengthUnit.Meter, busLocation, stopLocation);
-          if (distanceToStop <= STOP_PROXIMITY_THRESHOLD) {
-            status.remainingStops.removeAt(0);
-          }
-        }
-      } else {
-        // For drop route: Check if we're near any stop before the last one
-        for (int i = currentStops.length - 2;
-            i >= 0 && i >= currentStops.length - MAX_SKIPPED_STOPS - 1;
-            i--) {
-          final stop = currentStops[i];
-          final stopLocation = LatLng(stop.latitude, stop.longitude);
-          final distanceToStop =
-              distance.as(LengthUnit.Meter, busLocation, stopLocation);
-
-          if (distanceToStop <= STOP_PROXIMITY_THRESHOLD) {
-            // We're near an earlier stop, so complete all later stops
-            final stopsToRemove = currentStops.length - i - 1;
-            for (int j = 0; j < stopsToRemove; j++) {
-              final skippedStop = status.remainingStops.last;
-              status.remainingStops.removeLast(); // Remove from end for drop
-            }
-            // Now remove the current stop we're at
-            status.remainingStops.removeLast();
-            break;
-          }
-        }
-
-        // Normal proximity check for last stop
-        if (status.remainingStops.isNotEmpty) {
-          final lastStop = status.remainingStops.last;
-          final stopLocation = LatLng(lastStop.latitude, lastStop.longitude);
-          final distanceToStop =
-              distance.as(LengthUnit.Meter, busLocation, stopLocation);
-          if (distanceToStop <= STOP_PROXIMITY_THRESHOLD) {
-            status.remainingStops.removeLast();
-          }
+      // Normal proximity check for first stop
+      if (status.remainingStops.isNotEmpty) {
+        final firstStop = status.remainingStops.first;
+        final stopLocation = LatLng(firstStop.latitude, firstStop.longitude);
+        final distanceToStop =
+            distance.as(LengthUnit.Meter, busLocation, stopLocation);
+        if (distanceToStop <= STOP_PROXIMITY_THRESHOLD) {
+          print('✂️ Completed stop: ${firstStop.name}');
+          status.remainingStops.removeAt(0);
         }
       }
     }

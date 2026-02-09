@@ -117,35 +117,32 @@ class _DriverManagementScreenUpgradedState extends State<DriverManagementScreenU
       return Container(
         color: Colors.white,
         padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            Expanded(
-              child: _buildStatCard(
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              _buildStatCard(
                 'Total Drivers',
                 totalDrivers.toString(),
                 Icons.group,
                 Colors.blue,
               ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _buildStatCard(
+              const SizedBox(width: 12),
+              _buildStatCard(
                 'Available',
                 availableDrivers.toString(),
                 Icons.check_circle,
                 Colors.green,
               ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _buildStatCard(
+              const SizedBox(width: 12),
+              _buildStatCard(
                 'Assigned',
                 assignedDrivers.toString(),
                 Icons.assignment_ind,
                 Colors.orange,
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       );
     });
@@ -153,6 +150,7 @@ class _DriverManagementScreenUpgradedState extends State<DriverManagementScreenU
 
   Widget _buildStatCard(String title, String count, IconData icon, Color color) {
     return Container(
+      width: 200,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: color.withOpacity(0.1),
@@ -174,19 +172,28 @@ class _DriverManagementScreenUpgradedState extends State<DriverManagementScreenU
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  count,
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: color,
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    count,
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: color,
+                    ),
                   ),
                 ),
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[700],
+                const SizedBox(height: 2),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[700],
+                    ),
                   ),
                 ),
               ],
@@ -252,198 +259,249 @@ class _DriverManagementScreenUpgradedState extends State<DriverManagementScreenU
   }
 
   Widget _buildDriverCard(Driver driver) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 16),
-      elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: () {
-          // Show driver details dialog
-          _showDriverDetailsDialog(driver);
-        },
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            children: [
-              Row(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isMobile = constraints.maxWidth < 600;
+        
+        return Card(
+          margin: const EdgeInsets.only(bottom: 16),
+          elevation: 2,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () {
+              // Show driver details dialog
+              _showDriverDetailsDialog(driver);
+            },
+            child: Padding(
+              padding: EdgeInsets.all(isMobile ? 12 : 16),
+              child: Column(
                 children: [
-                  // Profile Image
-                  Container(
-                    width: 60,
-                    height: 60,
-                    decoration: BoxDecoration(
-                      color: Colors.blue[50],
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.blue[100]!, width: 2),
-                    ),
-                    child: driver.profileImageUrl.isNotEmpty
-                        ? ClipRRect(
-                            borderRadius: BorderRadius.circular(10),
-                            child: Image.network(
-                              driver.profileImageUrl,
-                              fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) =>
-                                  Icon(Icons.person, size: 30, color: Colors.blue[700]),
-                            ),
-                          )
-                        : Icon(Icons.person, size: 30, color: Colors.blue[700]),
-                  ),
-                  const SizedBox(width: 16),
-                  
-                  // Driver Info
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          driver.name,
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
+                  Row(
+                    children: [
+                      // Profile Image
+                      Container(
+                        width: isMobile ? 50 : 60,
+                        height: isMobile ? 50 : 60,
+                        decoration: BoxDecoration(
+                          color: Colors.blue[50],
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.blue[100]!, width: 2),
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          driver.email,
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  
-                  // Availability Badge
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: driver.available 
-                          ? Colors.green.withOpacity(0.1)
-                          : Colors.grey.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: driver.available ? Colors.green : Colors.grey,
+                        child: driver.profileImageUrl.isNotEmpty
+                            ? ClipRRect(
+                                borderRadius: BorderRadius.circular(10),
+                                child: Image.network(
+                                  driver.profileImageUrl,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (context, error, stackTrace) =>
+                                      Icon(Icons.person, size: isMobile ? 25 : 30, color: Colors.blue[700]),
+                                ),
+                              )
+                            : Icon(Icons.person, size: isMobile ? 25 : 30, color: Colors.blue[700]),
                       ),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          driver.available ? Icons.check_circle : Icons.cancel,
-                          size: 16,
-                          color: driver.available ? Colors.green : Colors.grey,
+                      SizedBox(width: isMobile ? 12 : 16),
+                      
+                      // Driver Info
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              driver.name,
+                              style: TextStyle(
+                                fontSize: isMobile ? 16 : 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              driver.email,
+                              style: TextStyle(
+                                fontSize: isMobile ? 12 : 14,
+                                color: Colors.grey[600],
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 4),
-                        Text(
-                          driver.available ? 'Available' : 'Busy',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
+                      ),
+                      
+                      if (!isMobile) const SizedBox(width: 8),
+                      
+                      // Availability Badge
+                      Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: isMobile ? 8 : 12, 
+                          vertical: isMobile ? 4 : 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: driver.available 
+                              ? Colors.green.withOpacity(0.1)
+                              : Colors.grey.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
                             color: driver.available ? Colors.green : Colors.grey,
                           ),
                         ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              
-              const SizedBox(height: 16),
-              const Divider(height: 1),
-              const SizedBox(height: 16),
-              
-              // Driver Details
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildInfoChip(
-                      'License',
-                      driver.licenseNumber,
-                      Icons.badge,
-                      Colors.blue,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _buildInfoChip(
-                      'Phone',
-                      driver.contactInfo,
-                      Icons.phone,
-                      Colors.green,
-                    ),
-                  ),
-                ],
-              ),
-              
-              if (driver.assignedBusId != null && driver.assignedBusId!.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                Obx(() {
-                  // Find the bus by ID and display bus number
-                  final busList = busController.buses.where((b) => b.id == driver.assignedBusId).toList();
-                  final bus = busList.isNotEmpty ? busList.first : null;
-                  final busDisplayText = bus != null 
-                      ? 'Bus ${bus.busNo} - ${bus.busVehicleNo}'
-                      : driver.assignedBusId!;
-                  
-                  return _buildInfoChip(
-                    'Assigned Bus',
-                    busDisplayText,
-                    Icons.directions_bus,
-                    Colors.orange,
-                    fullWidth: true,
-                  );
-                }),
-              ],
-              
-              // Action Buttons (available to both Superior and School Admins)
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                    Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () {
-                        Get.to(() => const AddDriverScreenUpgraded(), arguments: {
-                          'isEdit': true,
-                          'driver': driver,
-                          'schoolId': controller.schoolId,
-                        });
-                      },
-                      icon: const Icon(Icons.edit, size: 18),
-                      label: const Text('Edit'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.blue[700],
-                        side: BorderSide(color: Colors.blue[300]!),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              driver.available ? Icons.check_circle : Icons.cancel,
+                              size: isMobile ? 14 : 16,
+                              color: driver.available ? Colors.green : Colors.grey,
+                            ),
+                            if (!isMobile) ...[
+                              const SizedBox(width: 4),
+                              Text(
+                                driver.available ? 'Available' : 'Busy',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: driver.available ? Colors.green : Colors.grey,
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                       ),
-                    ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () => _confirmDelete(driver),
-                        icon: const Icon(Icons.delete, size: 18),
-                        label: const Text('Delete'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.red[700],
-                          side: BorderSide(color: Colors.red[300]!),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
+                    ],
+                  ),
+                  
+                  SizedBox(height: isMobile ? 12 : 16),
+                  const Divider(height: 1),
+                  SizedBox(height: isMobile ? 12 : 16),
+                  
+                  // Driver Details
+                  isMobile
+                      ? Column(
+                          children: [
+                            _buildInfoChip(
+                              'License',
+                              driver.licenseNumber,
+                              Icons.badge,
+                              Colors.blue,
+                              fullWidth: true,
+                            ),
+                            const SizedBox(height: 8),
+                            _buildInfoChip(
+                              'Phone',
+                              driver.contactInfo,
+                              Icons.phone,
+                              Colors.green,
+                              fullWidth: true,
+                            ),
+                          ],
+                        )
+                      : Row(
+                          children: [
+                            Expanded(
+                              child: _buildInfoChip(
+                                'License',
+                                driver.licenseNumber,
+                                Icons.badge,
+                                Colors.blue,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _buildInfoChip(
+                                'Phone',
+                                driver.contactInfo,
+                                Icons.phone,
+                                Colors.green,
+                              ),
+                            ),
+                          ],
+                        ),
+                  
+                  if (driver.assignedBusId != null && driver.assignedBusId!.isNotEmpty) ...[
+                    SizedBox(height: isMobile ? 8 : 12),
+                    Obx(() {
+                      // Find the bus by ID and display bus number
+                      final busList = busController.buses.where((b) => b.id == driver.assignedBusId).toList();
+                      final bus = busList.isNotEmpty ? busList.first : null;
+                      final busDisplayText = bus != null 
+                          ? 'Bus ${bus.busNo} - ${bus.busVehicleNo}'
+                          : driver.assignedBusId!;
+                      
+                      return _buildInfoChip(
+                        'Assigned Bus',
+                        busDisplayText,
+                        Icons.directions_bus,
+                        Colors.orange,
+                        fullWidth: true,
+                      );
+                    }),
+                  ],
+                  
+                  // Action Buttons (available to both Superior and School Admins)
+                  SizedBox(height: isMobile ? 12 : 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () {
+                            Get.to(() => const AddDriverScreenUpgraded(), arguments: {
+                              'isEdit': true,
+                              'driver': driver,
+                              'schoolId': controller.schoolId,
+                            });
+                          },
+                          icon: Icon(Icons.edit, size: isMobile ? 16 : 18),
+                          label: Text(
+                            'Edit',
+                            style: TextStyle(fontSize: isMobile ? 12 : 14),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.blue[700],
+                            side: BorderSide(color: Colors.blue[300]!),
+                            padding: EdgeInsets.symmetric(
+                              vertical: isMobile ? 8 : 12,
+                              horizontal: isMobile ? 8 : 16,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
-            ],
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () => _confirmDelete(driver),
+                          icon: Icon(Icons.delete, size: isMobile ? 16 : 18),
+                          label: Text(
+                            'Delete',
+                            style: TextStyle(fontSize: isMobile ? 12 : 14),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.red[700],
+                            side: BorderSide(color: Colors.red[300]!),
+                            padding: EdgeInsets.symmetric(
+                              vertical: isMobile ? 8 : 12,
+                              horizontal: isMobile ? 8 : 16,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 

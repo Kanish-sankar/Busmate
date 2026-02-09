@@ -140,13 +140,6 @@ class _RouteManagementScreenUpgradedState extends State<RouteManagementScreenUpg
         ],
       ),
       actions: [
-        // Direction Toggle (UP/DOWN)
-        _buildDirectionToggle(),
-        
-        const SizedBox(width: 8),
-        const VerticalDivider(),
-        const SizedBox(width: 8),
-        
         // Bus Assignment Button
         _buildBusAssignmentButton(),
         
@@ -283,116 +276,6 @@ class _RouteManagementScreenUpgradedState extends State<RouteManagementScreenUpg
     );
   }
   
-  Widget _buildDirectionToggle() {
-    return Obx(() {
-      final isUp = routeController.currentDirection.value == 'up';
-      final frozenStops = routeController.getFrozenStops();
-      final hasFrozenRoute = frozenStops.isNotEmpty;
-      
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 4),
-        decoration: BoxDecoration(
-          color: Colors.grey[200],
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // UP Button
-            Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: () {
-                  routeController.switchDirection('up');
-                  Get.snackbar(
-                    '🔼 UP Route Active',
-                    'Now editing Home → School route',
-                    snackPosition: SnackPosition.BOTTOM,
-                    duration: const Duration(seconds: 2),
-                  );
-                },
-                borderRadius: BorderRadius.circular(6),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: isUp ? Colors.blue : Colors.transparent,
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.arrow_upward,
-                        size: 16,
-                        color: isUp ? Colors.white : Colors.black54,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        'UP',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: isUp ? Colors.white : Colors.black54,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            
-            const SizedBox(width: 4),
-            
-            // DOWN Button
-            Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: () {
-                  routeController.switchDirection('down');
-                  Get.snackbar(
-                    '🔽 DOWN Route Active',
-                    hasFrozenRoute 
-                        ? 'Now editing School → Home route (UP route shown as reference)'
-                        : 'Now editing School → Home route',
-                    snackPosition: SnackPosition.BOTTOM,
-                    duration: const Duration(seconds: 2),
-                  );
-                },
-                borderRadius: BorderRadius.circular(6),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: !isUp ? Colors.orange : Colors.transparent,
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.arrow_downward,
-                        size: 16,
-                        color: !isUp ? Colors.white : Colors.black54,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        'DOWN',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: !isUp ? Colors.white : Colors.black54,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    });
-  }
-
   Widget _buildWaypointModeButton() {
     return ElevatedButton.icon(
       icon: Icon(

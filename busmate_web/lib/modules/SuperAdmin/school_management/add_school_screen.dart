@@ -397,10 +397,20 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> with TickerProviderSt
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isMobile = screenWidth < 600;
+    final isTablet = screenWidth >= 600 && screenWidth < 1024;
+    
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: const Text('Add New School', style: TextStyle(fontWeight: FontWeight.w600)),
+        title: Text(
+          'Add New School',
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            fontSize: isMobile ? 18 : 20,
+          ),
+        ),
         centerTitle: true,
         elevation: 0,
         backgroundColor: Colors.white,
@@ -416,67 +426,69 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> with TickerProviderSt
           position: _slideAnimation,
           child: Stack(
             children: [
-              // Animated background decorations
-              Positioned(
-                top: -150,
-                right: -150,
-                child: Container(
-                  width: 400,
-                  height: 400,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: RadialGradient(
-                      colors: [
-                        Colors.blue.withOpacity(0.1),
-                        Colors.transparent,
-                      ],
+              // Animated background decorations - hide on mobile
+              if (!isMobile) ...[
+                Positioned(
+                  top: -150,
+                  right: -150,
+                  child: Container(
+                    width: 400,
+                    height: 400,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: RadialGradient(
+                        colors: [
+                          Colors.blue.withOpacity(0.1),
+                          Colors.transparent,
+                        ],
+                      ),
                     ),
                   ),
                 ),
-              ),
-              Positioned(
-                bottom: -100,
-                left: -100,
-                child: Container(
-                  width: 300,
-                  height: 300,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: RadialGradient(
-                      colors: [
-                        Colors.green.withOpacity(0.1),
-                        Colors.transparent,
-                      ],
+                Positioned(
+                  bottom: -100,
+                  left: -100,
+                  child: Container(
+                    width: 300,
+                    height: 300,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: RadialGradient(
+                        colors: [
+                          Colors.green.withOpacity(0.1),
+                          Colors.transparent,
+                        ],
+                      ),
                     ),
                   ),
                 ),
-              ),
+              ],
               
               // Main content
               SingleChildScrollView(
-                padding: const EdgeInsets.all(32),
+                padding: EdgeInsets.all(isMobile ? 16 : (isTablet ? 24 : 32)),
                 child: Center(
                   child: Container(
-                    constraints: const BoxConstraints(maxWidth: 1000),
+                    constraints: BoxConstraints(maxWidth: isMobile ? double.infinity : 1000),
                     child: Form(
                       key: _formKey,
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           // School Details Card
-                          _buildSchoolDetailsCard(),
+                          _buildSchoolDetailsCard(isMobile, isTablet),
                           
-                          const SizedBox(height: 32),
+                          SizedBox(height: isMobile ? 20 : 32),
                           
                           // Admin Details Card
-                          _buildAdminDetailsCard(),
+                          _buildAdminDetailsCard(isMobile, isTablet),
                           
-                          const SizedBox(height: 40),
+                          SizedBox(height: isMobile ? 24 : 40),
                           
                           // Action buttons
-                          _buildActionButtons(),
+                          _buildActionButtons(isMobile),
                           
-                          const SizedBox(height: 32),
+                          SizedBox(height: isMobile ? 20 : 32),
                         ],
                       ),
                     ),
@@ -490,7 +502,7 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> with TickerProviderSt
     );
   }
 
-  Widget _buildSchoolDetailsCard() {
+  Widget _buildSchoolDetailsCard(bool isMobile, bool isTablet) {
     return TweenAnimationBuilder(
       duration: const Duration(milliseconds: 600),
       tween: Tween<double>(begin: 0, end: 1),
@@ -501,16 +513,16 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> with TickerProviderSt
         );
       },
       child: Container(
-        padding: const EdgeInsets.all(36),
+        padding: EdgeInsets.all(isMobile ? 20 : (isTablet ? 28 : 36)),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: BorderRadius.circular(isMobile ? 16 : 24),
           boxShadow: [
             BoxShadow(
               color: Colors.blue.withOpacity(0.08),
-              blurRadius: 30,
+              blurRadius: isMobile ? 15 : 30,
               offset: const Offset(0, 10),
-              spreadRadius: 5,
+              spreadRadius: isMobile ? 2 : 5,
             ),
           ],
         ),
@@ -520,12 +532,12 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> with TickerProviderSt
             Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(14),
+                  padding: EdgeInsets.all(isMobile ? 10 : 14),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       colors: [Colors.blue[400]!, Colors.blue[600]!],
                     ),
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(12),
                     boxShadow: [
                       BoxShadow(
                         color: Colors.blue.withOpacity(0.3),
@@ -534,102 +546,179 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> with TickerProviderSt
                       ),
                     ],
                   ),
-                  child: const Icon(Icons.school, color: Colors.white, size: 32),
-                ),
-                const SizedBox(width: 16),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'School Information',
-                      style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
-                    ),
-                    Text(
-                      'Enter the school details',
-                      style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-            const SizedBox(height: 32),
-            
-            Row(
-              children: [
-                Expanded(
-                  child: _buildTextField(
-                    controller: schoolNameController,
-                    label: 'School Name *',
-                    hint: 'e.g., St. Mary\'s High School',
-                    icon: Icons.apartment,
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Please enter school name';
-                      }
-                      return null;
-                    },
+                  child: Icon(
+                    Icons.school,
+                    color: Colors.white,
+                    size: isMobile ? 24 : 32,
                   ),
                 ),
-                const SizedBox(width: 20),
+                SizedBox(width: isMobile ? 12 : 16),
                 Expanded(
-                  child: _buildTextField(
-                    controller: schoolCodeController,
-                    label: 'School Code *',
-                    hint: 'e.g., SMHS001',
-                    icon: Icons.qr_code_2,
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Please enter school code';
-                      }
-                      return null;
-                    },
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'School Information',
+                        style: TextStyle(
+                          fontSize: isMobile ? 18 : (isTablet ? 22 : 26),
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        'Enter the school details',
+                        style: TextStyle(
+                          fontSize: isMobile ? 12 : 14,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
+            SizedBox(height: isMobile ? 20 : 32),
             
-            const SizedBox(height: 24),
-            
-            Row(
-              children: [
-                Expanded(
-                  child: _buildTextField(
-                    controller: emailController,
-                    label: 'School Email *',
-                    hint: 'school@example.com',
-                    icon: Icons.email_outlined,
-                    keyboardType: TextInputType.emailAddress,
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Please enter email';
-                      }
-                      if (!GetUtils.isEmail(value)) {
-                        return 'Please enter a valid email';
-                      }
-                      return null;
-                    },
+            isMobile || isTablet
+                ? Column(
+                    children: [
+                      _buildTextField(
+                        controller: schoolNameController,
+                        label: 'School Name *',
+                        hint: 'e.g., St. Mary\'s High School',
+                        icon: Icons.apartment,
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Please enter school name';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 20),
+                      _buildTextField(
+                        controller: schoolCodeController,
+                        label: 'School Code *',
+                        hint: 'e.g., SMHS001',
+                        icon: Icons.qr_code_2,
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Please enter school code';
+                          }
+                          return null;
+                        },
+                      ),
+                    ],
+                  )
+                : Row(
+                    children: [
+                      Expanded(
+                        child: _buildTextField(
+                          controller: schoolNameController,
+                          label: 'School Name *',
+                          hint: 'e.g., St. Mary\'s High School',
+                          icon: Icons.apartment,
+                          validator: (value) {
+                            if (value == null || value.isEmpty) {
+                              return 'Please enter school name';
+                            }
+                            return null;
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 20),
+                      Expanded(
+                        child: _buildTextField(
+                          controller: schoolCodeController,
+                          label: 'School Code *',
+                          hint: 'e.g., SMHS001',
+                          icon: Icons.qr_code_2,
+                          validator: (value) {
+                            if (value == null || value.isEmpty) {
+                              return 'Please enter school code';
+                            }
+                            return null;
+                          },
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-                const SizedBox(width: 20),
-                Expanded(
-                  child: _buildTextField(
-                    controller: phoneController,
-                    label: 'Phone Number *',
-                    hint: '+1 (234) 567-8900',
-                    icon: Icons.phone_outlined,
-                    keyboardType: TextInputType.phone,
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Please enter phone number';
-                      }
-                      return null;
-                    },
-                  ),
-                ),
-              ],
-            ),
             
-            const SizedBox(height: 24),
+            SizedBox(height: isMobile ? 16 : 24),
+            
+            isMobile || isTablet
+                ? Column(
+                    children: [
+                      _buildTextField(
+                        controller: emailController,
+                        label: 'School Email *',
+                        hint: 'school@example.com',
+                        icon: Icons.email_outlined,
+                        keyboardType: TextInputType.emailAddress,
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Please enter email';
+                          }
+                          if (!GetUtils.isEmail(value)) {
+                            return 'Please enter a valid email';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 20),
+                      _buildTextField(
+                        controller: phoneController,
+                        label: 'Phone Number *',
+                        hint: '+1 (234) 567-8900',
+                        icon: Icons.phone_outlined,
+                        keyboardType: TextInputType.phone,
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Please enter phone number';
+                          }
+                          return null;
+                        },
+                      ),
+                    ],
+                  )
+                : Row(
+                    children: [
+                      Expanded(
+                        child: _buildTextField(
+                          controller: emailController,
+                          label: 'School Email *',
+                          hint: 'school@example.com',
+                          icon: Icons.email_outlined,
+                          keyboardType: TextInputType.emailAddress,
+                          validator: (value) {
+                            if (value == null || value.isEmpty) {
+                              return 'Please enter email';
+                            }
+                            if (!GetUtils.isEmail(value)) {
+                              return 'Please enter a valid email';
+                            }
+                            return null;
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 20),
+                      Expanded(
+                        child: _buildTextField(
+                          controller: phoneController,
+                          label: 'Phone Number *',
+                          hint: '+1 (234) 567-8900',
+                          icon: Icons.phone_outlined,
+                          keyboardType: TextInputType.phone,
+                          validator: (value) {
+                            if (value == null || value.isEmpty) {
+                              return 'Please enter phone number';
+                            }
+                            return null;
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+            
+            SizedBox(height: isMobile ? 16 : 24),
             
             _buildTextField(
               controller: addressController,
@@ -650,7 +739,7 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> with TickerProviderSt
     );
   }
 
-  Widget _buildAdminDetailsCard() {
+  Widget _buildAdminDetailsCard(bool isMobile, bool isTablet) {
     return TweenAnimationBuilder(
       duration: const Duration(milliseconds: 800),
       tween: Tween<double>(begin: 0, end: 1),
@@ -661,16 +750,16 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> with TickerProviderSt
         );
       },
       child: Container(
-        padding: const EdgeInsets.all(36),
+        padding: EdgeInsets.all(isMobile ? 20 : (isTablet ? 28 : 36)),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: BorderRadius.circular(isMobile ? 16 : 24),
           boxShadow: [
             BoxShadow(
               color: Colors.green.withOpacity(0.08),
-              blurRadius: 30,
+              blurRadius: isMobile ? 15 : 30,
               offset: const Offset(0, 10),
-              spreadRadius: 5,
+              spreadRadius: isMobile ? 2 : 5,
             ),
           ],
         ),
@@ -680,12 +769,12 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> with TickerProviderSt
             Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(14),
+                  padding: EdgeInsets.all(isMobile ? 10 : 14),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       colors: [Colors.green[400]!, Colors.green[600]!],
                     ),
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(12),
                     boxShadow: [
                       BoxShadow(
                         color: Colors.green.withOpacity(0.3),
@@ -694,25 +783,37 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> with TickerProviderSt
                       ),
                     ],
                   ),
-                  child: const Icon(Icons.admin_panel_settings, color: Colors.white, size: 32),
+                  child: Icon(
+                    Icons.admin_panel_settings,
+                    color: Colors.white,
+                    size: isMobile ? 24 : 32,
+                  ),
                 ),
-                const SizedBox(width: 16),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'School Admin Account',
-                      style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
-                    ),
-                    Text(
-                      'Create admin credentials for this school',
-                      style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-                    ),
-                  ],
+                SizedBox(width: isMobile ? 12 : 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'School Admin Account',
+                        style: TextStyle(
+                          fontSize: isMobile ? 18 : (isTablet ? 22 : 26),
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        'Create admin credentials for this school',
+                        style: TextStyle(
+                          fontSize: isMobile ? 12 : 14,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
-            const SizedBox(height: 32),
+            SizedBox(height: isMobile ? 20 : 32),
             
             _buildTextField(
               controller: adminNameController,
@@ -727,68 +828,175 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> with TickerProviderSt
               },
             ),
             
-            const SizedBox(height: 24),
+            SizedBox(height: isMobile ? 16 : 24),
             
-            Row(
-              children: [
-                Expanded(
-                  child: Obx(() => _buildTextField(
-                        controller: adminEmailController,
-                        label: 'Admin Email *',
-                        hint: 'admin@example.com',
-                        icon: Icons.email_outlined,
-                        keyboardType: TextInputType.emailAddress,
-                        onChanged: (v) => adminEmailCheck.onValueChanged(v),
-                        suffixIcon: adminEmailCheck.isChecking.value
-                            ? const Padding(
-                                padding: EdgeInsets.all(12),
-                                child: SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
-                                ),
-                              )
-                            : (adminEmailCheck.isTaken.value
-                                ? const Icon(Icons.error_outline, color: Colors.red)
-                                : null),
-                        errorText: adminEmailCheck.isTaken.value ? 'Email already exists' : null,
+            isMobile || isTablet
+                ? Column(
+                    children: [
+                      Obx(() => _buildTextField(
+                            controller: adminEmailController,
+                            label: 'Admin Email *',
+                            hint: 'admin@example.com',
+                            icon: Icons.email_outlined,
+                            keyboardType: TextInputType.emailAddress,
+                            onChanged: (v) => adminEmailCheck.onValueChanged(v),
+                            suffixIcon: adminEmailCheck.isChecking.value
+                                ? const Padding(
+                                    padding: EdgeInsets.all(12),
+                                    child: SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(strokeWidth: 2),
+                                    ),
+                                  )
+                                : adminEmailCheck.isTaken.value
+                                    ? const Icon(Icons.error, color: Colors.red)
+                                    : (!adminEmailCheck.isChecking.value && adminEmailController.text.isNotEmpty)
+                                        ? const Icon(Icons.check_circle, color: Colors.green)
+                                        : null,
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return 'Please enter admin email';
+                              }
+                              if (!GetUtils.isEmail(value)) {
+                                return 'Please enter a valid email';
+                              }
+                              if (adminEmailCheck.isTaken.value) {
+                                return 'This email is already taken';
+                              }
+                              return null;
+                            },
+                          )),
+                      const SizedBox(height: 20),
+                      _buildTextField(
+                        controller: adminPhoneController,
+                        label: 'Admin Phone *',
+                        hint: '+1 (234) 567-8900',
+                        icon: Icons.phone_outlined,
+                        keyboardType: TextInputType.phone,
                         validator: (value) {
                           if (value == null || value.isEmpty) {
-                            return 'Please enter admin email';
-                          }
-                          if (!GetUtils.isEmail(value)) {
-                            return 'Please enter a valid email';
-                          }
-                          if (adminEmailCheck.isTaken.value) {
-                            return 'Email already exists';
+                            return 'Please enter admin phone';
                           }
                           return null;
                         },
-                      )),
-                ),
-                const SizedBox(width: 20),
-                Expanded(
-                  child: _buildTextField(
-                    controller: adminPhoneController,
-                    label: 'Admin Phone *',
-                    hint: '+1 (234) 567-8900',
-                    icon: Icons.phone_android_outlined,
-                    keyboardType: TextInputType.phone,
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Please enter phone number';
-                      }
-                      return null;
-                    },
+                      ),
+                    ],
+                  )
+                : Row(
+                    children: [
+                      Expanded(
+                        child: Obx(() => _buildTextField(
+                              controller: adminEmailController,
+                              label: 'Admin Email *',
+                              hint: 'admin@example.com',
+                              icon: Icons.email_outlined,
+                              keyboardType: TextInputType.emailAddress,
+                              onChanged: (v) => adminEmailCheck.onValueChanged(v),
+                              suffixIcon: adminEmailCheck.isChecking.value
+                                  ? const Padding(
+                                      padding: EdgeInsets.all(12),
+                                      child: SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(strokeWidth: 2),
+                                      ),
+                                    )
+                                  : adminEmailCheck.isTaken.value
+                                      ? const Icon(Icons.error, color: Colors.red)
+                                      : (!adminEmailCheck.isChecking.value && adminEmailController.text.isNotEmpty)
+                                          ? const Icon(Icons.check_circle, color: Colors.green)
+                                          : null,
+                              validator: (value) {
+                                if (value == null || value.isEmpty) {
+                                  return 'Please enter admin email';
+                                }
+                                if (!GetUtils.isEmail(value)) {
+                                  return 'Please enter a valid email';
+                                }
+                                if (adminEmailCheck.isTaken.value) {
+                                  return 'Email already exists';
+                                }
+                                return null;
+                              },
+                            )),
+                      ),
+                      const SizedBox(width: 20),
+                      Expanded(
+                        child: _buildTextField(
+                          controller: adminPhoneController,
+                          label: 'Admin Phone *',
+                          hint: '+1 (234) 567-8900',
+                          icon: Icons.phone_android_outlined,
+                          keyboardType: TextInputType.phone,
+                          validator: (value) {
+                            if (value == null || value.isEmpty) {
+                              return 'Please enter phone number';
+                            }
+                            return null;
+                          },
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-              ],
-            ),
             
-            const SizedBox(height: 24),
+            SizedBox(height: isMobile ? 16 : 24),
             
-            Row(
-              children: [
+            isMobile || isTablet
+                ? Column(
+                    children: [
+                      Obx(() => _buildTextField(
+                            controller: passwordController,
+                            label: 'Password *',
+                            hint: 'Enter strong password',
+                            icon: Icons.lock_outline,
+                            obscureText: !showPassword.value,
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                showPassword.value ? Icons.visibility_off : Icons.visibility,
+                                color: Colors.grey[600],
+                              ),
+                              onPressed: () => showPassword.value = !showPassword.value,
+                            ),
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return 'Please enter password';
+                              }
+                              if (value.length < 6) {
+                                return 'Password must be at least 6 characters';
+                              }
+                              return null;
+                            },
+                          )),
+                      const SizedBox(height: 20),
+                      Obx(() => _buildTextField(
+                            controller: confirmPasswordController,
+                            label: 'Confirm Password *',
+                            hint: 'Re-enter password',
+                            icon: Icons.lock_outline,
+                            obscureText: !showConfirmPassword.value,
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                showConfirmPassword.value ? Icons.visibility_off : Icons.visibility,
+                                color: Colors.grey[600],
+                              ),
+                              onPressed: () =>
+                                  showConfirmPassword.value = !showConfirmPassword.value,
+                            ),
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return 'Please confirm password';
+                              }
+                              if (value != passwordController.text) {
+                                return 'Passwords do not match';
+                              }
+                              return null;
+                            },
+                          )),
+                    ],
+                  )
+                : Row(
+                    children: [
                 Expanded(
                   child: Obx(() => _buildTextField(
                     controller: passwordController,
@@ -942,55 +1150,103 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> with TickerProviderSt
     );
   }
 
-  Widget _buildActionButtons() {
-    return Row(
-      children: [
-        Expanded(
-          child: OutlinedButton.icon(
-            onPressed: () => Get.back(),
-            icon: const Icon(Icons.cancel_outlined, size: 22),
-            label: const Text('Cancel', style: TextStyle(fontSize: 16)),
-            style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 22),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
-              ),
-              side: BorderSide(color: Colors.grey[400]!, width: 2),
-            ),
-          ),
-        ),
-        const SizedBox(width: 20),
-        Expanded(
-          flex: 2,
-          child: Obx(() => ElevatedButton.icon(
-            onPressed: isLoading.value ? null : _submitForm,
-            icon: isLoading.value
-                ? const SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.5,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+  Widget _buildActionButtons(bool isMobile) {
+    return isMobile
+        ? Column(
+            children: [
+              Obx(() => ElevatedButton.icon(
+                    onPressed: isLoading.value ? null : _submitForm,
+                    icon: isLoading.value
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.5,
+                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                            ),
+                          )
+                        : const Icon(Icons.add_circle, size: 22),
+                    label: Text(
+                      isLoading.value ? 'Creating School...' : 'Create School & Admin Account',
+                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                      textAlign: TextAlign.center,
                     ),
-                  )
-                : const Icon(Icons.add_circle, size: 24),
-            label: Text(
-              isLoading.value ? 'Creating School...' : 'Create School & Admin Account',
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-            ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue[600],
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 22),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue[600],
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 18),
+                      minimumSize: const Size(double.infinity, 54),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      elevation: 0,
+                      shadowColor: Colors.blue.withOpacity(0.3),
+                    ),
+                  )),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: () => Get.back(),
+                icon: const Icon(Icons.cancel_outlined, size: 20),
+                label: const Text('Cancel', style: TextStyle(fontSize: 14)),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 18),
+                  minimumSize: const Size(double.infinity, 54),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  side: BorderSide(color: Colors.grey[400]!, width: 2),
+                ),
               ),
-              elevation: 0,
-              shadowColor: Colors.blue.withOpacity(0.3),
-            ),
-          )),
-        ),
-      ],
-    );
+            ],
+          )
+        : Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => Get.back(),
+                  icon: const Icon(Icons.cancel_outlined, size: 22),
+                  label: const Text('Cancel', style: TextStyle(fontSize: 16)),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 22),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    side: BorderSide(color: Colors.grey[400]!, width: 2),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 20),
+              Expanded(
+                flex: 2,
+                child: Obx(() => ElevatedButton.icon(
+                      onPressed: isLoading.value ? null : _submitForm,
+                      icon: isLoading.value
+                          ? const SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.5,
+                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                              ),
+                            )
+                          : const Icon(Icons.add_circle, size: 24),
+                      label: Text(
+                        isLoading.value ? 'Creating School...' : 'Create School & Admin Account',
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue[600],
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 22),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        elevation: 0,
+                        shadowColor: Colors.blue.withOpacity(0.3),
+                      ),
+                    )),
+              ),
+            ],
+          );
   }
 }

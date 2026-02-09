@@ -187,7 +187,7 @@ jupentaindia@gmail.com | +918610078332
 
       Get.snackbar("Success", "School added successfully");
     } catch (e) {
-      Get.snackbar("Error", "Failed to add school: $e");
+      Get.snackbar("Error", "Unable to add school. Please try again.");
     }
   }
 

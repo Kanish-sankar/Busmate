@@ -188,22 +188,29 @@ class _StudentManagementScreenUpgradedState extends State<StudentManagementScree
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  count,
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: color,
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    count,
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: color,
+                    ),
                   ),
                 ),
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[700],
+                const SizedBox(height: 2),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[700],
+                    ),
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
@@ -236,68 +243,135 @@ class _StudentManagementScreenUpgradedState extends State<StudentManagementScree
           ),
           const SizedBox(height: 12),
           // Filters Row
-          Row(
-            children: [
-              Expanded(
-                child: Obx(() => DropdownButtonFormField<String>(
-                  value: controller.selectedClassFilter.value.isEmpty ? null : controller.selectedClassFilter.value,
-                  decoration: InputDecoration(
-                    labelText: 'Class',
-                    prefixIcon: const Icon(Icons.class_, size: 20),
-                    filled: true,
-                    fillColor: Colors.grey[100],
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  ),
-                  items: [
-                    const DropdownMenuItem<String>(value: null, child: Text('All Classes')),
-                    ...controller.uniqueClasses.map((className) => DropdownMenuItem<String>(
-                      value: className,
-                      child: Text(className),
-                    )),
-                  ],
-                  onChanged: (value) => controller.selectedClassFilter.value = value ?? '',
-                )),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Obx(() => DropdownButtonFormField<String>(
-                  value: controller.selectedBusFilter.value.isEmpty ? null : controller.selectedBusFilter.value,
-                  decoration: InputDecoration(
-                    labelText: 'Bus',
-                    prefixIcon: const Icon(Icons.directions_bus, size: 20),
-                    filled: true,
-                    fillColor: Colors.grey[100],
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  ),
-                  items: [
-                    const DropdownMenuItem<String>(value: null, child: Text('All Buses')),
-                    ...controller.students
-                        .where((s) => s.assignedBusId != null && s.assignedBusId!.isNotEmpty)
-                        .map((s) => s.assignedBusId!)
-                        .toSet()
-                        .map((busId) {
-                          // Find bus to show bus number
-                          final busList = busController.buses.where((b) => b.id == busId).toList();
-                          final bus = busList.isNotEmpty ? busList.first : null;
-                          final busDisplay = bus != null ? 'Bus ${bus.busNo}' : busId;
-                          return DropdownMenuItem<String>(
-                            value: busId,
-                            child: Text(busDisplay),
-                          );
-                        }),
-                  ],
-                  onChanged: (value) => controller.selectedBusFilter.value = value ?? '',
-                )),
-              ),
-            ],
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final isMobile = constraints.maxWidth < 600;
+              return isMobile
+                  ? Column(
+                      children: [
+                        Obx(() => DropdownButtonFormField<String>(
+                          value: controller.selectedClassFilter.value.isEmpty ? null : controller.selectedClassFilter.value,
+                          decoration: InputDecoration(
+                            labelText: 'Class',
+                            prefixIcon: const Icon(Icons.class_, size: 18),
+                            filled: true,
+                            fillColor: Colors.grey[100],
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide.none,
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          ),
+                          isExpanded: true,
+                          items: [
+                            const DropdownMenuItem<String>(value: null, child: Text('All Classes')),
+                            ...controller.uniqueClasses.map((className) => DropdownMenuItem<String>(
+                              value: className,
+                              child: Text(className),
+                            )),
+                          ],
+                          onChanged: (value) => controller.selectedClassFilter.value = value ?? '',
+                        )),
+                        const SizedBox(height: 12),
+                        Obx(() => DropdownButtonFormField<String>(
+                          value: controller.selectedBusFilter.value.isEmpty ? null : controller.selectedBusFilter.value,
+                          decoration: InputDecoration(
+                            labelText: 'Bus',
+                            prefixIcon: const Icon(Icons.directions_bus, size: 18),
+                            filled: true,
+                            fillColor: Colors.grey[100],
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide.none,
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          ),
+                          isExpanded: true,
+                          items: [
+                            const DropdownMenuItem<String>(value: null, child: Text('All Buses')),
+                            ...controller.students
+                                .where((s) => s.assignedBusId != null && s.assignedBusId!.isNotEmpty)
+                                .map((s) => s.assignedBusId!)
+                                .toSet()
+                                .map((busId) {
+                                  final busList = busController.buses.where((b) => b.id == busId).toList();
+                                  final bus = busList.isNotEmpty ? busList.first : null;
+                                  final busDisplay = bus != null ? 'Bus ${bus.busNo}' : busId;
+                                  return DropdownMenuItem<String>(
+                                    value: busId,
+                                    child: Text(busDisplay),
+                                  );
+                                }),
+                          ],
+                          onChanged: (value) => controller.selectedBusFilter.value = value ?? '',
+                        )),
+                      ],
+                    )
+                  : Row(
+                      children: [
+                        Expanded(
+                          child: Obx(() => DropdownButtonFormField<String>(
+                            value: controller.selectedClassFilter.value.isEmpty ? null : controller.selectedClassFilter.value,
+                            decoration: InputDecoration(
+                              labelText: 'Class',
+                              prefixIcon: const Icon(Icons.class_, size: 20),
+                              filled: true,
+                              fillColor: Colors.grey[100],
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide.none,
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            ),
+                            isExpanded: true,
+                            items: [
+                              const DropdownMenuItem<String>(value: null, child: Text('All Classes')),
+                              ...controller.uniqueClasses.map((className) => DropdownMenuItem<String>(
+                                value: className,
+                                child: Text(className),
+                              )),
+                            ],
+                            onChanged: (value) => controller.selectedClassFilter.value = value ?? '',
+                          )),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Obx(() => DropdownButtonFormField<String>(
+                            value: controller.selectedBusFilter.value.isEmpty ? null : controller.selectedBusFilter.value,
+                            decoration: InputDecoration(
+                              labelText: 'Bus',
+                              prefixIcon: const Icon(Icons.directions_bus, size: 20),
+                              filled: true,
+                              fillColor: Colors.grey[100],
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide.none,
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            ),
+                            isExpanded: true,
+                            items: [
+                              const DropdownMenuItem<String>(value: null, child: Text('All Buses')),
+                              ...controller.students
+                                  .where((s) => s.assignedBusId != null && s.assignedBusId!.isNotEmpty)
+                                  .map((s) => s.assignedBusId!)
+                                  .toSet()
+                                  .map((busId) {
+                                    final busList = busController.buses.where((b) => b.id == busId).toList();
+                                    final bus = busList.isNotEmpty ? busList.first : null;
+                                    final busDisplay = bus != null ? 'Bus ${bus.busNo}' : busId;
+                                    return DropdownMenuItem<String>(
+                                      value: busId,
+                                      child: Text(busDisplay),
+                                    );
+                                  }),
+                            ],
+                            onChanged: (value) => controller.selectedBusFilter.value = value ?? '',
+                          )),
+                        ),
+                      ],
+                    );
+            },
           ),
         ],
       ),
@@ -338,207 +412,282 @@ class _StudentManagementScreenUpgradedState extends State<StudentManagementScree
   }
 
   Widget _buildStudentCard(Student student) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 16),
-      elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: () => _showStudentDetailsDialog(student),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            children: [
-              Row(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isMobile = constraints.maxWidth < 600;
+        
+        return Card(
+          margin: EdgeInsets.only(bottom: isMobile ? 12 : 16),
+          elevation: 2,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => _showStudentDetailsDialog(student),
+            child: Padding(
+              padding: EdgeInsets.all(isMobile ? 12 : 16),
+              child: Column(
                 children: [
-                  // Student Avatar
-                  Container(
-                    width: 60,
-                    height: 60,
-                    decoration: BoxDecoration(
-                      color: Colors.green[50],
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.green[100]!, width: 2),
-                    ),
-                    child: Icon(Icons.person, size: 30, color: Colors.green[700]),
-                  ),
-                  const SizedBox(width: 16),
-                  
-                  // Student Info
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          student.name,
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
+                  Row(
+                    children: [
+                      // Student Avatar
+                      Container(
+                        width: isMobile ? 50 : 60,
+                        height: isMobile ? 50 : 60,
+                        decoration: BoxDecoration(
+                          color: Colors.green[50],
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.green[100]!, width: 2),
                         ),
-                        const SizedBox(height: 4),
-                        Row(
+                        child: Icon(Icons.person, size: isMobile ? 25 : 30, color: Colors.green[700]),
+                      ),
+                      SizedBox(width: isMobile ? 12 : 16),
+                  
+                      // Student Info
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Icon(Icons.badge, size: 14, color: Colors.grey[600]),
-                            const SizedBox(width: 4),
                             Text(
-                              'Roll: ${student.rollNumber}',
-                              style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                              student.name,
+                              style: TextStyle(
+                                fontSize: isMobile ? 16 : 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                            const SizedBox(width: 12),
-                            Icon(Icons.class_, size: 14, color: Colors.grey[600]),
-                            const SizedBox(width: 4),
-                            Text(
-                              student.studentClass,
-                              style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-                            ),
+                            SizedBox(height: isMobile ? 3 : 4),
+                            if (isMobile)
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(Icons.badge, size: 12, color: Colors.grey[600]),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        'Roll: ${student.rollNumber}',
+                                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Row(
+                                    children: [
+                                      Icon(Icons.class_, size: 12, color: Colors.grey[600]),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        student.studentClass,
+                                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              )
+                            else
+                              Row(
+                                children: [
+                                  Icon(Icons.badge, size: 14, color: Colors.grey[600]),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'Roll: ${student.rollNumber}',
+                                    style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Icon(Icons.class_, size: 14, color: Colors.grey[600]),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    student.studentClass,
+                                    style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                                  ),
+                                ],
+                              ),
                           ],
                         ),
-                      ],
-                    ),
-                  ),
-                  
-                  // Assignment Badge
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: (student.assignedBusId != null && student.assignedBusId!.isNotEmpty)
-                          ? Colors.green.withOpacity(0.1)
-                          : Colors.orange.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: (student.assignedBusId != null && student.assignedBusId!.isNotEmpty)
-                            ? Colors.green
-                            : Colors.orange,
                       ),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          (student.assignedBusId != null && student.assignedBusId!.isNotEmpty)
-                              ? Icons.check_circle
-                              : Icons.pending,
-                          size: 16,
-                          color: (student.assignedBusId != null && student.assignedBusId!.isNotEmpty)
-                              ? Colors.green
-                              : Colors.orange,
+                  
+                      // Assignment Badge
+                      Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: isMobile ? 8 : 12,
+                          vertical: isMobile ? 4 : 6,
                         ),
-                        const SizedBox(width: 4),
-                        Text(
-                          (student.assignedBusId != null && student.assignedBusId!.isNotEmpty)
-                              ? 'Assigned'
-                              : 'Unassigned',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
+                        decoration: BoxDecoration(
+                          color: (student.assignedBusId != null && student.assignedBusId!.isNotEmpty)
+                              ? Colors.green.withOpacity(0.1)
+                              : Colors.orange.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
                             color: (student.assignedBusId != null && student.assignedBusId!.isNotEmpty)
                                 ? Colors.green
                                 : Colors.orange,
                           ),
                         ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              
-              const SizedBox(height: 16),
-              const Divider(height: 1),
-              const SizedBox(height: 16),
-              
-              // Student Details
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildInfoChip(
-                      'Parent',
-                      student.parentContact,
-                      Icons.phone,
-                      Colors.blue,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _buildInfoChip(
-                      'Stopping',
-                      student.stopping.isNotEmpty ? student.stopping : 'Not set',
-                      Icons.location_on,
-                      Colors.red,
-                    ),
-                  ),
-                ],
-              ),
-              
-              if (student.assignedBusId != null && student.assignedBusId!.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                Obx(() {
-                  final busList = busController.buses.where((b) => b.id == student.assignedBusId).toList();
-                  final bus = busList.isNotEmpty ? busList.first : null;
-                  final busDisplayText = bus != null 
-                      ? 'Bus ${bus.busNo} - ${bus.busVehicleNo}'
-                      : student.assignedBusId!;
-                  
-                  return _buildInfoChip(
-                    'Assigned Bus',
-                    busDisplayText,
-                    Icons.directions_bus,
-                    Colors.green,
-                    fullWidth: true,
-                  );
-                }),
-              ],
-              
-              // Action Buttons
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () {
-                        Get.to(() => AddStudentScreenUpgraded(), arguments: {
-                          'isEdit': true,
-                          'student': student,
-                          'schoolId': controller.schoolId,
-                        });
-                      },
-                      icon: const Icon(Icons.edit, size: 18),
-                      label: const Text('Edit'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.blue[700],
-                        side: BorderSide(color: Colors.blue[300]!),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              (student.assignedBusId != null && student.assignedBusId!.isNotEmpty)
+                                  ? Icons.check_circle
+                                  : Icons.pending,
+                              size: isMobile ? 14 : 16,
+                              color: (student.assignedBusId != null && student.assignedBusId!.isNotEmpty)
+                                  ? Colors.green
+                                  : Colors.orange,
+                            ),
+                            if (!isMobile) ...[
+                              const SizedBox(width: 4),
+                              Text(
+                                (student.assignedBusId != null && student.assignedBusId!.isNotEmpty)
+                                    ? 'Assigned'
+                                    : 'Unassigned',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: (student.assignedBusId != null && student.assignedBusId!.isNotEmpty)
+                                      ? Colors.green
+                                      : Colors.orange,
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                       ),
-                    ),
+                    ],
                   ),
-                  // Only show delete button for Super Admin
-                  if (widget.fromSuperAdmin) ...[
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () => _confirmDelete(student),
-                        icon: const Icon(Icons.delete, size: 18),
-                        label: const Text('Delete'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.red[700],
-                          side: BorderSide(color: Colors.red[300]!),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
+              
+                  SizedBox(height: isMobile ? 12 : 16),
+                  const Divider(height: 1),
+                  SizedBox(height: isMobile ? 12 : 16),
+                  
+                  // Student Details
+                  isMobile
+                      ? Column(
+                          children: [
+                            _buildInfoChip(
+                              'Parent',
+                              student.parentContact,
+                              Icons.phone,
+                              Colors.blue,
+                              fullWidth: true,
+                            ),
+                            const SizedBox(height: 8),
+                            _buildInfoChip(
+                              'Stopping',
+                              student.stopping.isNotEmpty ? student.stopping : 'Not set',
+                              Icons.location_on,
+                              Colors.red,
+                              fullWidth: true,
+                            ),
+                          ],
+                        )
+                      : Row(
+                          children: [
+                            Expanded(
+                              child: _buildInfoChip(
+                                'Parent',
+                                student.parentContact,
+                                Icons.phone,
+                                Colors.blue,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _buildInfoChip(
+                                'Stopping',
+                                student.stopping.isNotEmpty ? student.stopping : 'Not set',
+                                Icons.location_on,
+                                Colors.red,
+                              ),
+                            ),
+                          ],
+                        ),
+              
+                  if (student.assignedBusId != null && student.assignedBusId!.isNotEmpty) ...[
+                    SizedBox(height: isMobile ? 8 : 12),
+                    Obx(() {
+                      final busList = busController.buses.where((b) => b.id == student.assignedBusId).toList();
+                      final bus = busList.isNotEmpty ? busList.first : null;
+                      final busDisplayText = bus != null 
+                          ? 'Bus ${bus.busNo} - ${bus.busVehicleNo}'
+                          : student.assignedBusId!;
+                      
+                      return _buildInfoChip(
+                        'Assigned Bus',
+                        busDisplayText,
+                        Icons.directions_bus,
+                        Colors.green,
+                        fullWidth: true,
+                      );
+                    }),
+                  ],
+                  
+                  // Action Buttons
+                  SizedBox(height: isMobile ? 12 : 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () {
+                            Get.to(() => AddStudentScreenUpgraded(), arguments: {
+                              'isEdit': true,
+                              'student': student,
+                              'schoolId': controller.schoolId,
+                            });
+                          },
+                          icon: Icon(Icons.edit, size: isMobile ? 16 : 18),
+                          label: Text(
+                            'Edit',
+                            style: TextStyle(fontSize: isMobile ? 13 : 14),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.blue[700],
+                            side: BorderSide(color: Colors.blue[300]!),
+                            padding: EdgeInsets.symmetric(
+                              vertical: isMobile ? 8 : 12,
+                              horizontal: isMobile ? 8 : 16,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                  ],
+                      // Only show delete button for Super Admin
+                      if (widget.fromSuperAdmin) ...[
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () => _confirmDelete(student),
+                            icon: Icon(Icons.delete, size: isMobile ? 16 : 18),
+                            label: Text(
+                              'Delete',
+                              style: TextStyle(fontSize: isMobile ? 13 : 14),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.red[700],
+                              side: BorderSide(color: Colors.red[300]!),
+                              padding: EdgeInsets.symmetric(
+                                vertical: isMobile ? 8 : 12,
+                                horizontal: isMobile ? 8 : 16,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
                 ],
               ),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
