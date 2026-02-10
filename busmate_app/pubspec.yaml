@@ -55,7 +55,7 @@ dependencies:
   geolocator: 
   background_locator_2:
   change_app_package_name: 
-  flutter_local_notifications:
+  flutter_local_notifications: 19.4.2
   flutter_launcher_icons:
   permission_handler:
   crypto:
