@@ -52,7 +52,6 @@ package-lock.json
 
 # Sensitive files - DO NOT COMMIT
 .env
-**/firebase_options.dart
 **/google-services.json
 **/GoogleService-Info.plist
 **/*.keystore
