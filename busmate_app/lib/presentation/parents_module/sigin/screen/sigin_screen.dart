@@ -6,6 +6,7 @@ import 'dart:math' as math;
 import 'package:busmate/meta/utils/constant/app_colors.dart';
 import 'package:busmate/meta/utils/constant/app_images.dart';
 import 'package:busmate/presentation/parents_module/sigin/controller/signin_controller.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 class SignInScreen extends GetView<SignInController> {
   const SignInScreen({super.key});
@@ -647,13 +648,21 @@ class SignInScreen extends GetView<SignInController> {
                 Center(
                   child: Column(
                     children: [
-                      Text(
-                        'Version 2.3.33',
-                        style: TextStyle(
-                          fontSize: 12.sp,
-                          color: Colors.grey.shade600,
-                          fontWeight: FontWeight.w500,
-                        ),
+                      FutureBuilder<PackageInfo>(
+                        future: PackageInfo.fromPlatform(),
+                        builder: (context, snapshot) {
+                          final version = snapshot.hasData 
+                              ? '${snapshot.data!.version} (${snapshot.data!.buildNumber})'
+                              : '2.3.35+13';
+                          return Text(
+                            'Version $version',
+                            style: TextStyle(
+                              fontSize: 12.sp,
+                              color: Colors.grey.shade600,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          );
+                        },
                       ),
                       SizedBox(height: 4.h),
                       Text(
