@@ -470,7 +470,6 @@ class AuthLogin extends GetxController {
     final updateData = <String, dynamic>{
       'fcmToken': token,
       'tokenUpdatedAt': FieldValue.serverTimestamp(),
-      'platform': Platform.isIOS ? 'ios' : (Platform.isAndroid ? 'android' : 'other'), // Track device platform
     };
 
     final updatedSchoolDetails = await _writeStudentTokenToCollection(

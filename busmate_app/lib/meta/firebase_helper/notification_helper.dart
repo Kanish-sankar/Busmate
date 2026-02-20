@@ -172,46 +172,22 @@ class NotificationHelper {
     );
 
     // ✅ Foreground notification handling - ALWAYS TRIGGERS FOR DATA-ONLY MESSAGES
-    // Android: Notification messages auto-display, data messages call onMessage
-    // iOS: Data-only messages with content-available wake app and trigger this handler
+    // Android: Data-only messages ALWAYS call onMessage, even in foreground
+    // iOS: notification field in APNS ensures listener wakes up
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      print('🔔 ============================================');
-      print('🔔 FCM onMessage RECEIVED (app in foreground)');
-      print('🔔 Message ID: ${message.messageId}');
-      print('🔔 Type: ${message.data['type']}');
-      print('🔔 Platform: ${message.data['platform'] ?? 'unknown'}');
-      print('🔔 Display Method: ${message.data['displayMethod'] ?? 'unknown'}');
-      print('🔔 Has notification field: ${message.notification != null}');
-      print('🔔 Data: ${message.data}');
-      print('🔔 ============================================');
-      
-      // ✅ CRITICAL: Platform-specific notification display
-      // Android: System already displayed from android.notification → DON'T show again
-      // iOS: Data-only message, we MUST display it manually
+      // ✅ CRITICAL: ALWAYS show notification when app is open
+      // Android: This is the ONLY way notification will be shown (data-only message)
+      // iOS: System may show notification, but we show custom one with correct sound
       if (!kIsWeb) {
         try {
-          final displayMethod = message.data['displayMethod'] ?? 'system';
-          
-          if (displayMethod == 'flutter') {
-            // iOS: Flutter must display notification (data-only message)
-            print('🔔 iOS detected - Flutter will display notification');
-            if (message.data['type'] == 'bus_arrival') {
-              print('🔔 Calling showCustomNotification...');
-              showCustomNotification(message);
-            } else {
-              print('🔔 Calling showLocalNotification...');
-              showLocalNotification(message);
-            }
+          if (message.data['type'] == 'bus_arrival') {
+            showCustomNotification(message);
           } else {
-            // Android: System already displayed, skip Flutter display
-            print('🔔 Android detected - System already displayed notification');
-            print('🔔 Skipping Flutter display to avoid duplicate');
+            showLocalNotification(message);
           }
         } catch (e) {
-          print('❌ Failed to show notification: $e');
         }
       } else {
-        print('⚠️ Web platform - notifications not shown');
       }
       
       // Acknowledge notification
@@ -247,9 +223,6 @@ class NotificationHelper {
   }
 
   static Future<void> showCustomNotification(RemoteMessage message) async {
-    print('📱 ============================================');
-    print('📱 showCustomNotification CALLED');
-    
     String notificationType =
       message.data['notificationType'] ?? 'Text Notification';
     String selectedLanguage = message.data['selectedLanguage'] ?? 'english';
@@ -260,14 +233,6 @@ class NotificationHelper {
     String soundName = channelSpec.sound;
     // Check notification type preference (but always play sound for bus arrival)
     bool isVoiceNotification = notificationType.toLowerCase().contains("voice");
-    
-    print('📱 Platform: ${Platform.isIOS ? "iOS" : "Android"}');
-    print('📱 Language: $selectedLanguage');
-    print('📱 Channel ID: ${channelSpec.id}');
-    print('📱 Sound: $soundName');
-    print('📱 Is Voice: $isVoiceNotification');
-    print('📱 iOS Sound File: $soundName.wav');
-    
     final largeIconBitmap = await _loadBusmateLargeIcon();
 
     final AndroidNotificationDetails androidPlatformChannelSpecifics =
@@ -316,11 +281,6 @@ class NotificationHelper {
     // ✅ Get title/body from data if notification field is null (data-only messages)
     final title = message.notification?.title ?? message.data['title'] ?? 'Bus Approaching!';
     final body = message.notification?.body ?? message.data['body'] ?? 'The bus will arrive soon.';
-    
-    print('📱 Showing notification ID: $notificationId');
-    print('📱 Title: $title');
-    print('📱 Body: $body');
-    
     await flutterLocalNotificationsPlugin.show(
       notificationId,
       title,
@@ -328,9 +288,6 @@ class NotificationHelper {
       platformChannelSpecifics,
       payload: message.data['studentId'],
     );
-    
-    print('📱 ✅ Notification shown successfully!');
-    print('📱 ============================================');
   }
 
   static Future<void> showLocalNotification(RemoteMessage message) async {

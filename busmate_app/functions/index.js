@@ -1750,18 +1750,19 @@ async function processNotificationsForBus(schoolId, busId, busData) {
         
         const isVoiceNotification = (student.notificationType || "").toLowerCase() === "voice notification";
         
-        // ✅ PLATFORM-SPECIFIC FCM PAYLOAD STRUCTURE
-        // Android: Works with notification field (auto-display with proper channel sound)
-        // iOS: Needs data-only (Flutter displays with custom sound)
+        // ✅ CORRECTED FCM PAYLOAD STRUCTURE (following DeepSeek's instructions)
+        // Now includes notification field at root level for both foreground and background delivery
         const lang = (student.languagePreference || "english").toLowerCase();
         const soundName = `notification_${lang}`; // e.g., "notification_english"
-        const platform = student.platform || "android"; // Default to android for legacy students
-        const isIOS = platform === "ios";
         
-        // Base payload structure (common for both platforms)
         const payload = {
           token: student.fcmToken,
-          // ✅ Data field - ALWAYS included for both platforms
+          // ✅ Root-level notification field for reliable delivery
+          notification: {
+            title: "Bus Approaching!",
+            body: `Bus will arrive in approximately ${eta.toFixed(0)} minutes.`,
+          },
+          // ✅ Data field for custom handling in Flutter
           data: {
             type: "bus_arrival",
             title: "Bus Approaching!",
@@ -1771,50 +1772,43 @@ async function processNotificationsForBus(schoolId, busId, busData) {
             selectedLanguage: lang,
             eta: eta.toString(),
             busId: busId,
-            sound: soundName,
-            platform: platform,
-            displayMethod: isIOS ? "flutter" : "system", // iOS=Flutter displays, Android=System displays
+            sound: soundName, // Pass sound name to Flutter
           },
-          // ✅ Android-specific configuration (system displays notification)
+          // ✅ Android-specific configuration
           android: {
             priority: "high",
             ttl: 2 * 60 * 1000,
             notification: {
               title: "Bus Approaching!",
               body: `Bus will arrive in approximately ${eta.toFixed(0)} minutes.`,
-              channel_id: `busmate_voice_${lang}`, // Use language-specific channel with sound
-              sound: soundName, // Android sound (no extension needed)
+              channel_id: `busmate_voice_${lang}`, // Use language-specific channel
+              sound: soundName, // Android sound (no extension)
               click_action: "FLUTTER_NOTIFICATION_CLICK",
             },
           },
-        };
-        
-        // ✅ iOS-specific configuration (data-only, Flutter displays)
-        if (isIOS) {
-          payload.apns = {
+          // ✅ iOS (APNs) specific configuration
+          apns: {
             headers: {
               "apns-priority": "10",
               "apns-expiration": "120000",
-              "apns-push-type": "background", // Silent delivery, wakes app
+              "apns-push-type": "alert",
             },
             payload: {
               aps: {
-                // ❌ NO alert field (prevents iOS auto-display)
-                // ❌ NO sound field (Flutter plays it)
-                "content-available": 1, // ✅ Wake app in background to run Flutter handlers
+                alert: {
+                  title: "Bus Approaching!",
+                  body: `Bus will arrive in approximately ${eta.toFixed(0)} minutes.`,
+                },
+                sound: `${soundName}.wav`, // iOS needs .wav extension
+                "content-available": 1, // ✅ FIXED: Use hyphenated key for iOS background
+                "mutable-content": 1, // ✅ Allow notification modification
                 badge: 1,
                 category: "BUSMATE_CATEGORY",
                 "thread-id": "bus_arrival",
+                "interruption-level": "time-sensitive", // ✅ Breakthrough Focus mode
               },
             },
-          };
-        } else {
-          // ✅ Android APNs config (not used, but included for completeness)
-          payload.apns = {
-            headers: {
-              "apns-priority": "10",
-            },
-          };
+          },
         }
         
         const tripDirection = busData.tripDirection || 'unknown';
@@ -1850,19 +1844,15 @@ async function processNotificationsForBus(schoolId, busId, busData) {
         try {
           console.log(`   🚀 ============================================`);
           console.log(`   🚀 SENDING FCM to ${task.studentId} (${task.studentName})`);
-          console.log(`   📱 Platform: ${task.payload.data.platform || 'unknown'}`);
-          console.log(`   📱 Display Method: ${task.payload.data.displayMethod || 'unknown'}`);
-          console.log(`   📱 Token: ${task.payload.token.substring(0, 50)}...`);
-          console.log(`   📦 Message Type: ${task.payload.data.platform === 'ios' ? 'DATA-ONLY (Flutter displays)' : 'NOTIFICATION (System displays)'}`);
+          console.log(`   📱 Token: ${task.payload.token}`);
+          console.log(`   📦 Payload:`);
           console.log(`      - Title: ${task.payload.data.title}`);
           console.log(`      - Body: ${task.payload.data.body}`);
+          console.log(`      - Android: DATA-ONLY message (no notification field)`);
+          console.log(`      - iOS: notification + data`);
           console.log(`      - Language: ${task.payload.data.selectedLanguage}`);
-          console.log(`      - Sound: ${task.payload.data.sound}`);
-          if (task.payload.data.platform === 'ios') {
-            console.log(`      - iOS: Silent push → Flutter handles display & sound`);
-          } else {
-            console.log(`      - Android: System displays with channel sound`);
-          }
+          console.log(`      - Priority: ${task.payload.android.priority}`);
+          console.log(`      - Data: ${JSON.stringify(task.payload.data)}`);
           
           const sendStartTime = Date.now();
           const result = await admin.messaging().send(task.payload);

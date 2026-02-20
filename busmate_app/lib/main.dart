@@ -21,23 +21,10 @@ final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  
-  print('🔔 ============================================');
-  print('🔔 FCM BACKGROUND HANDLER CALLED');
-  print('🔔 Message ID: ${message.messageId}');
-  print('🔔 Type: ${message.data['type']}');
-  print('🔔 Platform: ${message.data['platform'] ?? 'unknown'}');
-  print('🔔 Display Method: ${message.data['displayMethod'] ?? 'unknown'}');
-  print('🔔 Has notification field: ${message.notification != null}');
-  print('🔔 Data: ${message.data}');
-  print('🔔 ============================================');
-  
   // Handle bus arrival notifications
   if (message.data['type'] == 'bus_arrival') {
     String studentId = message.data['studentId'];
     String? selectedLanguage = message.data['selectedLanguage'];
-    final displayMethod = message.data['displayMethod'] ?? 'system';
-    
     // Update notification timer
     try {
       await FirebaseFirestore.instance
@@ -46,24 +33,14 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
           .update({
         "smsSent": true,
       });
-      print('✅ Updated notificationTimers for $studentId');
     } catch (e) {
-      print('❌ Failed to update notificationTimers: $e');
     }
     
-    // ✅ Platform-specific notification display
-    // Android: System already displayed from android.notification → DON'T show again
-    // iOS: Data-only message, Flutter MUST display it
-    if (displayMethod == 'flutter') {
-      print('🔔 iOS: Flutter will display notification');
-      try {
-        await NotificationHelper.showCustomNotification(message);
-        print('✅ showCustomNotification completed');
-      } catch (e) {
-        print('❌ Failed to show custom notification: $e');
-      }
-    } else {
-      print('🔔 Android: System already displayed notification, skipping Flutter display');
+    // ✅ Show custom notification with language-specific voice
+    // This works for both Android and iOS in background
+    try {
+      await NotificationHelper.showCustomNotification(message);
+    } catch (e) {
     }
   }
 }
