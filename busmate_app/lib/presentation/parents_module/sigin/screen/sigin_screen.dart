@@ -653,7 +653,7 @@ class SignInScreen extends GetView<SignInController> {
                         builder: (context, snapshot) {
                           final version = snapshot.hasData 
                               ? '${snapshot.data!.version} (${snapshot.data!.buildNumber})'
-                              : '2.3.36+14';
+                              : '2.3.37+15';
                           return Text(
                             'Version $version',
                             style: TextStyle(
