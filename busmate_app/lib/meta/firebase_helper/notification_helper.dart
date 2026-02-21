@@ -172,28 +172,22 @@ class NotificationHelper {
     );
 
     // ✅ Foreground notification handling - ALWAYS TRIGGERS FOR DATA-ONLY MESSAGES
-    // Android: Data-only messages ALWAYS call onMessage, even in foreground
-    // iOS: notification field in APNS ensures listener wakes up
+    // Foreground: System doesn't auto-display when app is open, Flutter must show
+    // Background: System auto-displays, don't show again
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      // ✅ CRITICAL: ALWAYS show notification when app is open
-      // Android: This is the ONLY way notification will be shown (data-only message)
-      // iOS: System may show notification, but we show custom one with correct sound
       if (!kIsWeb) {
-        try {
-          if (message.data['type'] == 'bus_arrival') {
-            showCustomNotification(message);
-          } else {
-            showLocalNotification(message);
-          }
-        } catch (e) {
+        // App is in foreground, show notification
+        if (message.data['type'] == 'bus_arrival') {
+          showCustomNotification(message);
+        } else {
+          showLocalNotification(message);
         }
-      } else {
-      }
-      
-      // Acknowledge notification
-      final studentId = message.data['studentId'];
-      if (studentId != null && studentId.isNotEmpty) {
-        acknowledgeNotification(studentId);
+        
+        // Acknowledge
+        final studentId = message.data['studentId'];
+        if (studentId != null && studentId.isNotEmpty) {
+          acknowledgeNotification(studentId);
+        }
       }
     });
 

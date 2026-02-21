@@ -24,7 +24,6 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   // Handle bus arrival notifications
   if (message.data['type'] == 'bus_arrival') {
     String studentId = message.data['studentId'];
-    String? selectedLanguage = message.data['selectedLanguage'];
     // Update notification timer
     try {
       await FirebaseFirestore.instance
@@ -35,13 +34,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       });
     } catch (e) {
     }
-    
-    // ✅ Show custom notification with language-specific voice
-    // This works for both Android and iOS in background
-    try {
-      await NotificationHelper.showCustomNotification(message);
-    } catch (e) {
-    }
+    // System already showed notification from FCM payload, just acknowledge
   }
 }
 

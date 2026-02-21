@@ -1750,8 +1750,6 @@ async function processNotificationsForBus(schoolId, busId, busData) {
         
         const isVoiceNotification = (student.notificationType || "").toLowerCase() === "voice notification";
         
-        // ✅ CORRECTED FCM PAYLOAD STRUCTURE (following DeepSeek's instructions)
-        // Now includes notification field at root level for both foreground and background delivery
         const lang = (student.languagePreference || "english").toLowerCase();
         const soundName = `notification_${lang}`; // e.g., "notification_english"
         
@@ -1772,7 +1770,7 @@ async function processNotificationsForBus(schoolId, busId, busData) {
             selectedLanguage: lang,
             eta: eta.toString(),
             busId: busId,
-            sound: soundName, // Pass sound name to Flutter
+            sound: soundName,
           },
           // ✅ Android-specific configuration
           android: {
@@ -1781,8 +1779,8 @@ async function processNotificationsForBus(schoolId, busId, busData) {
             notification: {
               title: "Bus Approaching!",
               body: `Bus will arrive in approximately ${eta.toFixed(0)} minutes.`,
-              channel_id: `busmate_voice_${lang}`, // Use language-specific channel
-              sound: soundName, // Android sound (no extension)
+              channel_id: `busmate_voice_${lang}`,
+              // Sound is bound to channel, don't specify here
               click_action: "FLUTTER_NOTIFICATION_CLICK",
             },
           },
@@ -1799,13 +1797,13 @@ async function processNotificationsForBus(schoolId, busId, busData) {
                   title: "Bus Approaching!",
                   body: `Bus will arrive in approximately ${eta.toFixed(0)} minutes.`,
                 },
-                sound: `${soundName}.wav`, // iOS needs .wav extension
-                "content-available": 1, // ✅ FIXED: Use hyphenated key for iOS background
-                "mutable-content": 1, // ✅ Allow notification modification
+                sound: `${soundName}.wav`,
+                "content-available": 1,
+                "mutable-content": 1,
                 badge: 1,
                 category: "BUSMATE_CATEGORY",
                 "thread-id": "bus_arrival",
-                "interruption-level": "time-sensitive", // ✅ Breakthrough Focus mode
+                "interruption-level": "time-sensitive",
               },
             },
           },

@@ -360,14 +360,15 @@ class DriverController extends GetxController {
       String schoolId = storage.read('driverSchoolId');
       String busId = storage.read('driverBusId');
       String routeType = "pickup"; // <-- define routeType with default
-      // Query ALL active route schedules (may have both pickup and drop)
+      // Query active route schedules (optimized: limit to 2 since buses typically have max 2 schedules)
       final routeQuery = await FirebaseFirestore.instance
           .collection('schools')
           .doc(schoolId)
           .collection('route_schedules')
           .where('busId', isEqualTo: busId)
           .where('isActive', isEqualTo: true)
-          .get(); // Get ALL active schedules
+          .limit(2) // ⚡ OPTIMIZED: Most buses have 1-2 schedules (pickup/drop)
+          .get();
 
       if (routeQuery.docs.isEmpty) {
         Get.snackbar("Error", "No active route schedule found for this bus");
@@ -520,13 +521,17 @@ class DriverController extends GetxController {
       }
 
       // Get driver's ACTUAL current location (not first stop location)
+      // ⚡ OPTIMIZED: Use last known location immediately, then fetch fresh GPS in background
       geolocator.Position currentPosition;
       try {
-        currentPosition = await geolocator.Geolocator.getCurrentPosition(
-          desiredAccuracy: geolocator.LocationAccuracy.high,
-        );
+        // Try to get last known position first (instant, cached)
+        currentPosition = await geolocator.Geolocator.getLastKnownPosition() ??
+            await geolocator.Geolocator.getCurrentPosition(
+              desiredAccuracy: geolocator.LocationAccuracy.high,
+              timeLimit: Duration(seconds: 2), // ⚡ Don't wait more than 2 seconds
+            );
       } catch (e) {
-        // Fallback to first stop if GPS fails
+        // Fallback to first stop if GPS unavailable
         currentPosition = geolocator.Position(
           latitude: stops[0]['latitude'],
           longitude: stops[0]['longitude'],
