@@ -12,44 +12,31 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> {
+  late final AuthController _authController;
+  Worker? _authReadyWorker;
+
+  void _routeIfReady() {
+    if (!mounted) return;
+    if (!_authController.authReady.value) return;
+
+    // Logged-in users are routed by AuthController role logic.
+    if (!_authController.isLoggedIn()) {
+      Get.offAllNamed(Routes.LOGIN);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
-
-    // Delay navigation by 2 seconds and then check auth state
-    Future.delayed(const Duration(seconds: 2), () {
-      final AuthController authController = Get.find();
-
-      if (!authController.isLoggedIn()) {
-        Get.offAllNamed(Routes.LOGIN);
-      } else {
-        // Navigate based on user role
-        _navigateBasedOnRole(authController);
-      }
-    });
+    _authController = Get.find<AuthController>();
+    _authReadyWorker = ever<bool>(_authController.authReady, (_) => _routeIfReady());
+    _routeIfReady();
   }
 
-  void _navigateBasedOnRole(AuthController authController) {
-    // Wait for user role to be fetched
-    if (authController.userRole.value == null) {
-      // Wait a bit more for role to be loaded
-      Future.delayed(const Duration(milliseconds: 500), () {
-        _navigateBasedOnRole(authController);
-      });
-      return;
-    }
-
-    switch (authController.userRole.value) {
-      case UserRole.superior:
-        Get.offAllNamed(Routes.SUPER_ADMIN_DASHBOARD);
-        break;
-      case UserRole.schoolAdmin:
-        Get.offAllNamed(Routes.SCHOOL_ADMIN_DASHBOARD);
-        break;
-      default:
-        Get.offAllNamed(Routes.LOGIN);
-        break;
-    }
+  @override
+  void dispose() {
+    _authReadyWorker?.dispose();
+    super.dispose();
   }
 
   @override
@@ -66,34 +53,35 @@ class _SplashScreenState extends State<SplashScreen> {
             ],
           ),
         ),
-        child: const Center(
+        child: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(
-                Icons.directions_bus,
-                size: 80,
-                color: Colors.white,
-              ),
-              SizedBox(height: 20),
-              Text(
-                'BusMate',
-                style: TextStyle(
-                  fontSize: 36,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
+              // BusMate logo only
+              Image.asset(
+                'assets/images/LOGO.png',
+                width: 130,
+                height: 130,
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) => const Text(
+                  'BusMate',
+                  style: TextStyle(
+                    fontSize: 36,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
                 ),
               ),
-              SizedBox(height: 10),
-              Text(
+              const SizedBox(height: 20),
+              const Text(
                 'School Bus Tracking System',
                 style: TextStyle(
                   fontSize: 18,
                   color: Colors.white70,
                 ),
               ),
-              SizedBox(height: 40),
-              CircularProgressIndicator(
+              const SizedBox(height: 40),
+              const CircularProgressIndicator(
                 valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
               ),
             ],
