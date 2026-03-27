@@ -12,7 +12,6 @@ build/
 # Misc
 .DS_Store
 *.log
-pubspec.lock
 
 # Keep source files for cloud build; only ignore heavy local-only platform dirs
 android/

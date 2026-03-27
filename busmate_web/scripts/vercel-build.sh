@@ -11,5 +11,5 @@ export PATH="/tmp/flutter/bin:$PATH"
 
 flutter --version
 flutter config --enable-web
-flutter pub get
+flutter pub get --enforce-lockfile
 flutter build web --release -t lib/main.dart
