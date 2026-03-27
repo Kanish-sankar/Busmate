@@ -3,14 +3,10 @@
   "buildCommand": "bash scripts/vercel-build.sh",
   "outputDirectory": "build/web",
   "framework": null,
-  "routes": [
+  "rewrites": [
     {
-      "src": "/ads.txt",
-      "dest": "/ads.txt"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/index.html"
+      "source": "/((?!.*\\.).*)",
+      "destination": "/index.html"
     }
   ],
   "headers": [
