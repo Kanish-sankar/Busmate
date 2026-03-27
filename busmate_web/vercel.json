@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "buildCommand": "flutter build web --release --web-renderer canvaskit",
+  "buildCommand": "git clone --depth 1 -b stable https://github.com/flutter/flutter.git /tmp/flutter && export PATH=\"/tmp/flutter/bin:$PATH\" && flutter --version && flutter config --enable-web && flutter pub get && flutter build web --release --web-renderer canvaskit",
   "outputDirectory": "build/web",
   "framework": null,
   "routes": [
