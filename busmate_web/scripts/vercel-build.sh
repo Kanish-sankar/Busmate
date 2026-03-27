@@ -6,7 +6,7 @@ if [ ! -f pubspec.yaml ] && [ -d busmate_web ]; then
   cd busmate_web
 fi
 
-git clone --depth 1 -b stable https://github.com/flutter/flutter.git /tmp/flutter
+git clone --depth 1 -b 3.32.8 https://github.com/flutter/flutter.git /tmp/flutter
 export PATH="/tmp/flutter/bin:$PATH"
 
 flutter --version
