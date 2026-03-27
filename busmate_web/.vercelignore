@@ -14,9 +14,7 @@ build/
 *.log
 pubspec.lock
 
-# Don't upload source files, only build output
-lib/
-test/
+# Keep source files for cloud build; only ignore heavy local-only platform dirs
 android/
 ios/
 linux/
