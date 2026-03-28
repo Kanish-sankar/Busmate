@@ -13,14 +13,15 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen> {
   late final AuthController _authController;
-  Worker? _authReadyWorker;
+  Worker? _userWorker;
+  bool _navigated = false;
 
-  void _routeIfReady() {
-    if (!mounted) return;
-    if (!_authController.authReady.value) return;
+  void _routeIfNeeded() {
+    if (!mounted || _navigated) return;
 
     // Logged-in users are routed by AuthController role logic.
-    if (!_authController.isLoggedIn()) {
+    if (_authController.user.value == null && !_authController.isLoading.value) {
+      _navigated = true;
       Get.offAllNamed(Routes.LOGIN);
     }
   }
@@ -29,13 +30,18 @@ class _SplashScreenState extends State<SplashScreen> {
   void initState() {
     super.initState();
     _authController = Get.find<AuthController>();
-    _authReadyWorker = ever<bool>(_authController.authReady, (_) => _routeIfReady());
-    _routeIfReady();
+
+    // React when Firebase auth state changes.
+    _userWorker = ever(_authController.user, (_) => _routeIfNeeded());
+    _routeIfNeeded();
+
+    // Fallback to avoid staying forever on splash if no auth event arrives.
+    Future.delayed(const Duration(seconds: 6), _routeIfNeeded);
   }
 
   @override
   void dispose() {
-    _authReadyWorker?.dispose();
+    _userWorker?.dispose();
     super.dispose();
   }
 
