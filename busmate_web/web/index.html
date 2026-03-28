@@ -31,8 +31,66 @@
 
   <title>busmate_web</title>
   <link rel="manifest" href="manifest.json">
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(180deg, #0d47a1 0%, #1976d2 100%);
+      font-family: Arial, sans-serif;
+    }
+
+    #preloader {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      color: #ffffff;
+      z-index: 9999;
+    }
+
+    #preloader img {
+      width: 110px;
+      height: 110px;
+      object-fit: contain;
+      margin-bottom: 14px;
+    }
+
+    #preloader .title {
+      font-size: 22px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      letter-spacing: 0.4px;
+    }
+
+    #preloader .subtitle {
+      font-size: 14px;
+      color: rgba(255, 255, 255, 0.85);
+    }
+  </style>
 </head>
 <body>
+  <div id="preloader" aria-live="polite">
+    <img src="icons/Icon-192.png" alt="BusMate logo" />
+    <div class="title">BusMate</div>
+    <div class="subtitle">Loading...</div>
+  </div>
+
+  <script>
+    function hidePreloader() {
+      var el = document.getElementById('preloader');
+      if (el) {
+        el.remove();
+      }
+    }
+
+    window.addEventListener('flutter-first-frame', hidePreloader);
+    setTimeout(hidePreloader, 15000);
+  </script>
+
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
