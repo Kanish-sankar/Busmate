@@ -37,6 +37,8 @@ class DashboardController extends GetxController with WidgetsBindingObserver {
   final RxnString currentTripRouteRefId = RxnString();
 
   // 🔥 CRITICAL: StreamSubscriptions for proper cleanup (prevents memory leaks)
+  StreamSubscription? _studentSubscription;
+  StreamSubscription? _busDetailSubscription;
   StreamSubscription? _busLocationSubscription;
   StreamSubscription? _liveBusLocationSubscription;
   StreamSubscription? _routePolylineSubscription;
@@ -199,7 +201,9 @@ class DashboardController extends GetxController with WidgetsBindingObserver {
     // Remove lifecycle observer
     WidgetsBinding.instance.removeObserver(this);
 
-    // Cancel all Firebase listeners (prevents memory leaks)
+    // ✅ CRITICAL FIX: Cancel ALL Firebase listeners (prevents memory leaks)
+    _studentSubscription?.cancel();
+    _busDetailSubscription?.cancel();
     _busLocationSubscription?.cancel();
     _liveBusLocationSubscription?.cancel();
     _routePolylineSubscription?.cancel();
@@ -520,7 +524,11 @@ class DashboardController extends GetxController with WidgetsBindingObserver {
         collectionName = 'schools';
       }
     }
-    FirebaseFirestore.instance
+    // ✅ CRITICAL FIX: Cancel previous subscription to prevent memory leak
+    await _studentSubscription?.cancel();
+    
+    // ✅ CRITICAL FIX: Store subscription so it can be properly cancelled
+    _studentSubscription = FirebaseFirestore.instance
         .collection(collectionName)
         .doc(schoolId)
         .collection('students')
@@ -637,6 +645,9 @@ class DashboardController extends GetxController with WidgetsBindingObserver {
 
     // Don't set loading=true here - cache already loaded
     try {
+      // ✅ CRITICAL FIX: Cancel previous subscription to prevent memory leak
+      await _busDetailSubscription?.cancel();
+      
       // Try schooldetails first
       var busRef = FirebaseFirestore.instance
           .collection('schooldetails')
@@ -644,7 +655,8 @@ class DashboardController extends GetxController with WidgetsBindingObserver {
           .collection('buses')
           .doc(busId);
 
-      busRef.snapshots().listen((doc) async {
+      // ✅ CRITICAL FIX: Store subscription so it can be properly cancelled
+      _busDetailSubscription = busRef.snapshots().listen((doc) async {
       // If not found in schooldetails, try schools
       if (!doc.exists) {
         busRef = FirebaseFirestore.instance
@@ -869,8 +881,10 @@ class DashboardController extends GetxController with WidgetsBindingObserver {
   }
 
   bool _dayMatches(dynamic daysOfWeek, int dayNumber, String dayName) {
-    if (daysOfWeek == null) return true;
+    // null or empty means no days are configured → schedule should NOT run
+    if (daysOfWeek == null) return false;
     if (daysOfWeek is List) {
+      if (daysOfWeek.isEmpty) return false;
       for (final d in daysOfWeek) {
         if (d is int && d == dayNumber) return true;
         if (d is String) {

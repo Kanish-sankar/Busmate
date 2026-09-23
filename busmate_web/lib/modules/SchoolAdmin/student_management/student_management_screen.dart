@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:busmate_web/modules/Authentication/auth_controller.dart';
+import 'package:busmate_web/modules/SchoolAdmin/student_management/bulk_upload_dialog.dart';
 import 'student_controller.dart';
 import 'student_model.dart';
 import 'add_student_screen_upgraded.dart';
@@ -54,6 +55,25 @@ class StudentManagementScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Student Management'),
         actions: [
+          // Bulk Upload Button (only for Super Admin)
+          if (fromSuperAdminFlag)
+            TextButton.icon(
+              icon: const Icon(Icons.upload_file),
+              label: const Text('Bulk Upload'),
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  builder: (context) => BulkUploadDialog(
+                    schoolId: controller.schoolId,
+                    schoolName: controller.schoolId,
+                    studentController: controller,
+                  ),
+                );
+              },
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.white,
+              ),
+            ),
           IconButton(
             icon: const Icon(Icons.filter_list),
             onPressed: () {

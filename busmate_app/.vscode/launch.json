@@ -1,0 +1,20 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "BusMate Dev",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main_dev.dart",
+      "toolArgs": [
+        "--dart-define-from-file=.dart_define.dev.json"
+      ]
+    },
+    {
+      "name": "BusMate Prod",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main_prod.dart"
+    }
+  ]
+}

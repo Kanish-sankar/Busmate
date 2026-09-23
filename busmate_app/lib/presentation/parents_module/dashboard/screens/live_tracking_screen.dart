@@ -782,32 +782,6 @@ class LiveTrackingScreen extends GetView<DashboardController> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      "Bus Speed: ${speed.toStringAsFixed(1)} km/h",
-                                      style: TextStyle(fontSize: 13.sp),
-                                    ),
-                                    Text(
-                                      "Current Segment: ${busStatus?.currentSegment ?? 'N/A'}",
-                                      style: TextStyle(fontSize: 13.sp),
-                                    ),
-                                    Text(
-                                      "Status: ${isMoving ? "Moving" : "Not Moving"}",
-                                      style: TextStyle(
-                                        fontSize: 13.sp,
-                                        color: isMoving
-                                            ? Colors.green
-                                            : Colors.red,
-                                      ),
-                                    ),
-                                    if (busStatus?.isDelayed == true)
-                                      Text(
-                                        "Delay detected",
-                                        style: TextStyle(
-                                          fontSize: 13.sp,
-                                          color: AppColors.white,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    Text(
                                       "Route Type: ${routeType == "pickup" ? "Pickup" : "Drop"}",
                                       style: TextStyle(
                                         fontSize: 13.sp,

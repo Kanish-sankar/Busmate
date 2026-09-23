@@ -1,38 +1,105 @@
 import 'package:busmate/meta/nav/pages.dart';
+import 'package:busmate/meta/services/app_update_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 
 class SplashController extends GetxController {
+  final AppUpdateService _appUpdateService = AppUpdateService();
+
   @override
   void onInit() {
     super.onInit();
     Future.delayed(
       const Duration(seconds: 3),
       () async {
-        // Check if Firebase Auth user exists (not just cached login state)
-        final currentUser = FirebaseAuth.instance.currentUser;
-        
-        if (currentUser == null) {
-          // No Firebase user - clear any stale cached data and go to login
-          GetStorage().erase();
-          Get.offAllNamed(Routes.sigIn);
+        final updateDecision = await _appUpdateService.checkForUpdate();
+        await _appUpdateService.trackVersionAdoption();
+
+        if (updateDecision.hardUpdateRequired) {
+          _showHardUpdateDialog(updateDecision);
           return;
         }
-        
-        // User exists in Firebase Auth, check cached role
-        bool isLoggedInStudent = GetStorage().read('isLoggedInStudent') ?? false;
-        bool isLoggedInDriver = GetStorage().read('isLoggedInDriver') ?? false;
-        
-        if (isLoggedInStudent) {
-          Get.offAllNamed(Routes.dashBoard);
-        } else if (isLoggedInDriver) {
-          Get.offAllNamed(Routes.driverScreen);
-        } else {
-          // Logged in but no role - go to login to re-authenticate
-          Get.offAllNamed(Routes.sigIn);
+
+        final nextRoute = _resolveNextRoute();
+        Get.offAllNamed(nextRoute);
+
+        if (_appUpdateService.shouldShowSoftPromptNow(
+          isSoftUpdateAvailable: updateDecision.softUpdateAvailable,
+        )) {
+          Future.delayed(const Duration(milliseconds: 700), () {
+            if (Get.context != null) {
+              _showSoftUpdateDialog(updateDecision);
+            }
+          });
         }
       },
+    );
+  }
+
+  String _resolveNextRoute() {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) {
+      GetStorage().erase();
+      return Routes.sigIn;
+    }
+
+    final isLoggedInStudent = GetStorage().read('isLoggedInStudent') ?? false;
+    final isLoggedInDriver = GetStorage().read('isLoggedInDriver') ?? false;
+
+    if (isLoggedInStudent) {
+      return Routes.dashBoard;
+    }
+    if (isLoggedInDriver) {
+      return Routes.driverScreen;
+    }
+    return Routes.sigIn;
+  }
+
+  void _showHardUpdateDialog(AppUpdateDecision decision) {
+    Get.dialog(
+      PopScope(
+        canPop: false,
+        child: AlertDialog(
+          title: const Text('Update Required'),
+          content: Text(decision.message),
+          actions: [
+            ElevatedButton(
+              onPressed: () async {
+                await _appUpdateService.openStore(decision);
+              },
+              child: const Text('Update Now'),
+            ),
+          ],
+        ),
+      ),
+      barrierDismissible: false,
+    );
+  }
+
+  void _showSoftUpdateDialog(AppUpdateDecision decision) {
+    Get.dialog(
+      AlertDialog(
+        title: const Text('Update Available'),
+        content: Text(
+          'A newer version is available. Please update within ${decision.graceDays} days for the best experience.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Get.back(),
+            child: const Text('Later'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Get.back();
+              await _appUpdateService.openStore(decision);
+            },
+            child: const Text('Update Now'),
+          ),
+        ],
+      ),
+      barrierDismissible: true,
     );
   }
 }

@@ -1,0 +1,39 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "BusMate Web Dev",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main_dev.dart",
+      "toolArgs": [
+        "--dart-define-from-file=.dart_define.dev.json"
+      ],
+      "deviceId": "chrome"
+    },
+    {
+      "name": "BusMate Web Prod",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main_prod.dart",
+      "deviceId": "chrome"
+    },
+    {
+      "name": "BusMate Web Dev (Web Server)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main_dev.dart",
+      "toolArgs": [
+        "--dart-define-from-file=.dart_define.dev.json"
+      ],
+      "deviceId": "web-server"
+    },
+    {
+      "name": "BusMate Web Prod (Web Server)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main_prod.dart",
+      "deviceId": "web-server"
+    }
+  ]
+}

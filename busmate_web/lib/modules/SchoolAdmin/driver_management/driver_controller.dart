@@ -58,6 +58,10 @@ class DriverController extends GetxController {
   Future<void> addDriver(Driver driver) async {
     try {
       await driverCollection.doc(driver.id).set(driver.toMap());
+      
+      // Add to local observable list
+      drivers.add(driver);
+      
       Get.snackbar('Success', 'Driver added successfully');
     } catch (e) {
       print('❌ Error saving driver: $e');
@@ -84,15 +88,23 @@ class DriverController extends GetxController {
         colorText: Colors.white,
         duration: const Duration(seconds: 5),
       );
+      rethrow;
     }
   }
 
   Future<void> updateDriver(String id, Driver driver) async {
     try {
       await driverCollection.doc(id).update(driver.toMap());
-      Get.snackbar('Success', 'Driver updated successfully');
+      
+      // Update the local observable list
+      final index = drivers.indexWhere((d) => d.id == id);
+      if (index != -1) {
+        drivers[index] = driver;
+        drivers.refresh(); // Trigger Obx update
+      }
     } catch (e) {
       Get.snackbar('Error', 'Failed to update driver: $e');
+      rethrow;
     }
   }
 
@@ -119,6 +131,9 @@ class DriverController extends GetxController {
       // Delete the driver
       await driverCollection.doc(id).delete();
       
+      // Remove from local observable list
+      drivers.removeWhere((d) => d.id == id);
+      
       // Also delete from adminusers collection (if exists)
       try {
         await FirebaseFirestore.instance
@@ -136,6 +151,7 @@ class DriverController extends GetxController {
       );
     } catch (e) {
       Get.snackbar('Error', 'Failed to delete driver: $e');
+      rethrow;
     }
   }
 

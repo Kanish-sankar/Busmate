@@ -467,8 +467,20 @@ class AuthLogin extends GetxController {
     // IMPORTANT:
     // - Do NOT set `notified=false` here. That can cause duplicate notifications mid-trip.
     // - Only update Firestore when the token actually changes (to reduce writes).
+    
+    // Detect platform
+    String platformName = 'unknown';
+    if (!kIsWeb) {
+      if (Platform.isIOS) {
+        platformName = 'ios';
+      } else if (Platform.isAndroid) {
+        platformName = 'android';
+      }
+    }
+    
     final updateData = <String, dynamic>{
       'fcmToken': token,
+      'platform': platformName,
       'tokenUpdatedAt': FieldValue.serverTimestamp(),
     };
 

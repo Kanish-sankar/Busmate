@@ -864,6 +864,9 @@ class AddStudentScreenUpgraded extends StatelessWidget {
                 title: 'Bus Assignment',
                 children: [
                   Obx(() {
+                    // Ensure selected bus exists in the list
+                    final busExists = selectedBusId.value.isNotEmpty &&
+                        busController.buses.any((b) => b.id == selectedBusId.value);
                     return DropdownButtonFormField<String>(
                       decoration: InputDecoration(
                         labelText: 'Assign Bus',
@@ -874,9 +877,7 @@ class AddStudentScreenUpgraded extends StatelessWidget {
                         filled: true,
                         fillColor: Colors.grey[50],
                       ),
-                      value: selectedBusId.value.isNotEmpty
-                          ? selectedBusId.value
-                          : null,
+                      value: busExists ? selectedBusId.value : null,
                       items: busController.buses.map((Bus bus) {
                         return DropdownMenuItem(
                           value: bus.id,
@@ -934,6 +935,9 @@ class AddStudentScreenUpgraded extends StatelessWidget {
                       );
                     }
 
+                    // Ensure selected route exists in the list
+                    final routeExists = selectedRouteId.value.isNotEmpty &&
+                        routeOptions.any((r) => r['id'] == selectedRouteId.value);
                     return DropdownButtonFormField<String>(
                       decoration: InputDecoration(
                         labelText: 'Route',
@@ -944,7 +948,7 @@ class AddStudentScreenUpgraded extends StatelessWidget {
                         filled: true,
                         fillColor: Colors.grey[50],
                       ),
-                      value: selectedRouteId.value.isNotEmpty ? selectedRouteId.value : null,
+                      value: routeExists ? selectedRouteId.value : null,
                       items: routeOptions.map((r) {
                         return DropdownMenuItem<String>(
                           value: r['id'] as String,
@@ -1062,6 +1066,9 @@ class AddStudentScreenUpgraded extends StatelessWidget {
                   }),
                   const SizedBox(height: 16),
                   Obx(() {
+                    // Valid notification types
+                    const validTypes = ['Voice Notification', 'Text Notification'];
+                    final isValid = validTypes.contains(notificationType.value);
                     return DropdownButtonFormField<String>(
                       decoration: InputDecoration(
                         labelText: 'Notification Type',
@@ -1072,7 +1079,7 @@ class AddStudentScreenUpgraded extends StatelessWidget {
                         filled: true,
                         fillColor: Colors.grey[50],
                       ),
-                      value: notificationType.value,
+                      value: isValid ? notificationType.value : 'Text Notification',
                       items: const [
                         DropdownMenuItem(
                           value: 'Voice Notification',
@@ -1092,6 +1099,9 @@ class AddStudentScreenUpgraded extends StatelessWidget {
                   }),
                   const SizedBox(height: 16),
                   Obx(() {
+                    // Valid languages
+                    const validLanguages = ['English', 'Tamil', 'Kannada', 'Telugu', 'Malayalam', 'Hindi'];
+                    final isValid = validLanguages.contains(language.value);
                     return DropdownButtonFormField<String>(
                       decoration: InputDecoration(
                         labelText: 'Language Preference',
@@ -1102,7 +1112,7 @@ class AddStudentScreenUpgraded extends StatelessWidget {
                         filled: true,
                         fillColor: Colors.grey[50],
                       ),
-                      value: language.value,
+                      value: isValid ? language.value : 'English',
                       items: const [
                         DropdownMenuItem(value: 'English', child: Text('English')),
                         DropdownMenuItem(value: 'Tamil', child: Text('Tamil')),

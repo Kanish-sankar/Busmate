@@ -120,6 +120,10 @@ service cloud.firestore {
         // Driver: Read students in their school
         allow read: if isDriver() && belongsToSchool(schoolId);
 
+        // ANY authenticated user can create their own student document
+        // (needed for bulk upload where user doesn't have custom claims yet)
+        allow create: if isSignedIn() && request.auth.uid == studentId;
+
         // Student: Read own data
         allow read: if isStudent() && request.auth.uid == studentId;
 
@@ -241,6 +245,10 @@ service cloud.firestore {
 
         // Driver: Read students in their school
         allow read: if isDriver() && belongsToSchool(schoolId);
+
+        // ANY authenticated user can create their own student document
+        // (needed for bulk upload where user doesn't have custom claims yet)
+        allow create: if isSignedIn() && request.auth.uid == studentId;
 
         // Student: Read own data
         allow read: if isStudent() && request.auth.uid == studentId;

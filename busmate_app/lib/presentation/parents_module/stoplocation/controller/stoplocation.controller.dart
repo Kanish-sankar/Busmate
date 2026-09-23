@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:developer';
 
 import 'package:busmate/meta/model/bus_model.dart';
@@ -17,6 +18,10 @@ class StoplocationController extends GetxController {
 
   /// Stops for the currently relevant trip (prevents showing "first trip" stops after login).
   final RxList<Stoppings> availableStops = <Stoppings>[].obs;
+
+  // CRITICAL: StreamSubscriptions to prevent memory leaks
+  StreamSubscription? _studentSubscription;
+  StreamSubscription? _busDetailSubscription;
 
   @override
   void onInit() {
@@ -70,6 +75,9 @@ class StoplocationController extends GetxController {
     }
 
     try {
+      // ✅ CRITICAL FIX: Cancel previous subscription to prevent memory leak
+      await _studentSubscription?.cancel();
+
       // Determine which collection has the student
       DocumentSnapshot testDoc = await FirebaseFirestore.instance
           .collection('schooldetails')
@@ -91,8 +99,8 @@ class StoplocationController extends GetxController {
         }
       }
 
-      // Correct path: schooldetails/{schoolId}/students/{studentId}
-      FirebaseFirestore.instance
+      // ✅ CRITICAL FIX: Store subscription so it can be properly cancelled
+      _studentSubscription = FirebaseFirestore.instance
           .collection(collectionName)
           .doc(schoolId)
           .collection('students')
@@ -127,6 +135,9 @@ class StoplocationController extends GetxController {
     isLoading.value = true;
 
     try {
+      // CRITICAL FIX: Cancel previous subscription to prevent memory leak
+      await _busDetailSubscription?.cancel();
+
       // Determine which collection has the bus
       DocumentSnapshot testDoc = await FirebaseFirestore.instance
           .collection('schooldetails')
@@ -148,8 +159,8 @@ class StoplocationController extends GetxController {
         }
       }
 
-      // Correct path: schooldetails/{schoolId}/buses/{busId}
-      FirebaseFirestore.instance
+      // CRITICAL FIX: Store subscription so it can be properly cancelled
+      _busDetailSubscription = FirebaseFirestore.instance
           .collection(collectionName)
           .doc(schoolId)
           .collection('buses')
@@ -177,6 +188,14 @@ class StoplocationController extends GetxController {
     }
   }
 
+
+  @override
+  void onClose() {
+    // CRITICAL: Cancel subscriptions to prevent memory leaks
+    _studentSubscription?.cancel();
+    _busDetailSubscription?.cancel();
+    super.onClose();
+  }
   void selectLoctionButton() {
     Get.toNamed(Routes.stopNotify);
   }
@@ -278,8 +297,10 @@ class StoplocationController extends GetxController {
   }
 
   bool _dayMatches(dynamic daysOfWeek, int dayNumber, String dayName) {
-    if (daysOfWeek == null) return true;
+    // null or empty means no days are configured → schedule should NOT run
+    if (daysOfWeek == null) return false;
     if (daysOfWeek is List) {
+      if (daysOfWeek.isEmpty) return false;
       for (final d in daysOfWeek) {
         if (d is int && d == dayNumber) return true;
         if (d is String) {

@@ -10,13 +10,14 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:get_storage/get_storage.dart';
 
-import 'package:busmate/firebase_options.dart';
+import 'package:busmate/meta/config/app_environment.dart';
 import 'package:busmate/meta/model/bus_model.dart';
 import 'package:latlong2/latlong.dart';
 
 const String isolateName = 'LocatorIsolate';
 const String storageChannel = 'storage_channel';
 const String trackingFlagKey = 'driverTrackingEnabled';
+const String appEnvStorageKey = 'app_env';
 
 // Add these constants at the top with other constants
 // ignore: constant_identifier_names
@@ -26,6 +27,12 @@ const double MIN_TIME_BETWEEN_UPDATES = 2000; // 2 seconds in milliseconds
 
 // Add these constants at the top with other constants
 const int MAX_SKIPPED_STOPS = 2; // Maximum number of stops that can be skipped
+
+// ✅ CRITICAL FIX: Cache bus status to reduce database reads from every 2-3 seconds to every 60 seconds
+// This prevents ~288,000 unnecessary reads per 10 days (estimated 173 Rs cost reduction)
+DateTime? _lastBusStatusReadTime;
+Map<String, dynamic>? _cachedBusStatusData;
+const int BUS_STATUS_CACHE_DURATION_SECONDS = 60;
 
 void log(String message) {
   dev.log(message);
@@ -57,10 +64,16 @@ Future<void> initBackgroundCallback(Map<dynamic, dynamic> params) async {
     String? schoolId = params['schoolId']?.toString();
     String? busId = params['busId']?.toString();
     String? busRouteType = params['busRouteType']?.toString(); // <-- add this
+    final String appEnv = AppEnvironment.normalize(
+      params['appEnv']?.toString() ??
+          GetStorage().read(appEnvStorageKey)?.toString() ??
+          const String.fromEnvironment('APP_ENV', defaultValue: AppEnvironment.prod),
+    );
+
     // Initialize Firebase with error handling
     try {
       await Firebase.initializeApp(
-        options: DefaultFirebaseOptions.currentPlatform,
+        options: AppEnvironment.firebaseOptionsFor(appEnv),
       );
     } catch (e) {
     }
@@ -74,6 +87,7 @@ Future<void> initBackgroundCallback(Map<dynamic, dynamic> params) async {
         if (busRouteType != null) {
           storage.write('busRouteType', busRouteType); // <-- store route type
         }
+        storage.write(appEnvStorageKey, appEnv);
         // Verify storage
         final verifySchoolId = storage.read('driverSchoolId');
         final verifyBusId = storage.read('driverBusId');
@@ -109,6 +123,7 @@ void backgroundLocationCallback(LocationDto locationDto) async {
     String? schoolId;
     String? busId;
     String? busRouteType;
+    String appEnv = AppEnvironment.prod;
     bool trackingEnabledFlag = true;
 
     // Strategy 1: Try GetStorage
@@ -117,6 +132,10 @@ void backgroundLocationCallback(LocationDto locationDto) async {
       schoolId = storage.read('driverSchoolId');
       busId = storage.read('driverBusId');
       busRouteType = storage.read('busRouteType'); // <-- read route type
+      appEnv = AppEnvironment.normalize(
+        storage.read(appEnvStorageKey)?.toString() ??
+            const String.fromEnvironment('APP_ENV', defaultValue: AppEnvironment.prod),
+      );
       final dynamic trackingFlagValue = storage.read(trackingFlagKey);
       if (trackingFlagValue != null) {
         trackingEnabledFlag = trackingFlagValue == true;
@@ -136,22 +155,49 @@ void backgroundLocationCallback(LocationDto locationDto) async {
     // Initialize Firebase if needed
     if (Firebase.apps.isEmpty) {
       await Firebase.initializeApp(
-        options: DefaultFirebaseOptions.currentPlatform,
+        options: AppEnvironment.firebaseOptionsFor(appEnv),
       );
     }
 
     // Get current bus data from Realtime Database (unified architecture)
     final database = FirebaseDatabase.instance;
     final busRef = database.ref('bus_locations/$schoolId/$busId');
-    final snapshot = await busRef.once();
-
-    if (!snapshot.snapshot.exists || snapshot.snapshot.value == null) {
-      // Don't initialize - let the Cloud Function handle it with proper route data
-      // This prevents creating generic "Stop1", "Stop2" names
-      return;
+    
+    // ✅ CRITICAL FIX: Check cache before reading from database
+    final now = DateTime.now();
+    bool shouldReadFromDatabase = true;
+    
+    if (_lastBusStatusReadTime != null && _cachedBusStatusData != null) {
+      final timeSinceLastRead = now.difference(_lastBusStatusReadTime!).inSeconds;
+      if (timeSinceLastRead < BUS_STATUS_CACHE_DURATION_SECONDS) {
+        shouldReadFromDatabase = false;
+        // Use cached data instead of reading from database
+      }
     }
 
-    final busData = snapshot.snapshot.value as Map<dynamic, dynamic>;
+    Map<dynamic, dynamic>? busData;
+    
+    if (shouldReadFromDatabase) {
+      // ✅ Only read from database every 60 seconds instead of every 2-3 seconds
+      final snapshot = await busRef.once();
+      
+      if (!snapshot.snapshot.exists || snapshot.snapshot.value == null) {
+        // Don't initialize - let the Cloud Function handle it with proper route data
+        // This prevents creating generic "Stop1", "Stop2" names
+        return;
+      }
+      
+      busData = snapshot.snapshot.value as Map<dynamic, dynamic>;
+      // Update cache
+      _lastBusStatusReadTime = now;
+      _cachedBusStatusData = Map<String, dynamic>.from(busData);
+    } else {
+      // Use cached data
+      busData = _cachedBusStatusData?.map((key, value) => MapEntry(key as dynamic, value as dynamic));
+      if (busData == null) {
+        return;
+      }
+    }
     BusStatusModel status = BusStatusModel.fromMap(
       Map<String, dynamic>.from(busData),
       busId,
@@ -162,7 +208,6 @@ void backgroundLocationCallback(LocationDto locationDto) async {
       status.busRouteType = busRouteType;
     }
 
-    final now = DateTime.now();
     const Distance distance = Distance();
     final busLocation = LatLng(locationDto.latitude, locationDto.longitude);
 

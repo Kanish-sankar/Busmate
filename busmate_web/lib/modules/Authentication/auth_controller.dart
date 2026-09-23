@@ -88,6 +88,11 @@ class AuthController extends GetxController {
   RxBool isVerifyingOtp = false.obs;
   String? _adminPassword;
 
+  // Firebase Web fires authStateChanges(null) first while restoring session
+  // from IndexedDB. We must NOT redirect to login during that initial null.
+  bool _authInitialized = false;
+  RxBool authReady = false.obs; // true only after auth state is fully determined
+
   @override
   void onInit() {
     super.onInit();
@@ -96,14 +101,33 @@ class AuthController extends GetxController {
       user.value = firebaseUser;
 
       if (firebaseUser != null) {
+        _authInitialized = true;
+        // _fetchUserRole navigates to dashboard. Set authReady AFTER so the
+        // splash timer doesn't race with it.
         await _fetchUserRole();
+        authReady.value = true;
       } else {
-        userRole.value = null;
-        permissions.value = AdminPermissions();
-        schoolId.value = '';
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          Get.offAllNamed(Routes.LOGIN);
-        });
+        if (_authInitialized) {
+          // Genuine sign-out: user was logged in and is now logged out
+          userRole.value = null;
+          permissions.value = AdminPermissions();
+          schoolId.value = '';
+          authReady.value = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            Get.offAllNamed(Routes.LOGIN);
+          });
+        } else {
+          // First null = Firebase Web checking IndexedDB persistence — NOT a
+          // real sign-out. DO NOT set authReady yet; wait to see if a user
+          // event follows. If no user event arrives within 6s, mark ready so
+          // the splash can navigate to login as a fallback.
+          _authInitialized = true;
+          Future.delayed(const Duration(seconds: 6), () {
+            if (!authReady.value) {
+              authReady.value = true; // confirmed: no user after timeout
+            }
+          });
+        }
       }
     });
   }
@@ -140,8 +164,9 @@ class AuthController extends GetxController {
       String role = adminData['role'] ?? 'unknown';
       adminEmail.value = adminData['email'] ?? user.value!.email ?? '';
 
-      // Ensure custom claims are set before proceeding
-      await _ensureCustomClaims(user.value!, role, adminData['schoolId']);
+      // Check if custom claims need to be set. If they do, wait for them.
+      // This prevents permission-denied errors on fresh logins.
+      final claimsAlreadyExist = await _ensureCustomClaims(user.value!, role, adminData['schoolId']);
 
       if (role == 'superior') {
         // Superior Admin - Full Access
@@ -149,20 +174,20 @@ class AuthController extends GetxController {
         permissions.value = AdminPermissions.allGranted();
         schoolId.value = '';
         Get.offAllNamed(Routes.SUPER_ADMIN_DASHBOARD);
-        
+
       } else if (role == 'schoolAdmin' || role == 'school_admin' || role == 'regionalAdmin') {
         // School Admin & Regional Admin - Permission-based Access
         userRole.value = UserRole.schoolAdmin;
         schoolId.value = adminData['schoolId'] ?? '';
         permissions.value = AdminPermissions.fromMap(adminData['permissions']);
-        
+
         if (schoolId.value.isEmpty) {
           await _auth.signOut();
           Get.snackbar('Error', 'Invalid admin configuration - missing school ID');
           Get.offAllNamed(Routes.LOGIN);
           return;
         }
-        
+
         Get.offAllNamed(Routes.SCHOOL_ADMIN_DASHBOARD, arguments: {
           'schoolId': schoolId.value,
           'role': role,
@@ -182,8 +207,9 @@ class AuthController extends GetxController {
     }
   }
 
-  /// Ensures custom claims are set for the user
-  Future<void> _ensureCustomClaims(User user, String role, String? schoolId) async {
+  /// Ensures custom claims are set for the user.
+  /// Returns true if claims already existed, false if they were just set.
+  Future<bool> _ensureCustomClaims(User user, String role, String? schoolId) async {
     try {
       print('🔑 Checking custom claims for ${user.email}...');
       
@@ -193,7 +219,7 @@ class AuthController extends GetxController {
       
       if (claims?['role'] != null && claims?['role'] == role) {
         print('✅ Custom claims already set: role=${claims!['role']}, schoolId=${claims['schoolId']}');
-        return;
+        return true; // Claims already exist
       }
 
       print('⚠️ Custom claims missing or outdated. Setting claims via Cloud Function...');
@@ -214,11 +240,14 @@ class AuthController extends GetxController {
         // Verify claims were set
         final newTokenResult = await user.getIdTokenResult(true);
         print('🔍 New claims: ${newTokenResult.claims}');
+        return false; // Claims were just set
       } catch (e) {
         print('❌ Error calling setUserClaims Cloud Function: $e');
+        return true; // Assume claims exist to not block login
       }
     } catch (e) {
       print('❌ Error in _ensureCustomClaims: $e');
+      return true; // Assume claims exist to not block login
     }
   }
 

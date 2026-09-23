@@ -6,11 +6,18 @@ import 'package:get/get.dart';
 import 'firebase_options.dart';
 
 class AppBootstrap extends StatelessWidget {
-  const AppBootstrap({super.key});
+  final FirebaseOptions firebaseOptions;
+  final String appEnv;
+
+  const AppBootstrap({
+    super.key,
+    required this.firebaseOptions,
+    required this.appEnv,
+  });
 
   Future<FirebaseApp> _initFirebase() {
     return Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
+      options: firebaseOptions,
     ).timeout(
       const Duration(seconds: 10),
       onTimeout: () => throw Exception('Firebase init timed out'),
@@ -52,7 +59,10 @@ class AppBootstrap extends StatelessWidget {
                     ),
                     const SizedBox(height: 16),
                     ElevatedButton(
-                      onPressed: () => runApp(const AppBootstrap()),
+                      onPressed: () => runApp(AppBootstrap(
+                        firebaseOptions: firebaseOptions,
+                        appEnv: appEnv,
+                      )),
                       child: const Text('Retry'),
                     ),
                   ],
@@ -90,4 +100,18 @@ class _MyApp extends StatelessWidget {
       initialRoute: AppPages.INITIAL,
     );
   }
+}
+
+/// Bootstrap function called by main_dev.dart and main_prod.dart
+Future<void> bootstrapApp({
+  required FirebaseOptions firebaseOptions,
+  required String appEnv,
+}) async {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(
+    AppBootstrap(
+      firebaseOptions: firebaseOptions,
+      appEnv: appEnv,
+    ),
+  );
 }

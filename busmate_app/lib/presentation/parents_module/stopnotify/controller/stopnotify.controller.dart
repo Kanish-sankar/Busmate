@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:busmate/meta/model/student_model.dart';
 import 'package:busmate/meta/nav/pages.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -6,6 +8,9 @@ import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 
 class StopNotifyController extends GetxController {
+  // CRITICAL: StreamSubscription to prevent memory leak
+  StreamSubscription? _studentSubscription;
+
   @override
   void onInit() {
     GetStorage gs = GetStorage();
@@ -25,6 +30,9 @@ class StopNotifyController extends GetxController {
 
   Future<void> fetchStudent(String studentId, String schoolId) async {
     isLoading.value = true;
+
+    // CRITICAL FIX: Cancel previous subscription to prevent memory leak
+    await _studentSubscription?.cancel();
 
     // Determine which collection has the student
     DocumentSnapshot testDoc = await FirebaseFirestore.instance
@@ -47,7 +55,8 @@ class StopNotifyController extends GetxController {
       }
     }
 
-    FirebaseFirestore.instance
+    // CRITICAL FIX: Store subscription so it can be properly cancelled
+    _studentSubscription = FirebaseFirestore.instance
         .collection(collectionName)
         .doc(schoolId)
         .collection('students')
@@ -164,5 +173,12 @@ class StopNotifyController extends GetxController {
     } else {
       Get.snackbar("Error", "Please select a notification time or stop.");
     }
+  }
+
+  @override
+  void onClose() {
+    // CRITICAL: Cancel subscription to prevent memory leak
+    _studentSubscription?.cancel();
+    super.onClose();
   }
 }

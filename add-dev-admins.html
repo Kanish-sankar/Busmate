@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Add Dev Admins</title>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+    <style>
+        body { font-family: Arial; margin: 40px; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 4px; }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+        button { padding: 10px 20px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>Add Test Admins to Dev Firebase</h1>
+    <button onclick="addAdmins()">Add 2 Test Admins</button>
+    <div id="status"></div>
+    
+    <script>
+        // Dev Firebase Config
+        const firebaseConfig = {
+            apiKey: "AIzaSyAM-7fKqG57E3Q7QK4K5tIxN75RBZ8TkcY",
+            authDomain: "busmate-dev.firebaseapp.com",
+            projectId: "busmate-dev",
+            storageBucket: "busmate-dev.firebasestorage.app",
+            messagingSenderId: "483950616892",
+            appId: "1:483950616892:web:a0b67981faa5e9dd27be39",
+            databaseURL: "https://busmate-dev-default-rtdb.asia-southeast1.firebasedatabase.app"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+        const auth = firebase.auth();
+
+        function log(message, isError = false) {
+            const div = document.getElementById('status');
+            const p = document.createElement('p');
+            p.className = isError ? 'status error' : 'status success';
+            p.textContent = message;
+            div.appendChild(p);
+            console.log(message);
+        }
+
+        async function addAdmins() {
+            try {
+                log('🔐 Signing in as anonymous...');
+                await auth.signInAnonymously();
+                log('✅ Signed in anonymously');
+
+                const admins = [
+                    {
+                        name: 'Test Admin 1',
+                        email: 'testadmin1@busmate-dev.com',
+                        role: 'superior',
+                        schoolId: 'test-school-001',
+                        createdAt: new Date()
+                    },
+                    {
+                        name: 'Test Admin 2',
+                        email: 'testadmin2@busmate-dev.com',
+                        role: 'admin',
+                        schoolId: 'test-school-001',
+                        createdAt: new Date()
+                    }
+                ];
+
+                for (const admin of admins) {
+                    const docId = `test-admin-${Date.now()}-${Math.random()}`;
+                    await db.collection('adminusers').doc(docId).set(admin);
+                    log(`✅ Added admin: ${admin.email} (${admin.role})`);
+                }
+
+                log('✨ Success! 2 test admins added to dev Firebase');
+            } catch (error) {
+                log(`❌ Error: ${error.message}`, true);
+            }
+        }
+
+        log('🚀 Ready! Click "Add 2 Test Admins" button to start.');
+    </script>
+</body>
+</html>

@@ -19,9 +19,9 @@ subprojects {
     // Ensure all Android modules compile against SDK 35 to avoid missing attrs like lStar
     afterEvaluate { project ->
         if (project.hasProperty('android')) {
-            project.android.compileSdkVersion = 35
+            project.android.compileSdkVersion = 36
             if (project.android.defaultConfig != null) {
-                project.android.defaultConfig.targetSdkVersion = 35
+                project.android.defaultConfig.targetSdkVersion = 36
             }
         }
     }

@@ -1,5 +1,7 @@
 {
   "projects": {
-    "default": "busmate-b80e8"
+    "default": "busmate-b80e8",
+    "prod": "busmate-b80e8",
+    "dev": "busmate-dev"
   }
 }

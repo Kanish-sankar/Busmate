@@ -106,7 +106,6 @@ if (ENABLE_DEBUG_ENDPOINTS.value() === "true") {
           return res.status(403).json({ error: "Forbidden" });
         }
 
-        console.log("[fixAllUserClaims] Starting bulk claims update...");
         const usersSnapshot = await db.collection("adminusers").get();
         const results = [];
 
@@ -174,7 +173,6 @@ exports.setUserClaims = onCall(
       throw new HttpsError("invalid-argument", "Missing uid parameter");
     }
 
-    console.log(`[setUserClaims] Caller=${request.auth.uid} setting claims for uid: ${uid}`);
 
     const db = admin.firestore();
 
@@ -247,9 +245,6 @@ exports.setUserClaims = onCall(
 
       await admin.auth().setCustomUserClaims(uid, claims);
 
-      console.log(
-        `[setUserClaims] Successfully set claims for ${uid} from ${source}: role=${role}, schoolId=${schoolId}`
-      );
       
       return { success: true, claims };
     } catch (error) {
@@ -266,25 +261,23 @@ exports.manageBusNotifications = onSchedule(
   {
     schedule: "every 1 minutes", // Cloud Scheduler minimum interval (30 seconds not supported)
     timeZone: "Asia/Kolkata",
-    memory: "512MB", // Keep memory modest for quota
+    memory: "512MB",
     timeoutSeconds: 540,
     region: "us-central1",
+    maxInstances: 1,  // ✅ CRITICAL: Prevents concurrent runs that cause double ETA decrements
     secrets: [OLA_MAPS_API_KEY],
   },
   async (event) => {
     const db = admin.firestore();
     const rtdb = admin.database();
     const startTime = Date.now();
-    console.log(`🚀 Starting notification batch job at ${new Date()}`);
 
     try {
       // STEP 1: Get all active buses from Realtime Database first
-      console.log(`🔍 Fetching all active buses from Realtime Database...`);
       const busLocationsSnapshot = await rtdb.ref('bus_locations').once('value');
       const busLocations = busLocationsSnapshot.val();
       
       if (!busLocations) {
-        console.log("📭 No buses found in Realtime Database");
         return;
       }
       
@@ -311,7 +304,6 @@ exports.manageBusNotifications = onSchedule(
             
             if (lastUpdate < staleTime) {
               const minutesSinceUpdate = Math.floor((now - lastUpdate) / 60000);
-              console.log(`⚠️ Bus ${busId} in school ${schoolId} - No GPS for ${minutesSinceUpdate} minutes, marking inactive`);
               
               // Mark bus as inactive
               await rtdb.ref(`bus_locations/${schoolId}/${busId}`).update({
@@ -325,24 +317,19 @@ exports.manageBusNotifications = onSchedule(
               staleDataCount++;
             } else if (busData.isWithinTripWindow !== false) {
               activeBuses.push({ schoolId, busId, busData });
-              console.log(`✅ Found active bus in trip window: ${busId} in school ${schoolId}`);
             } else {
-              console.log(`⏳ Bus ${busId} in school ${schoolId} is active but outside trip window - skipping notifications`);
             }
           }
         }
       }
       
       if (staleDataCount > 0) {
-        console.log(`🔴 Deactivated ${staleDataCount} buses due to stale GPS data`);
       }
       
       if (activeBuses.length === 0) {
-        console.log("📭 No active buses within trip windows - skipping notification check");
         return;
       }
       
-      console.log(`🚌 Found ${activeBuses.length} active buses ready for notifications`);
       
       // 🔀 SHARD BY SCHOOL: Group buses by school for parallel processing
       const busesBySchool = {};
@@ -354,7 +341,6 @@ exports.manageBusNotifications = onSchedule(
       });
       
       const schoolIds = Object.keys(busesBySchool);
-      console.log(`🏫 Processing ${schoolIds.length} schools in parallel`);
       
       // Process each school in parallel (massively improves performance for multi-school setups)
       const allNotifications = [];
@@ -362,119 +348,87 @@ exports.manageBusNotifications = onSchedule(
       
       await Promise.all(schoolIds.map(async (schoolId) => {
         const schoolBuses = busesBySchool[schoolId];
-        console.log(`  🏫 School ${schoolId}: Processing ${schoolBuses.length} buses`);
         
         const notifications = [];
         const updates = [];
         
-        // Process each active bus in this school
-        for (const { busId, busData } of schoolBuses) {
-        
-        if (!busData.currentTripId) {
-          console.log(`Bus ${busId} missing currentTripId - skipping notifications`);
-          continue;
-        }
-        
-        // ✅ ETA REFRESH (NO DOUBLE-DECREMENT):
-        // Problem: ETAs were being decremented here AND in onBusLocationUpdate/findStopData.
-        // Fix: Do NOT decrement here. Instead, trigger a real Ola Maps refresh every 3 minutes
-        // for ACTIVE buses, even if GPS coordinates didn't change.
-        if (busData.isActive && busData.latitude && busData.longitude && busData.remainingStops?.length) {
-          const lastOlaAPICall = busData.lastOlaAPICall || busData.lastETACalculation || 0;
-          const minutesSinceOla = (now - lastOlaAPICall) / 60000;
+        // ✅ PARALLELIZED: Buses within a school are independent — run all concurrently.
+        // Previously sequential for-loop → if 50 buses × 300ms OLA call = 15s per school.
+        // Now all buses in a school run in parallel → ~300ms regardless of bus count.
+        await Promise.all(schoolBuses.map(async ({ busId, busData }) => {
 
-          if (lastOlaAPICall === 0 || minutesSinceOla >= 3) {
-            console.log(
-              `🗺️ [Scheduled ETA Refresh] Calling Ola Maps for bus ${busId} (${minutesSinceOla.toFixed(1)} min since last call)`
-            );
-            try {
-              await calculateAndUpdateETAs(
-                schoolId,
-                busId,
-                { latitude: busData.latitude, longitude: busData.longitude },
-                busData
-              );
-            } catch (e) {
-              console.error(`❌ [Scheduled ETA Refresh] Ola Maps failed for bus ${busId}:`, e);
-            }
-          } else {
-            console.log(
-              `⏭️ [Scheduled ETA Refresh] Skipping Ola Maps for bus ${busId}: ${minutesSinceOla.toFixed(1)} min since last call`
-            );
-          }
-        }
+          if (!busData.currentTripId) return;
 
-        // 📉 ETA DECREMENT (ON SCHEDULE):
-        // Requirements:
-        // - ETA should update even when bus doesn't move (no coordinate change)
-        // - Must NOT double-decrement
-        // Strategy:
-        // - Decrement ONLY here (scheduled every 1 minute)
-        // - Decrement from the ORIGINAL ETA baseline (stop.originalETA)
-        // - Use whole minutes elapsed since last Ola baseline to avoid jumps due to rounding
-        if (busData.isActive && busData.remainingStops?.length) {
-          const lastOlaAPICall = busData.lastOlaAPICall || busData.lastETACalculation || 0;
-          if (lastOlaAPICall > 0) {
-            const elapsedWholeMinutes = Math.floor((now - lastOlaAPICall) / 60000);
+          // ✅ ETA REFRESH (NO DOUBLE-DECREMENT):
+          // Do NOT decrement here. Instead, trigger a real Ola Maps refresh every 3 minutes
+          // for ACTIVE buses, even if GPS coordinates didn't change.
+          if (busData.isActive && busData.latitude && busData.longitude && busData.remainingStops?.length) {
+            const lastOlaAPICall = busData.lastOlaAPICall || busData.lastETACalculation || 0;
+            const minutesSinceOla = (now - lastOlaAPICall) / 60000;
 
-            // Only update if at least 1 minute elapsed
-            if (elapsedWholeMinutes >= 1) {
-              let anyChanged = false;
-              const decrementedStops = busData.remainingStops.map((stop) => {
-                if (stop?.estimatedMinutesOfArrival === undefined || stop?.estimatedMinutesOfArrival === null) {
-                  return stop;
-                }
-
-                const originalETA = (stop.originalETA !== undefined && stop.originalETA !== null)
-                  ? stop.originalETA
-                  : stop.estimatedMinutesOfArrival;
-
-                const newETA = Math.max(0, originalETA - elapsedWholeMinutes);
-                if (newETA !== stop.estimatedMinutesOfArrival) {
-                  anyChanged = true;
-                }
-
-                return {
-                  ...stop,
-                  originalETA,
-                  estimatedMinutesOfArrival: newETA,
-                  decremented: true,
-                };
-              });
-
-              if (anyChanged) {
-                await rtdb.ref(`bus_locations/${schoolId}/${busId}`).update({
-                  remainingStops: decrementedStops,
-                  lastETAUpdate: now,
-                });
-                console.log(
-                  `⏱️ [Scheduled ETA Decrement] Bus ${busId}: elapsed=${elapsedWholeMinutes} min since Ola baseline; updated ETAs`
+            if (lastOlaAPICall === 0 || minutesSinceOla >= 3) {
+              try {
+                await calculateAndUpdateETAs(
+                  schoolId,
+                  busId,
+                  { latitude: busData.latitude, longitude: busData.longitude },
+                  busData
                 );
-              } else {
-                console.log(
-                  `⏱️ [Scheduled ETA Decrement] Bus ${busId}: elapsed=${elapsedWholeMinutes} min; no ETA value changed`
-                );
+              } catch (e) {
+                console.error(`❌ [Scheduled ETA Refresh] Ola Maps failed for bus ${busId}:`, e);
               }
             }
           }
-        }
-        
-        // ✅ OPTIMIZATION: Stop detection & notifications moved to onBusLocationUpdate
-        // This provides INSTANT processing on every GPS update (10 seconds) instead of 1 minute delay
-        // Current function only handles cleanup tasks (stale buses, trip transitions)
-        console.log(`⏭️ Bus ${busId} - Primary processing in onBusLocationUpdate (instant notifications)`);
-        
-      }
-      
-      // Collect this school's stats
-      console.log(`  ✅ School ${schoolId}: Processed ${schoolBuses.length} buses`);
-      
+
+          // 📉 ETA DECREMENT (ON SCHEDULE):
+          // - Decrement ONLY here (scheduled every 1 minute, maxInstances:1 prevents double-run)
+          // - Decrement from the ORIGINAL ETA baseline (stop.originalETA)
+          // - Use whole minutes elapsed since last Ola baseline to avoid rounding jumps
+          if (busData.isActive && busData.remainingStops?.length) {
+            const lastOlaAPICall = busData.lastOlaAPICall || busData.lastETACalculation || 0;
+            if (lastOlaAPICall > 0) {
+              const elapsedWholeMinutes = Math.floor((now - lastOlaAPICall) / 60000);
+
+              if (elapsedWholeMinutes >= 1) {
+                let anyChanged = false;
+                const decrementedStops = busData.remainingStops.map((stop) => {
+                  if (stop?.estimatedMinutesOfArrival === undefined || stop?.estimatedMinutesOfArrival === null) {
+                    return stop;
+                  }
+
+                  const originalETA = (stop.originalETA !== undefined && stop.originalETA !== null)
+                    ? stop.originalETA
+                    : stop.estimatedMinutesOfArrival;
+
+                  const newETA = Math.max(0, originalETA - elapsedWholeMinutes);
+                  if (newETA !== stop.estimatedMinutesOfArrival) anyChanged = true;
+
+                  return {
+                    ...stop,
+                    originalETA,
+                    estimatedMinutesOfArrival: newETA,
+                    decremented: true,
+                  };
+                });
+
+                if (anyChanged) {
+                  await rtdb.ref(`bus_locations/${schoolId}/${busId}`).update({
+                    remainingStops: decrementedStops,
+                    lastETAUpdate: now,
+                  });
+                }
+              }
+            }
+          }
+
+          // Stop detection & notifications are handled instantly in onBusLocationUpdate.
+
+        })); // End of Promise.all for buses within school
+
       })); // End of Promise.all for school processing
 
       const endTime = Date.now();
       const duration = endTime - startTime;
-      console.log(`⏱️ Cleanup job completed in ${duration}ms`);
-      console.log(`📊 Summary: ${activeBuses.length} active buses, ${staleDataCount} marked stale`);
       
     } catch (error) {
       console.error("❌ Error in manageBusNotifications:", error);
@@ -512,7 +466,6 @@ exports.handleTripTransitions = onSchedule(
     const currentDayName = nowIST.toLocaleDateString('en-US', { weekday: 'long' });
     const currentDateKey = nowIST.toISOString().split('T')[0];
 
-    console.log(`⏰ Checking trip transitions at ${currentTime} IST (${currentDayName}) [UTC: ${nowUTC.toTimeString().substring(0, 5)}]`);
 
     const [scheduleSnapshot, busLocationsSnapshot] = await Promise.all([
       rtdb.ref('route_schedules_cache').once('value'),
@@ -527,18 +480,18 @@ exports.handleTripTransitions = onSchedule(
     let schedulesChecked = 0;
     let activeSchedulesFound = 0;
 
-    for (const schoolId in schedulesCache) {
-      const schoolSchedules = schedulesCache[schoolId];
-      for (const busId in schoolSchedules) {
-        const busSchedules = schoolSchedules[busId];
-        const busData = busLocations?.[schoolId]?.[busId] || {};
+    // ✅ PARALLELIZED: Schools and buses are fully independent — run all concurrently.
+    // Inner route loop stays sequential per bus because trip-end must run before
+    // trip-start (same minute edge case) and busData is refreshed between them.
+    await Promise.all(Object.entries(schedulesCache).map(async ([schoolId, schoolSchedules]) => {
+      await Promise.all(Object.entries(schoolSchedules).map(async ([busId, busSchedules]) => {
+        // Shallow copy so parallel buses never share the same busData object
+        const busData = { ...(busLocations?.[schoolId]?.[busId] || {}) };
 
         // Check for multiple active schedules per bus
         const activeSchedules = Object.entries(busSchedules).filter(([_, sched]) => sched?.isActive === true);
         if (activeSchedules.length > 1) {
-          console.log(`⚠️ WARNING: Bus ${busId} has ${activeSchedules.length} active schedules:`);
           activeSchedules.forEach(([id, sched]) => {
-            console.log(`   - ${id}: ${sched.routeName || 'Unknown'} (${sched.startTime}-${sched.endTime})`);
           });
         }
 
@@ -547,22 +500,16 @@ exports.handleTripTransitions = onSchedule(
           schedulesChecked++;
           
           if (!schedule || schedule.isActive === false) {
-            console.log(`   ⏭️ Skipping ${routeId} - inactive or null`);
             continue;
           }
           
           activeSchedulesFound++;
-          console.log(`   🔍 Checking active schedule: ${schedule.routeName || routeId}`);
-          console.log(`      Bus: ${busId}, Times: ${schedule.startTime || 'N/A'} - ${schedule.endTime || 'N/A'}`);
-          console.log(`      Days: ${JSON.stringify(schedule.daysOfWeek)}`);
 
           const dayMatches = scheduleMatchesDay(schedule, currentDayNumber, currentDayName);
           if (!dayMatches) {
-            console.log(`   ⏭️ Day mismatch - Current: ${currentDayNumber} (${currentDayName}), Schedule: ${JSON.stringify(schedule.daysOfWeek)}`);
             continue;
           }
           
-          console.log(`   ✅ Day matches! Checking time windows...`);
 
           const startTime = schedule.startTime || "";
           const endTime = schedule.endTime || "";
@@ -570,7 +517,6 @@ exports.handleTripTransitions = onSchedule(
           // 🏁 CRITICAL: Check TRIP END **FIRST** (before any start/direction logic)
           // This prevents Trip 1's end from overriding Trip 2's start when they occur at the same minute (e.g., Trip 1 ends 08:50, Trip 2 starts 08:50)
           if (endTime && currentTime === endTime) {
-            console.log(`   🏁 TRIP END MATCH! Current: ${currentTime}, End: ${endTime}`);
             const ended = await handleTripEnd({
               db,
               rtdb,
@@ -582,13 +528,11 @@ exports.handleTripTransitions = onSchedule(
             });
             if (ended) {
               tripsEnded++;
-              console.log(`   ✅ Trip ended successfully`);
               // Refresh busData after ending so subsequent checks see updated state
               const refreshedSnapshot = await rtdb.ref(`bus_locations/${schoolId}/${busId}`).once('value');
               Object.assign(busData, refreshedSnapshot.val() || {});
             }
           } else if (endTime) {
-            console.log(`   ⏰ End time check: Current=${currentTime}, End=${endTime} (no match)`);
           }
 
           // 🔄 CHECK IF BUS IS ACTIVE AND WITHIN THIS SCHEDULE'S TIME WINDOW
@@ -598,9 +542,6 @@ exports.handleTripTransitions = onSchedule(
             const scheduleDirection = schedule.direction || 'pickup';
             
             if (currentDirection !== scheduleDirection) {
-              console.log(`   🔄 DIRECTION CHANGE DETECTED!`);
-              console.log(`      Current: ${currentDirection}, Schedule: ${scheduleDirection}`);
-              console.log(`      Time window: ${startTime} - ${endTime}`);
               
               const tripId = buildTripId(routeId, currentDateKey, schedule.startTime || '00:00');
               const routeRefId = schedule.routeRefId || null;
@@ -636,22 +577,16 @@ exports.handleTripTransitions = onSchedule(
                   });
                 });
                 await batch.commit();
-                console.log(`   ✅ Updated to ${scheduleDirection} direction and reset ${docsToReset.length} students`);
               } else {
-                console.log(`   ⚠️ No students matched for reset (bus=${busId}, routeRefId=${routeRefId || 'NULL'})`);
               }
             }
           }
 
           // 🔄 STUDENT RESET at schedule start time (but NO auto-activation)
           if (startTime && currentTime === startTime) {
-            console.log(`   🔄 SCHEDULE START MATCH! Current: ${currentTime}, Start: ${startTime}`);
             // If driver tracking is already ON (isActive=true), auto-start this trip in RTDB.
             // This solves the case where the app is backgrounded and the UI timers don't run.
             if (busData.isActive === true) {
-              console.log(
-                `   🚀 Bus ${busId} is already active (driver tracking ON) - auto-starting trip now (background-safe)`
-              );
               const started = await handleTripStart({
                 db,
                 rtdb,
@@ -664,9 +599,7 @@ exports.handleTripTransitions = onSchedule(
               });
               if (started) {
                 tripsStarted++;
-                console.log(`   ✅ Auto-started trip for active bus ${busId}`);
               } else {
-                console.log(`   ↩️ Trip already active for bus ${busId} (no changes)`);
               }
             } else {
               // Driver tracking is OFF. Only reset students for this trip window.
@@ -692,29 +625,17 @@ exports.handleTripTransitions = onSchedule(
                   });
                 });
                 await batch.commit();
-                console.log(`   ✅ Reset ${docsToReset.length} students to notified=false for trip ${tripId}`);
-                console.log(
-                  `   ⚠️ NOTE: Driver tracking is OFF (isActive=false) - trip not started in RTDB`
-                );
               } else {
-                console.log(`   ⚠️ No students matched for reset (bus=${busId}, routeRefId=${routeRefId || 'NULL'})`);
               }
             }
           } else if (startTime) {
-            console.log(`   ⏰ Start time check: Current=${currentTime}, Start=${startTime} (no match)`);
           }
         }
-      }
-    }
+      }));
+    }));
 
-    console.log(`\n📊 Trip Transition Summary:`);
-    console.log(`   Schedules checked: ${schedulesChecked}`);
-    console.log(`   Active schedules: ${activeSchedulesFound}`);
-    console.log(`   Trips started: ${tripsStarted}`);
-    console.log(`   Trips ended: ${tripsEnded}`);
     
     if (activeSchedulesFound === 0) {
-      console.log(`   ⚠️ No active schedules found - verify route_schedules_cache is populated`);
     }
   }
 );
@@ -723,11 +644,9 @@ async function handleTripStart({ db, rtdb, schoolId, busId, routeId, schedule, b
   const tripId = buildTripId(routeId, currentDateKey, schedule.startTime || '00:00');
 
   if (busData?.currentTripId === tripId && busData.isWithinTripWindow === true) {
-    console.log(`   ↩️ Trip ${tripId} already active for bus ${busId}`);
     return false;
   }
 
-  console.log(`🚀 Trip start detected for ${schedule.routeName || routeId} (Bus ${busId})`);
 
   const studentsRef = db.collection(`schooldetails/${schoolId}/students`);
   const routeRefId = schedule.routeRefId || null;
@@ -750,9 +669,7 @@ async function handleTripStart({ db, rtdb, schoolId, busId, routeId, schedule, b
       });
     });
     await batch.commit();
-    console.log(`   🔄 Reset ${docsToReset.length} students to notified=false for trip ${tripId}`);
   } else {
-    console.log(`   ⚠️ No students matched for reset (bus=${busId}, routeRefId=${routeRefId || 'NULL'})`);
   }
 
   const stops = (schedule.stops || []).map((s) => {
@@ -772,11 +689,7 @@ async function handleTripStart({ db, rtdb, schoolId, busId, routeId, schedule, b
   const direction = (schedule.direction || 'pickup').toLowerCase();
   const orderedStops = direction === 'drop' ? [...stops].reverse() : stops;
 
-  console.log(`   🧭 Trip direction: ${direction}`);
-  console.log(`   🚏 Stops order: ${direction === 'drop' ? 'REVERSED (Z→A)' : 'NORMAL (A→Z)'} - ${orderedStops.length} stops`);
   if (orderedStops.length > 0) {
-    console.log(`   📍 First stop: ${orderedStops[0]?.name || 'Unknown'}`);
-    console.log(`   📍 Last stop: ${orderedStops[orderedStops.length - 1]?.name || 'Unknown'}`);
   }
 
   await rtdb.ref(`bus_locations/${schoolId}/${busId}`).update({
@@ -817,16 +730,11 @@ async function handleTripEnd({ db, rtdb, schoolId, busId, routeId, schedule, bus
   // If the bus has already switched to a different schedule (activeRouteId differs),
   // skip ending this schedule to prevent overriding the new trip state.
   if (busData?.activeRouteId && busData.activeRouteId !== routeId) {
-    console.log(
-      `   ⏭️ Skip trip end for ${routeId} because bus is currently on activeRouteId=${busData.activeRouteId}`
-    );
     return false;
   }
 
   if (!busData || busData.isWithinTripWindow !== true) {
-    console.log(`   ℹ️ Bus ${busId} not marked active during trip end check - forcing completion for trip ${currentTripId}`);
   } else {
-    console.log(`🏁 Trip end detected for ${schedule.routeName || routeId} (Bus ${busId})`);
   }
 
   const studentsRef = db.collection(`schooldetails/${schoolId}/students`);
@@ -837,13 +745,10 @@ async function handleTripEnd({ db, rtdb, schoolId, busId, routeId, schedule, bus
     .get();
 
   if (!studentsSnapshot.empty) {
-    console.log(`   ℹ️ ${studentsSnapshot.size} students on bus ${busId} did not receive notifications during this trip`);
-    console.log(`   📝 These students will be reset for next trip (DO NOT mark as notified=true)`);
     // NOTE: We do NOT mark students as notified=true at trip end
     // They should only be marked notified if they actually received a notification
     // The trip start logic will reset them with new currentTripId for the next trip
   } else {
-    console.log(`   ℹ️ No pending students for bus ${busId}`);
   }
 
   // NOTE: Do NOT force isActive=false here.
@@ -873,7 +778,6 @@ async function handleTripEnd({ db, rtdb, schoolId, busId, routeId, schedule, bus
 function findStopData(busStatusData, studentLocationName, studentLocation) {
   // Check if remainingStops exists (bus may have completed route)
   if (!busStatusData.remainingStops || busStatusData.remainingStops.length === 0) {
-    console.log(`⚠️ No remaining stops for bus - route may be complete`);
     return null;
   }
 
@@ -887,7 +791,6 @@ function findStopData(busStatusData, studentLocationName, studentLocation) {
 
   // If no name match and student has location, try matching by coordinates (within ~50m)
   if (!stop && studentLocation && studentLocation.latitude && studentLocation.longitude) {
-    console.log(`🔍 No name match, trying location-based matching for (${studentLocation.latitude}, ${studentLocation.longitude})`);
     stop = busStatusData.remainingStops.find((s) => {
       if (!s.latitude || !s.longitude) return false;
       
@@ -898,14 +801,12 @@ function findStopData(busStatusData, studentLocationName, studentLocation) {
       
       const isMatch = distanceMeters < 50; // within 50 meters
       if (isMatch) {
-        console.log(`✅ Found location match: "${s.name}" at (${s.latitude}, ${s.longitude}) - ${distanceMeters.toFixed(0)}m away`);
       }
       return isMatch;
     });
   }
 
   if (!stop) {
-    console.log(`❌ No matching stop found for ${studentLocationName}`);
     return null;
   }
   
@@ -992,7 +893,6 @@ function calculateTimeDifference(currentTime, targetTime) {
 
 function scheduleMatchesDay(schedule, currentDayNumber, currentDayName) {
   if (!schedule) {
-    console.log(`      ❌ scheduleMatchesDay: null schedule`);
     return false;
   }
 
@@ -1043,18 +943,12 @@ function scheduleMatchesDay(schedule, currentDayNumber, currentDayName) {
   }
 
   if (allowableDayNumbers.size === 0 && allowableDayNames.size === 0) {
-    console.log(`      ℹ️ No day restrictions - schedule active all days`);
-    return true;
+    return false;
   }
 
   const normalizedDayName = (currentDayName || '').toLowerCase();
   const matches = allowableDayNumbers.has(currentDayNumber) || allowableDayNames.has(normalizedDayName);
   
-  console.log(`      📅 Day Match Check:`);
-  console.log(`         Allowed numbers: [${Array.from(allowableDayNumbers).join(', ')}]`);
-  console.log(`         Allowed names: [${Array.from(allowableDayNames).join(', ')}]`);
-  console.log(`         Current: ${currentDayNumber} (${normalizedDayName})`);
-  console.log(`         Result: ${matches ? '✅ MATCH' : '❌ NO MATCH'}`);
   
   return matches;
 }
@@ -1304,42 +1198,57 @@ exports.notifyAllStudents = onRequest(
       assertSameSchoolIfNotSuperior(decoded, schoolId);
 
       const db = admin.firestore();
-      let snapshot = await db.collection(`schooldetails/${schoolId}/students`).get();
-      if (snapshot.empty) {
-        snapshot = await db.collection(`schools/${schoolId}/students`).get();
+
+      // Determine which collection path has students
+      const primaryRef = db.collection(`schooldetails/${schoolId}/students`);
+      const probe = await primaryRef.limit(1).get();
+      const collectionRef = probe.empty
+        ? db.collection(`schools/${schoolId}/students`)
+        : primaryRef;
+
+      // Paginate in batches of 500 to avoid loading all docs into memory at once.
+      // FCM sendEachForMulticast also enforces a hard limit of 500 tokens per call.
+      const BATCH_SIZE = 500;
+      let lastDoc = null;
+      let totalSuccess = 0;
+      let totalFailure = 0;
+      let totalTokens = 0;
+
+      while (true) {
+        let query = collectionRef.orderBy(admin.firestore.FieldPath.documentId()).limit(BATCH_SIZE);
+        if (lastDoc) query = query.startAfter(lastDoc);
+
+        const page = await query.get();
+        if (page.empty) break;
+
+        const tokens = [];
+        page.forEach((doc) => {
+          const data = doc.data() || {};
+          if (data.fcmToken) tokens.push(data.fcmToken);
+        });
+
+        if (tokens.length > 0) {
+          const message = {
+            notification: { title, body },
+            android: { notification: { channelId: "busmate_silent", sound: "default" } },
+            apns: { payload: { aps: { sound: "default" } } },
+            tokens,
+          };
+          const response = await admin.messaging().sendEachForMulticast(message);
+          totalSuccess += response.responses.filter((r) => r.success).length;
+          totalFailure += response.responses.length - response.responses.filter((r) => r.success).length;
+          totalTokens += tokens.length;
+        }
+
+        lastDoc = page.docs[page.docs.length - 1];
+        if (page.size < BATCH_SIZE) break; // last page
       }
 
-      const tokens = [];
-      snapshot.forEach((doc) => {
-        const data = doc.data() || {};
-        if (data.fcmToken) tokens.push(data.fcmToken);
-      });
-
-      if (tokens.length === 0) {
+      if (totalTokens === 0) {
         return res.status(200).send({ success: true, message: "No tokens found" });
       }
 
-      const message = {
-        notification: { title, body },
-        android: {
-          notification: {
-            channelId: "busmate_silent",
-            sound: "default",
-          },
-        },
-        apns: {
-          payload: {
-            aps: { sound: "default" },
-          },
-        },
-        tokens,
-      };
-
-      const response = await admin.messaging().sendEachForMulticast(message);
-      const successCount = response.responses.filter((r) => r.success).length;
-      const failureCount = response.responses.length - successCount;
-
-      return res.status(200).send({ success: true, successCount, failureCount });
+      return res.status(200).send({ success: true, successCount: totalSuccess, failureCount: totalFailure });
     } catch (error) {
       console.error("Error sending student notification:", error);
       return res
@@ -1373,42 +1282,54 @@ exports.notifyAllDrivers = onRequest(
       assertSameSchoolIfNotSuperior(decoded, schoolId);
 
       const db = admin.firestore();
-      const driversSnap = await db.collection("adminusers").where("schoolId", "==", schoolId).get();
-      const tokens = [];
 
-      driversSnap.forEach((doc) => {
-        const data = doc.data() || {};
-        const r = String(data.role || "").toLowerCase();
-        if (r.includes("driver") && data.fcmToken) {
-          tokens.push(data.fcmToken);
+      // Paginate driver tokens in batches of 500 (FCM hard limit per sendEachForMulticast call).
+      const BATCH_SIZE = 500;
+      let lastDoc = null;
+      let totalSuccess = 0;
+      let totalFailure = 0;
+      let totalTokens = 0;
+
+      while (true) {
+        let query = db
+          .collection("adminusers")
+          .where("schoolId", "==", schoolId)
+          .orderBy(admin.firestore.FieldPath.documentId())
+          .limit(BATCH_SIZE);
+        if (lastDoc) query = query.startAfter(lastDoc);
+
+        const page = await query.get();
+        if (page.empty) break;
+
+        const tokens = [];
+        page.forEach((doc) => {
+          const data = doc.data() || {};
+          const r = String(data.role || "").toLowerCase();
+          if (r.includes("driver") && data.fcmToken) tokens.push(data.fcmToken);
+        });
+
+        if (tokens.length > 0) {
+          const message = {
+            notification: { title, body },
+            android: { notification: { channelId: "busmate_silent", sound: "default" } },
+            apns: { payload: { aps: { sound: "default" } } },
+            tokens,
+          };
+          const response = await admin.messaging().sendEachForMulticast(message);
+          totalSuccess += response.responses.filter((r) => r.success).length;
+          totalFailure += response.responses.length - response.responses.filter((r) => r.success).length;
+          totalTokens += tokens.length;
         }
-      });
 
-      if (tokens.length === 0) {
+        lastDoc = page.docs[page.docs.length - 1];
+        if (page.size < BATCH_SIZE) break; // last page
+      }
+
+      if (totalTokens === 0) {
         return res.status(200).send({ success: true, message: "No tokens found" });
       }
 
-      const message = {
-        notification: { title, body },
-        android: {
-          notification: {
-            channelId: "busmate_silent",
-            sound: "default",
-          },
-        },
-        apns: {
-          payload: {
-            aps: { sound: "default" },
-          },
-        },
-        tokens,
-      };
-
-      const response = await admin.messaging().sendEachForMulticast(message);
-      const successCount = response.responses.filter((r) => r.success).length;
-      const failureCount = response.responses.length - successCount;
-
-      return res.status(200).send({ success: true, successCount, failureCount });
+      return res.status(200).send({ success: true, successCount: totalSuccess, failureCount: totalFailure });
     } catch (error) {
       console.error("Error sending driver notification:", error);
       return res
@@ -1550,12 +1471,6 @@ async function processNotificationsForBus(schoolId, busId, busData) {
   const db = admin.firestore();
   
   try {
-    console.log(`🔔 [Instant Notifications] Checking students for bus ${busId}...`);
-    console.log(`   📍 currentTripId: ${busData.currentTripId}`);
-    console.log(`   🧭 routeRefId: ${busData.routeRefId || busData.activeRouteRefId || 'NULL'}`);
-    console.log(`   🚏 Remaining stops: ${busData.remainingStops?.length || 0}`);
-    console.log(`   🔍 RTDB busData keys: ${Object.keys(busData).join(', ')}`);
-    console.log(`   📊 isActive: ${busData.isActive}, isWithinTripWindow: ${busData.isWithinTripWindow}`);
     
     // Prefer schooldetails (new primary), but fallback to schools (legacy) if needed.
     let studentsRef = db.collection(`schooldetails/${schoolId}/students`);
@@ -1572,10 +1487,8 @@ async function processNotificationsForBus(schoolId, busId, busData) {
       new Set(uniqueStopNames.map((n) => (n || "").toLowerCase().trim()))
     );
     
-    console.log(`   📍 Stop names in RTDB: [${uniqueStopNames.join(', ')}]`);
 
     if (uniqueStopNames.length === 0) {
-      console.log("   ⏭️ No remaining stops - marking all students notified");
       await admin.database().ref(`bus_locations/${schoolId}/${busId}`).update({
         allStudentsNotified: true,
         noPendingStudents: true,
@@ -1584,7 +1497,6 @@ async function processNotificationsForBus(schoolId, busId, busData) {
     }
 
     // Simple broad query - get all students for this bus on this trip
-    console.log(`   🔍 Querying students: busId=${busId}, notified=false, tripId=${busData.currentTripId}`);
     let snapshot = await studentsRef
       .where('assignedBusId', '==', busId)
       .where('notified', '==', false)
@@ -1606,9 +1518,7 @@ async function processNotificationsForBus(schoolId, busId, busData) {
       }
     }
 
-    console.log(`   🗂️ Students collection used: ${studentsCollectionName}`);
     
-    console.log(`   📊 Broad query returned ${snapshot.size} students`);
 
     // Route scoping (multi-route): if bus has routeRefId, only process students for that route
     const routeRefId = busData.routeRefId || busData.activeRouteRefId || null;
@@ -1617,24 +1527,16 @@ async function processNotificationsForBus(schoolId, busId, busData) {
       : snapshot.docs;
 
     if (routeRefId) {
-      console.log(`   🧭 Route scoped students: ${routeScopedDocs.length} (routeRefId=${routeRefId})`);
     }
     
     // If no students found, check what went wrong
     if (snapshot.size === 0) {
-      console.log(`   ⚠️ NO STUDENTS MATCHED! Checking all students for this bus...`);
       const allBusStudents = await studentsRef
         .where('assignedBusId', '==', busId)
         .get();
       
-      console.log(`   📊 Total students on bus: ${allBusStudents.size}`);
       allBusStudents.forEach((doc) => {
         const s = doc.data();
-        console.log(`   👤 ${s.name} (${doc.id}):`);
-        console.log(`      - notified: ${s.notified} (need: false)`);
-        console.log(`      - currentTripId: ${s.currentTripId || 'NULL'} (need: ${busData.currentTripId})`);
-        console.log(`      - stopping: ${s.stopping || 'NULL'}`);
-        console.log(`      - Match: ${s.notified === false && s.currentTripId === busData.currentTripId ? '✅' : '❌'}`);
       });
     }
     
@@ -1656,28 +1558,21 @@ async function processNotificationsForBus(schoolId, busId, busData) {
         );
 
       const keep = Boolean(nameMatches || hasCoords);
-      console.log(
-        `   👤 Student ${doc.id}: stopping="${studentStopName}" coords=${hasCoords ? '✅' : '❌'} - ${keep ? '✅ KEEP' : '❌ DROP'}`
-      );
 
       return keep;
     });
     
-    console.log(`   🎯 Final filtered list: ${fetchedDocs.length} students`);
 
     if (fetchedDocs.length === 0) {
-      console.log(`   ⏭️ No pending students found for this bus/trip`);
       
       // Check if trip just started (within 2 minutes) - don't flag yet
       const tripStartedAt = busData.tripStartedAt || 0;
       const timeSinceStart = (Date.now() - tripStartedAt) / 1000 / 60; // minutes
       
       if (timeSinceStart < 2) {
-        console.log(`   ⏳ Trip just started (${timeSinceStart.toFixed(1)} min ago) - waiting for student reset`);
         return;
       }
       
-      console.log(`   ⏭️ Setting noPendingStudents flag`);
       await admin.database().ref(`bus_locations/${schoolId}/${busId}`).update({
         allStudentsNotified: true,
         noPendingStudents: true,
@@ -1685,7 +1580,6 @@ async function processNotificationsForBus(schoolId, busId, busData) {
       return;
     }
     
-    console.log(`   👥 Processing ${fetchedDocs.length} students...`);
     
     const notificationTasks = [];
     
@@ -1701,23 +1595,17 @@ async function processNotificationsForBus(schoolId, busId, busData) {
         student.lastNotifiedTripId === busData.currentTripId &&
         student.lastNotifiedAt
       ) {
-        console.log(
-          `   ⛔ SKIP ${student.name} (${doc.id}) - already notified for trip ${busData.currentTripId}`
-        );
         return;
       }
       
       if (!stopName || student.notificationPreferenceByTime === null || student.notificationPreferenceByTime === undefined) {
-        console.log(`   ⚠️ SKIPPED student ${doc.id} - invalid stop/preference`);
         return;
       }
       
-      console.log(`   👤 Processing ${student.name} at "${stopName}"`);
       
       const stopData = findStopData(busData, stopName, student.stopLocation);
       
       if (!stopData) {
-        console.log(`   ❌ NO STOP DATA for ${student.name} at "${stopName}"`);
         return;
       }
       
@@ -1725,26 +1613,19 @@ async function processNotificationsForBus(schoolId, busId, busData) {
 
       const threshold = Number(student.notificationPreferenceByTime);
       if (!Number.isFinite(threshold)) {
-        console.log(
-          `   ⚠️ SKIPPED student ${doc.id} - invalid notificationPreferenceByTime: ${student.notificationPreferenceByTime}`
-        );
         return;
       }
       
       // Check if ETA is actually calculated (not null/undefined/NaN)
       if (eta === null || eta === undefined || isNaN(eta)) {
-        console.log(`   ❌ NO ETA VALUE for ${student.name} at "${stopName}" (eta=${eta})`);
         return;
       }
       
-      console.log(`   📊 ETA: ${eta} min, Preference: ${threshold} min`);
       
       // Check if notification threshold met
       if (eta !== null && eta !== undefined && eta <= threshold) {
-        console.log(`   🎯 THRESHOLD MET! ${eta.toFixed(1)} min <= ${threshold} min`);
         
         if (!student.fcmToken) {
-          console.log(`   ⚠️ SKIPPED ${student.name} - No FCM token`);
           return;
         }
         
@@ -1825,44 +1706,22 @@ async function processNotificationsForBus(schoolId, busId, busData) {
           }
         });
         
-        console.log(`   ✅ QUEUED notification for ${student.name}`);
       } else {
-        console.log(`   ⏸️ ETA not met: ${eta?.toFixed(1) || 'N/A'} min > ${student.notificationPreferenceByTime} min`);
       }
     });
     
     // Send notifications and update ONLY on success
     if (notificationTasks.length > 0) {
-      console.log(`   📤 Sending ${notificationTasks.length} notifications...`);
-      console.log(`   📋 Students to notify: ${notificationTasks.map(t => `${t.studentName} (${t.studentId})`).join(', ')}`);
       
       const successfulUpdates = [];
       
       await Promise.all(notificationTasks.map(async (task) => {
         try {
-          console.log(`   🚀 ============================================`);
-          console.log(`   🚀 SENDING FCM to ${task.studentId} (${task.studentName})`);
-          console.log(`   📱 Token: ${task.payload.token}`);
-          console.log(`   📦 Payload:`);
-          console.log(`      - Title: ${task.payload.data.title}`);
-          console.log(`      - Body: ${task.payload.data.body}`);
-          console.log(`      - Android: DATA-ONLY message (no notification field)`);
-          console.log(`      - iOS: notification + data`);
-          console.log(`      - Language: ${task.payload.data.selectedLanguage}`);
-          console.log(`      - Priority: ${task.payload.android.priority}`);
-          console.log(`      - Data: ${JSON.stringify(task.payload.data)}`);
           
           const sendStartTime = Date.now();
           const result = await admin.messaging().send(task.payload);
           const sendDuration = Date.now() - sendStartTime;
           
-          console.log(`   ✅ ============================================`);
-          console.log(`   ✅ FCM SEND SUCCESS for ${task.studentId} (${task.studentName})`);
-          console.log(`   ✅ Message ID: ${result}`);
-          console.log(`   ✅ Send duration: ${sendDuration}ms`);
-          console.log(`   ✅ This means FCM accepted the message and will deliver it to the device`);
-          console.log(`   ✅ If device doesn't receive: Check device settings, not server issue!`);
-          console.log(`   ✅ ============================================`);
           
           // Only mark for update if notification was successfully sent
           successfulUpdates.push({
@@ -1871,43 +1730,40 @@ async function processNotificationsForBus(schoolId, busId, busData) {
             studentName: task.studentName
           });
         } catch (error) {
-          console.error(`   ❌ ============================================`);
-          console.error(`   ❌ FCM SEND FAILED for ${task.studentId} (${task.studentName})`);
-          console.error(`   ❌ Error message: ${error.message}`);
-          console.error(`   ❌ Error code: ${error.code || 'UNKNOWN'}`);
-          console.error(`   ❌ Error stack: ${error.stack}`);
-          if (error.errorInfo) {
-            console.error(`   ❌ Error info: ${JSON.stringify(error.errorInfo, null, 2)}`);
+          // Dead token codes: token no longer registered (app uninstalled / reinstalled).
+          // Wipe the token immediately so future GPS events skip this student entirely
+          // instead of retrying a guaranteed-fail send on every notification round.
+          const DEAD_TOKEN_CODES = new Set([
+            'messaging/registration-token-not-registered',
+            'messaging/invalid-registration-token',
+            'messaging/invalid-recipient',
+          ]);
+
+          if (DEAD_TOKEN_CODES.has(error.code) || (error.errorInfo && DEAD_TOKEN_CODES.has(error.errorInfo.code))) {
+            try {
+              await task.docRef.update({ fcmToken: admin.firestore.FieldValue.delete() });
+            } catch (cleanupErr) {
+              console.error(`   ❌ Failed to clean dead token for student ${task.studentId}: ${cleanupErr.message}`);
+            }
+          } else {
+            // Transient error (network, quota, etc.) — log for debugging but don't wipe token
+            console.error(`   ❌ FCM send failed for student ${task.studentId}: [${error.code || 'UNKNOWN'}] ${error.message}`);
           }
-          console.error(`   ❌ Full error object: ${JSON.stringify(error, null, 2)}`);
-          console.error(`   ❌ Token (first 30 chars): ${task.payload.token.substring(0, 30)}...`);
-          console.error(`   ❌ Common causes:`);
-          console.error(`   ❌   - Invalid/expired FCM token`);
-          console.error(`   ❌   - App uninstalled on device`);
-          console.error(`   ❌   - Google Play Services not available`);
-          console.error(`   ❌ ============================================`);
-          console.log(`   🔄 Student ${task.studentId} will remain notified=false for retry`);
         }
       }));
       
       // Update student records ONLY for successful notifications
       if (successfulUpdates.length > 0) {
-        console.log(`   💾 Updating ${successfulUpdates.length} students who received notifications...`);
-        console.log(`   📝 Updating: ${successfulUpdates.map(u => u.studentName).join(', ')}`);
         const batch = db.batch();
         successfulUpdates.forEach(update => {
-          console.log(`   ✍️ Marking ${update.studentName} as notified=true`);
           batch.update(update.ref, update.data);
         });
         await batch.commit();
-        console.log(`   ✅ Updated ${successfulUpdates.length} students to notified=true`);
       } else {
-        console.log(`   ⚠️ NO students to update - all FCM sends failed!`);
       }
       
       const failedCount = notificationTasks.length - successfulUpdates.length;
       if (failedCount > 0) {
-        console.log(`   ⚠️ ${failedCount} students NOT marked as notified due to send failures - will retry on next trigger`);
       }
     }
     
@@ -2013,7 +1869,6 @@ async function maybeResetStudentsForTripServerSide(schoolId, busId, busData) {
       studentsResetCollection: studentsCollectionName,
     });
 
-    console.log(`   🔄 [Trip Reset] Reset ${updated} students for trip ${tripId} (busId=${busId})`);
   } catch (e) {
     console.error(`   ❌ [Trip Reset] Failed resetting students for bus ${busId}:`, e);
   }
@@ -2037,9 +1892,9 @@ exports.onBusLocationUpdate = onValueWritten(
     ref: "/bus_locations/{schoolId}/{busId}",
     region: "us-central1",
     memory: "256MB",
-    timeoutSeconds: 60,
+    timeoutSeconds: 30,
     cpu: 0.25,
-    maxInstances: 10,
+    maxInstances: 80,
     secrets: [OLA_MAPS_API_KEY],
   },
   async (event) => {
@@ -2048,12 +1903,9 @@ exports.onBusLocationUpdate = onValueWritten(
     const gpsData = event.data.after.val();
 
     if (!gpsData) {
-      console.log(`⚠️ No GPS data for bus ${busId}`);
       return;
     }
 
-    console.log(`📍 GPS Update: Bus ${busId} from ${gpsData.source || "unknown"}`);
-    console.log(`   Location: (${gpsData.latitude}, ${gpsData.longitude}), Speed: ${gpsData.speed || 0} m/s`);
 
     try {
       // ✅ OPTIMIZATION: Use event.data.after.val() instead of reading again!
@@ -2066,7 +1918,6 @@ exports.onBusLocationUpdate = onValueWritten(
       if (previousData && previousData.latitude === busData.latitude && 
           previousData.longitude === busData.longitude &&
           previousData.isActive === busData.isActive) {
-        console.log("   ⏭️ Skipping - only timestamp changed, no actual GPS update");
         return;
       }
       
@@ -2093,30 +1944,25 @@ exports.onBusLocationUpdate = onValueWritten(
 
       // Check if bus is active
       if (!busData.isActive) {
-        console.log("   Bus not active");
         return;
       }
 
       // Skip ONLY if explicitly set to false (undefined/null means we should check time or allow)
       if (busData.isWithinTripWindow === false) {
-        console.log("   ⏭️ Bus outside active trip window - skipping GPS processing");
         return;
       }
       
       // If isWithinTripWindow is undefined, log warning but continue (backward compatibility)
       if (busData.isWithinTripWindow === undefined || busData.isWithinTripWindow === null) {
-        console.log("   ⚠️ isWithinTripWindow not set - proceeding with GPS processing (check if trip was started properly)");
       }
       
       // 🚦 TIME-BASED ROUTE ACTIVATION: Determine which route should be active
       const activeRouteInfo = await determineActiveRoute(schoolId, busId, busData);
       
       if (!activeRouteInfo || !activeRouteInfo.routeId) {
-        console.log("   ⚠️ No active route - skipping ETA calculation");
         return;
       }
       
-      console.log(`   🛣️ Active Route: ${activeRouteInfo.routeName} (${activeRouteInfo.direction})`);
       
       // Check if ETAs need initial calculation (first GPS update after trip start)
       const needsInitialETA = !busData.lastETACalculation || busData.lastETACalculation === 0;
@@ -2127,7 +1973,6 @@ exports.onBusLocationUpdate = onValueWritten(
                                         busData.remainingStops.some(s => !s.name || s.name.match(/^Stop\d+$/));
       
       if (needsStopsInitialization) {
-        console.log(`   🔧 Initializing remainingStops from route schedule (${activeRouteInfo.stoppings.length} stops)`);
         await admin.database().ref(`bus_locations/${schoolId}/${busId}`).update({
           activeRouteId: activeRouteInfo.routeId,
           tripDirection: activeRouteInfo.direction,
@@ -2142,7 +1987,6 @@ exports.onBusLocationUpdate = onValueWritten(
         });
         
         // Force initial ETA calculation with proper stops
-        console.log(`   🆕 Calculating initial ETAs with route stops`);
         await calculateAndUpdateETAs(schoolId, busId, gpsData, {
           ...busData,
           activeRouteId: activeRouteInfo.routeId,
@@ -2170,7 +2014,6 @@ exports.onBusLocationUpdate = onValueWritten(
         });
         
         // Force ETA recalculation when route changes
-        console.log(`   🔄 Route changed - forcing ETA recalculation`);
         await calculateAndUpdateETAs(schoolId, busId, gpsData, {
           ...busData,
           activeRouteId: activeRouteInfo.routeId,
@@ -2185,14 +2028,11 @@ exports.onBusLocationUpdate = onValueWritten(
       
       // Calculate ETAs on first GPS update (works for both driver app AND web simulator)
       if (needsInitialETA) {
-        console.log(`   🆕 First GPS update - calculating initial ETAs`);
         await calculateAndUpdateETAs(schoolId, busId, gpsData, busData);
         
         // CRITICAL: Re-read bus data after ETA calculation to get updated ETAs
         const updatedSnapshot = await admin.database().ref(`bus_locations/${schoolId}/${busId}`).once('value');
         busData = updatedSnapshot.val() || busData;
-        console.log(`   ✅ Reloaded bus data with fresh ETAs`);
-        console.log(`   📊 First stop ETA: ${busData.remainingStops?.[0]?.estimatedMinutesOfArrival || 'N/A'} min`);
       }
       
       // ⏰ OLA MAPS API RECALCULATION: Every 3 minutes for accurate traffic-aware ETAs
@@ -2206,12 +2046,6 @@ exports.onBusLocationUpdate = onValueWritten(
       
       // ✅ Call OLA Maps API every 3 minutes if bus is active, regardless of movement
       if (timeSinceLastAPICall >= 3 || lastOlaAPICall === 0) {
-        console.log(`🚀 ==========================================`);
-        console.log(`🚀 OLA MAPS API CALL TRIGGERED`);
-        console.log(`🚀 ==========================================`);
-        console.log(`   Time since last API call: ${timeSinceLastAPICall.toFixed(1)} minutes`);
-        console.log(`   Bus status: ${busData.isActive ? 'ACTIVE' : 'INACTIVE'}`);
-        console.log(`   Remaining stops: ${busData.remainingStops?.length || 0}`);
         
         await calculateAndUpdateETAs(schoolId, busId, gpsData, busData);
         
@@ -2219,16 +2053,8 @@ exports.onBusLocationUpdate = onValueWritten(
         const updatedSnapshot = await admin.database().ref(`bus_locations/${schoolId}/${busId}`).once('value');
         busData = updatedSnapshot.val() || busData;
         
-        console.log(`   ✅ Reloaded bus data with fresh ETAs from OLA Maps`);
-        console.log(`   📊 First stop ETA: ${busData.remainingStops?.[0]?.estimatedMinutesOfArrival || 'N/A'} min`);
-        console.log(`🚀 ==========================================`);
         etasRecalculated = true;
       } else {
-        console.log(`⏭️ ==========================================`);
-        console.log(`⏭️ SKIPPING OLA MAPS API`);
-        console.log(`⏭️ ==========================================`);
-        console.log(`   Time since last API call: ${timeSinceLastAPICall.toFixed(1)} min (need 3 min)`);
-        console.log(`   Will call OLA API in: ${(3 - timeSinceLastAPICall).toFixed(1)} minutes`);
 
         // IMPORTANT:
         // Do NOT decrement ETAs here.
@@ -2253,7 +2079,6 @@ exports.onBusLocationUpdate = onValueWritten(
           const distanceToFirst = calculateDistance(busLocation, { lat: firstStop.latitude, lng: firstStop.longitude });
           
           if (distanceToFirst <= STOP_PROXIMITY_THRESHOLD) {
-            console.log(`🚏 [${tripDirection.toUpperCase()}] Bus ${busId} reached first stop: ${firstStop.name} - REMOVING FROM START`);
             busData.remainingStops.shift(); // Remove from start
             stopsRemoved = 1;
           } else {
@@ -2265,11 +2090,9 @@ exports.onBusLocationUpdate = onValueWritten(
               const distance = calculateDistance(busLocation, { lat: stop.latitude, lng: stop.longitude });
               
               if (distance <= STOP_PROXIMITY_THRESHOLD) {
-                console.log(`⚠️ [${tripDirection.toUpperCase()}] Bus ${busId} skipped ${i} stop(s) and reached stop ${i + 1}: ${stop.name}`);
                 // Remove all skipped stops plus current stop from START
                 for (let j = 0; j <= i; j++) {
                   const removed = busData.remainingStops.shift();
-                  console.log(`   🚏 Removed ${j === i ? 'reached' : 'skipped'} stop: ${removed.name}`);
                 }
                 stopsRemoved = i + 1;
                 break;
@@ -2280,7 +2103,6 @@ exports.onBusLocationUpdate = onValueWritten(
         
         if (stopsRemoved > 0) {
           const newStopsPassedCount = (busData.stopsPassedCount || 0) + stopsRemoved;
-          console.log(`   ✅ Stops passed: ${newStopsPassedCount}/${busData.totalStops || 0}`);
           
           // Update immediately
           await admin.database().ref(`bus_locations/${schoolId}/${busId}`).update({
@@ -2290,7 +2112,6 @@ exports.onBusLocationUpdate = onValueWritten(
           
           // If all stops completed, mark trip as inactive
           if (busData.remainingStops.length === 0) {
-            console.log(`🏁 Bus ${busId} completed all stops - marking inactive`);
             await admin.database().ref(`bus_locations/${schoolId}/${busId}`).update({
               isActive: false,
               isWithinTripWindow: false,
@@ -2304,20 +2125,14 @@ exports.onBusLocationUpdate = onValueWritten(
       
       // 🔔 INSTANT NOTIFICATIONS: Check and send notifications on EVERY function trigger (every 30s)
       // This catches students whose notification thresholds are crossed as ETAs decrement
-      console.log(`🔔 [Notification Check] currentTripId: ${busData.currentTripId}, remainingStops: ${busData.remainingStops?.length || 0}`);
-      console.log(`   allStudentsNotified: ${busData.allStudentsNotified}, noPendingStudents: ${busData.noPendingStudents}`);
-      console.log(`   ETAs recalculated: ${etasRecalculated ? 'YES (fresh from API)' : 'NO (using decremented ETAs)'}`);
       
       if (busData.currentTripId && busData.remainingStops && busData.remainingStops.length > 0) {
         // 💡 OPTIMIZATION (Idea 7): Skip when all students already notified or none pending
         if (busData.allStudentsNotified === true || busData.noPendingStudents === true) {
-          console.log("   ⏭️ Skipping notifications - all students already notified or none pending");
         } else {
-          console.log("   ✅ Processing notifications (checking against current/decremented ETAs)...");
           await processNotificationsForBus(schoolId, busId, busData);
         }
       } else {
-        console.log("   ⚠️ Cannot process notifications - missing required data");
       }
       
     } catch (error) {
@@ -2331,58 +2146,52 @@ async function determineActiveRoute(schoolId, busId, busData) {
   try {
     // Get current time in IST (UTC + 5:30)
     const nowUTC = new Date();
-    const istOffset = 5.5 * 60 * 60 * 1000; // 5 hours 30 minutes in milliseconds
+    const istOffset = 5.5 * 60 * 60 * 1000;
     const nowIST = new Date(nowUTC.getTime() + istOffset);
-    
+
     const currentTime = `${nowIST.getHours().toString().padStart(2, '0')}:${nowIST.getMinutes().toString().padStart(2, '0')}`;
     const currentDay = nowIST.getDay() || 7; // Sunday = 7
     const currentDayName = nowIST.toLocaleDateString('en-US', { weekday: 'long' });
-    
-    console.log(`   ⏰ Current Time: ${currentTime} IST [UTC: ${nowUTC.toTimeString().substring(0, 5)}], Day: ${currentDay}`);
-    
-    // Get all schedules for this bus from cache
+
+    // ✅ FAST PATH: If busData already has a valid cached route, return immediately
+    // WITHOUT making any RTDB read. Only fall through (and read RTDB) when:
+    //   - No activeRouteId set yet, OR
+    //   - Schedule times not cached, OR
+    //   - Current time is outside the cached time window (trip ended / new trip)
+    //   - More than 5 minutes since last resolution (safety refresh every 5 min)
+    if (busData.activeRouteId && busData.scheduleStartTime && busData.scheduleEndTime) {
+      const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+      const lastResolved = busData.routeLastResolved || 0;
+      const cacheExpired = (Date.now() - lastResolved) > CACHE_TTL_MS;
+
+      let isWithinWindow;
+      if (busData.scheduleStartTime > busData.scheduleEndTime) {
+        // Overnight schedule
+        isWithinWindow = currentTime >= busData.scheduleStartTime || currentTime <= busData.scheduleEndTime;
+      } else {
+        isWithinWindow = currentTime >= busData.scheduleStartTime && currentTime <= busData.scheduleEndTime;
+      }
+
+      if (isWithinWindow && !cacheExpired) {
+        // ⚡ Zero RTDB reads — serve entirely from busData
+        return {
+          routeId: busData.activeRouteId,
+          routeName: busData.routeName || "Active Route",
+          direction: busData.tripDirection || "unknown",
+          stoppings: busData.remainingStops || [],
+          routeRefId: busData.routeRefId || busData.activeRouteRefId || null,
+          routeRefName: busData.routeRefName || null,
+        };
+      }
+      // isWithinWindow=false or cache expired → fall through to re-resolve from RTDB
+    }
+
+    // 🔍 SLOW PATH: Read schedules from RTDB cache (only runs when fast path misses)
     const schedulesRef = admin.database().ref(`route_schedules_cache/${schoolId}/${busId}`);
     const schedulesSnapshot = await schedulesRef.once('value');
     const allSchedules = schedulesSnapshot.val() || {};
     
-    // Check if route is manually activated (but validate if time window expired)
-    if (busData.activeRouteId) {
-      console.log(`   🎯 Checking active route: ${busData.activeRouteId}`);
-      
-      // Check if schedule times are already cached in busData (from trip start)
-      if (busData.scheduleStartTime && busData.scheduleEndTime) {
-        // Handle overnight schedules (e.g., 23:00 - 01:05)
-        let isWithinWindow;
-        if (busData.scheduleStartTime > busData.scheduleEndTime) {
-          // Overnight schedule: current time must be >= start OR <= end
-          isWithinWindow = currentTime >= busData.scheduleStartTime || currentTime <= busData.scheduleEndTime;
-          console.log(`   🌙 Overnight schedule detected: ${busData.scheduleStartTime} - ${busData.scheduleEndTime}`);
-        } else {
-          // Normal schedule: current time must be >= start AND <= end
-          isWithinWindow = currentTime >= busData.scheduleStartTime && currentTime <= busData.scheduleEndTime;
-        }
-        
-        if (!isWithinWindow) {
-          console.log(`   ⚠️ Current route EXPIRED (${busData.scheduleStartTime}-${busData.scheduleEndTime}, current: ${currentTime})`);
-          console.log(`   🔍 Searching for matching schedule across all routes...`);
-          // Don't return null! Fall through to check all schedules
-        } else {
-          console.log(`   ✅ Route within cached time window (current: ${currentTime})`);
-          // Return immediately without Firestore read!
-          return {
-            routeId: busData.activeRouteId,
-            routeName: busData.routeName || "Active Route",
-            direction: busData.tripDirection || "unknown",
-            stoppings: busData.remainingStops || [],
-            routeRefId: busData.routeRefId || busData.activeRouteRefId || null,
-            routeRefName: busData.routeRefName || null,
-          };
-        }
-      }
-    }
-    
     // 🔍 SEARCH ALL SCHEDULES: Find which schedule matches current time/day
-    console.log(`   🔍 Checking all schedules for time/day match...`);
     for (const [routeId, schedule] of Object.entries(allSchedules)) {
       if (!schedule || schedule.isActive === false) continue;
       
@@ -2401,23 +2210,18 @@ async function determineActiveRoute(schoolId, busId, busData) {
       }
       
       if (isTimeMatch) {
-        console.log(`   ✅ FOUND MATCHING SCHEDULE: ${schedule.routeName} (${schedule.direction})`);
-        console.log(`      Time: ${schedule.startTime} - ${schedule.endTime}, Direction: ${schedule.direction}`);
 
         const routeRefId = schedule.routeRefId || null;
         const routeRefName = schedule.routeRefName || null;
         
         // Get stops for this direction (already stored separately for pickup/drop)
         const directionStops = schedule.stops || schedule.stoppings || [];
-        console.log(`   📍 Using ${directionStops.length} stops from ${schedule.direction} schedule`);
-        console.log(`      First stop: ${directionStops[0]?.name || 'Unknown'}`);
-        console.log(`      Last stop: ${directionStops[directionStops.length - 1]?.name || 'Unknown'}`);
         
-        // Update RTDB if this is different from current active route
+        // Update RTDB if this is different from current active route,
+        // and always stamp routeLastResolved so the fast path cache TTL resets.
         if (busData.activeRouteId !== routeId || busData.tripDirection !== schedule.direction) {
-          console.log(`   🔄 SWITCHING to ${schedule.direction} route: ${routeId}`);
           const tripId = buildTripId(routeId, new Date().toISOString().split('T')[0], schedule.startTime || '00:00');
-          
+
           await admin.database().ref(`bus_locations/${schoolId}/${busId}`).update({
             activeRouteId: routeId,
             tripDirection: schedule.direction || 'pickup',
@@ -2431,6 +2235,12 @@ async function determineActiveRoute(schoolId, busId, busData) {
             remainingStops: directionStops,
             allStudentsNotified: false,
             noPendingStudents: false,
+            routeLastResolved: Date.now(),
+          });
+        } else {
+          // Same route, same direction — only refresh the TTL timestamp
+          await admin.database().ref(`bus_locations/${schoolId}/${busId}`).update({
+            routeLastResolved: Date.now(),
           });
         }
         
@@ -2445,7 +2255,6 @@ async function determineActiveRoute(schoolId, busId, busData) {
       }
     }
     
-    console.log(`   ⚠️ No active route metadata available for bus ${busId}`);
     return null;
   } catch (error) {
     console.error(`   ❌ Error determining active route: ${error.message}`);
@@ -2463,22 +2272,17 @@ async function calculateAndUpdateETAs(schoolId, busId, gpsData, busData) {
   }
 
   if (!busData.remainingStops || busData.remainingStops.length === 0) {
-    console.log(`⚠️ No remaining stops for bus ${busId}`);
     return;
   }
 
   try {
     // 🚦 Determine trip direction (pickup or drop)
     const tripDirection = busData.tripDirection || 'pickup';
-    console.log(`🚦 Trip direction: ${tripDirection}`);
 
     // ✅ Use remainingStops as-is (driver app already reversed them for DROP)
     // Driver app reverses stops when starting DROP trip, so remainingStops is already in travel order
     const stopsForCalculation = busData.remainingStops;
     
-    console.log(`📍 Calculating ETAs for ${stopsForCalculation.length} stops (${tripDirection})`);
-    console.log(`   First stop: ${stopsForCalculation[0].name}`);
-    console.log(`   Last stop: ${stopsForCalculation[stopsForCalculation.length - 1].name}`);
     
     // ✅ Use Ola Maps Directions API (POST with query params, lat,lng order)
     const origin = `${gpsData.latitude},${gpsData.longitude}`;
@@ -2490,11 +2294,6 @@ async function calculateAndUpdateETAs(schoolId, busId, gpsData, busData) {
           .map((stop) => `${stop.latitude},${stop.longitude}`)
           .join("|")
       : null;
-
-    console.log(`📡 Calling Ola Maps Directions API for ${stopsForCalculation.length} stops (${tripDirection} route)...`);
-    console.log(`   Origin: ${origin} (current bus location)`);
-    if (waypoints) console.log(`   Waypoints: ${waypoints}`);
-    console.log(`   Destination: ${destination}`);
 
     const params = {
       origin,
@@ -2528,7 +2327,6 @@ async function calculateAndUpdateETAs(schoolId, busId, gpsData, busData) {
       const route = response.data.routes[0];
       const legs = route.legs || [];
 
-      console.log(`✅ Received ${legs.length} route legs from Directions API`);
 
       // Calculate CUMULATIVE ETAs (time is cumulative, distance is per-leg)
       let cumulativeDuration = 0;
@@ -2547,7 +2345,6 @@ async function calculateAndUpdateETAs(schoolId, busId, gpsData, busData) {
           const etaMinutes = Math.round(cumulativeDuration / 60);
           const etaTimestamp = new Date(Date.now() + cumulativeDuration * 1000).toISOString();
 
-          console.log(`   📍 ${stop.name}: ${etaMinutes} min, ${(legDistanceMeters / 1000).toFixed(1)} km (leg)`);
 
           return {
             ...stop,
@@ -2577,9 +2374,7 @@ async function calculateAndUpdateETAs(schoolId, busId, gpsData, busData) {
           lastETACalculation: now, // Keep for backward compatibility
         });
 
-      console.log(`✅ Updated ${updatedStops.length} stop ETAs for bus ${busId}`);
     } else {
-      console.log(`⚠️ Invalid response from Ola Maps API`);
     }
     } catch (error) {
     console.error(`❌ Error calling Ola Maps API: ${error.message}`);
@@ -2589,7 +2384,6 @@ async function calculateAndUpdateETAs(schoolId, busId, gpsData, busData) {
     }
     
     // FALLBACK: Calculate ETAs using distance and average speed
-    console.log(`⚠️ Using fallback ETA calculation (distance-based) for ${tripDirection} trip`);
     const AVERAGE_SPEED_MPS = 8.33; // 30 km/h = 8.33 m/s (realistic city speed)
     
     // ✅ Use remainingStops as-is (already in travel order)
@@ -2613,7 +2407,6 @@ async function calculateAndUpdateETAs(schoolId, busId, gpsData, busData) {
       cumulativeDuration += legDurationSeconds;
       const etaMinutes = Math.round(cumulativeDuration / 60);
       
-      console.log(`   📍 ${stop.name || 'Stop'}: ${etaMinutes} min (cumulative: ${(cumulativeDuration / 60).toFixed(1)} min, leg: ${(legDistance / 1000).toFixed(1)} km) [FALLBACK]`);
       
       // Update previous location for next iteration
       previousLocation = { lat: stop.latitude, lng: stop.longitude };
@@ -2644,14 +2437,12 @@ async function calculateAndUpdateETAs(schoolId, busId, gpsData, busData) {
         etaCalculationMethod: 'fallback_distance',
       });
     
-    console.log(`✅ Updated ${updatedStops.length} stop ETAs using fallback calculation`);
   }
 }
 
 // Manual test endpoint to trigger notification logic (DEBUG ONLY)
 if (ENABLE_DEBUG_ENDPOINTS.value() === "true") {
 exports.testNotifications = onRequest(async (req, res) => {
-  console.log("🧪 Manual test notification trigger");
   
   try {
     // Call the same logic as scheduled function
@@ -2666,7 +2457,6 @@ exports.testNotifications = onRequest(async (req, res) => {
       .limit(10)
       .get();
     
-    console.log(`📋 Found ${studentsSnapshot.size} students`);
     
     if (studentsSnapshot.empty) {
       return res.json({ success: false, message: "No students found" });
@@ -2680,16 +2470,13 @@ exports.testNotifications = onRequest(async (req, res) => {
       const studentDocRef = doc.ref;
       const stopName = (student.stopping || student.stopLocation?.name || '').trim();
       
-      console.log(`👤 Student: ${student.name}, Bus: ${student.assignedBusId}, Stop: ${stopName}`);
       
       if (!student.assignedBusId || !stopName || !student.notificationPreferenceByTime) {
-        console.log(`⚠️ Skipped - missing data`);
         return;
       }
 
       const threshold = Number(student.notificationPreferenceByTime);
       if (!Number.isFinite(threshold)) {
-        console.log(`⚠️ Skipped - invalid notificationPreferenceByTime: ${student.notificationPreferenceByTime}`);
         return;
       }
       
@@ -2704,13 +2491,11 @@ exports.testNotifications = onRequest(async (req, res) => {
       });
     });
     
-    console.log(`🚌 Processing ${studentsByBus.size} buses`);
     
     const notifications = [];
     const results = [];
     
     for (const [busId, students] of studentsByBus) {
-      console.log(`🚌 Checking bus ${busId}`);
       
       const busSnapshot = await rtdb.ref(`bus_locations/${students[0].schoolId}/${busId}`).once('value');
       const busData = busSnapshot.val();
@@ -2720,7 +2505,6 @@ exports.testNotifications = onRequest(async (req, res) => {
         continue;
       }
       
-      console.log(`✅ Bus active with ${busData.remainingStops?.length || 0} remaining stops`);
       
       for (const student of students) {
         const stopName = student.resolvedStopName;
@@ -2739,10 +2523,8 @@ exports.testNotifications = onRequest(async (req, res) => {
         const eta = stopData.estimatedMinutesOfArrival;
         const threshold = Number(student.notificationPreferenceByTime);
         
-        console.log(`📊 ${student.name}: ETA ${eta} min, Preference ${threshold} min`);
         
         if (eta !== null && eta !== undefined && Number.isFinite(threshold) && eta <= threshold) {
-          console.log(`🎯 SHOULD NOTIFY!`);
           
           notifications.push({
             notification: {
@@ -2774,13 +2556,11 @@ exports.testNotifications = onRequest(async (req, res) => {
       }
     }
     
-    console.log(`📤 Sending ${notifications.length} notifications`);
     
     const sendResults = [];
     for (const payload of notifications) {
       try {
         const result = await admin.messaging().send(payload);
-        console.log(`✅ Sent! Message ID: ${result}`);
         sendResults.push({ success: true, messageId: result });
       } catch (error) {
         console.error(`❌ Failed:`, error.message);
@@ -2875,7 +2655,6 @@ async function refreshBusSchedulesCache(schoolId, busId) {
     }
 
     if (Object.keys(schedules).length === 0) {
-      console.log(`   ⚠️ No schedules found in Firestore for bus ${busId}`);
       return null;
     }
 
@@ -2889,7 +2668,6 @@ async function refreshBusSchedulesCache(schoolId, busId) {
     }
 
     await cacheRef.set(cachePayload);
-    console.log(`   ♻️ Refreshed schedule cache for bus ${busId} (found ${Object.keys(schedules).length} schedules)`);
     return schedules;
   } catch (error) {
     console.error(`   ❌ Failed to refresh schedule cache for bus ${busId}:`, error.message);
@@ -2904,7 +2682,7 @@ function normalizeScheduleForCache(scheduleId, scheduleData, overrides = {}) {
     routeId: overrides.routeId || scheduleId,
     routeName: scheduleData.routeName || 'Route',
     direction: scheduleData.direction || 'pickup',
-    daysOfWeek: Array.isArray(scheduleData.daysOfWeek) ? scheduleData.daysOfWeek : [],
+    daysOfWeek: Array.isArray(scheduleData.daysOfWeek) && scheduleData.daysOfWeek.length > 0 ? scheduleData.daysOfWeek : [1, 2, 3, 4, 5], // Default Mon-Fri if not configured
     startTime: scheduleData.startTime || '00:00',
     endTime: scheduleData.endTime || '23:59',
     stops: scheduleData.stops || scheduleData.stoppings || [],
@@ -2931,7 +2709,6 @@ exports.addStoppingLowerField = onRequest(
       }
 
       const db = admin.firestore();
-      console.log('🔧 Starting stoppingLower field migration...');
       
       // Get all schools
       const schoolsSnapshot = await db.collection('schooldetails').get();
@@ -2941,14 +2718,12 @@ exports.addStoppingLowerField = onRequest(
       
       for (const schoolDoc of schoolsSnapshot.docs) {
         const schoolId = schoolDoc.id;
-        console.log(`  📚 Processing school: ${schoolId}`);
         
         // Get all students in this school
         const studentsSnapshot = await db
           .collection(`schooldetails/${schoolId}/students`)
           .get();
         
-        console.log(`     Found ${studentsSnapshot.size} students`);
         
         const batch = db.batch();
         let batchCount = 0;
@@ -2966,7 +2741,6 @@ exports.addStoppingLowerField = onRequest(
           const stopName = student.stopping || student.stopLocation?.name || '';
           
           if (!stopName) {
-            console.log(`     ⚠️ Student ${studentDoc.id} has no stop name - skipping`);
             totalSkipped++;
             continue;
           }
@@ -2981,7 +2755,6 @@ exports.addStoppingLowerField = onRequest(
           // Firestore batch limit is 500 operations
           if (batchCount >= 500) {
             await batch.commit();
-            console.log(`     ✅ Committed batch of ${batchCount} students`);
             batchCount = 0;
           }
         }
@@ -2989,13 +2762,9 @@ exports.addStoppingLowerField = onRequest(
         // Commit remaining updates
         if (batchCount > 0) {
           await batch.commit();
-          console.log(`     ✅ Committed final batch of ${batchCount} students`);
         }
       }  
       
-      console.log(`✅ Migration complete!`);
-      console.log(`   Updated: ${totalUpdated} students`);
-      console.log(`   Skipped: ${totalSkipped} students (already had stoppingLower)`);
       
       res.status(200).json({
         success: true,

@@ -368,11 +368,12 @@ class AddStudentScreen extends StatelessWidget {
             children: [
               // Bus Assignment Dropdown
               Obx(() {
+                // Ensure selected bus exists in the list
+                final busExists = selectedBusId.value.isNotEmpty &&
+                    busController.buses.any((b) => b.id == selectedBusId.value);
                 return DropdownButtonFormField<String>(
                   decoration: const InputDecoration(labelText: 'Assign Bus'),
-                  value: selectedBusId.value.isNotEmpty
-                      ? selectedBusId.value
-                      : null,
+                  value: busExists ? selectedBusId.value : null,
                   items: busController.buses.map((Bus bus) {
                     return DropdownMenuItem(
                       value: bus.id,
@@ -418,9 +419,12 @@ class AddStudentScreen extends StatelessWidget {
                   return const Text('No routes assigned to this bus');
                 }
 
+                // Ensure selected route exists in the list
+                final routeExists = selectedRouteId.value.isNotEmpty &&
+                    routeOptions.any((r) => r['id'] == selectedRouteId.value);
                 return DropdownButtonFormField<String>(
                   decoration: const InputDecoration(labelText: 'Select Route'),
-                  value: selectedRouteId.value.isNotEmpty ? selectedRouteId.value : null,
+                  value: routeExists ? selectedRouteId.value : null,
                   items: routeOptions.map((r) {
                     return DropdownMenuItem(
                       value: r['id'] as String,
@@ -448,11 +452,12 @@ class AddStudentScreen extends StatelessWidget {
               const SizedBox(height: 10),
               // Driver Assignment Dropdown
               Obx(() {
+                // Ensure selected driver exists in the list
+                final driverExists = selectedDriverId.value.isNotEmpty &&
+                    driverController.drivers.any((d) => d.id == selectedDriverId.value);
                 return DropdownButtonFormField<String>(
                   decoration: const InputDecoration(labelText: 'Assign Driver'),
-                  value: selectedDriverId.value.isNotEmpty
-                      ? selectedDriverId.value
-                      : null,
+                  value: driverExists ? selectedDriverId.value : null,
                   items: driverController.drivers.map((driver) {
                     return DropdownMenuItem(
                       value: driver.id,
@@ -713,10 +718,13 @@ class AddStudentScreen extends StatelessWidget {
               const SizedBox(height: 10),
               // Notification Type Dropdown
               Obx(() {
+                // Valid notification types
+                const validTypes = ['Text Notification', 'Voice Notification'];
+                final isValid = validTypes.contains(notificationType.value);
                 return DropdownButtonFormField<String>(
                   decoration:
                       const InputDecoration(labelText: 'Notification Type'),
-                  value: notificationType.value,
+                  value: isValid ? notificationType.value : 'Text Notification',
                   items: const [
                     DropdownMenuItem(
                       value: 'Text Notification',
@@ -737,10 +745,13 @@ class AddStudentScreen extends StatelessWidget {
               const SizedBox(height: 10),
               // Language Preference Dropdown
               Obx(() {
+                // Valid languages
+                const validLanguages = ['English', 'Tamil', 'Kannada', 'Telugu', 'Malayalam', 'Hindi'];
+                final isValid = validLanguages.contains(language.value);
                 return DropdownButtonFormField<String>(
                   decoration:
                       const InputDecoration(labelText: 'Language Preference'),
-                  value: language.value,
+                  value: isValid ? language.value : 'English',
                   items: const [
                     DropdownMenuItem(
                       value: 'English',

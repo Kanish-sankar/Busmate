@@ -1,0 +1,9 @@
+{
+  "DEV_FIREBASE_WEB_API_KEY": "AIzaSyAM-7fKqG57E3Q7QK4K5tIxN75RBZ8TkcY",
+  "DEV_FIREBASE_WEB_APP_ID": "1:483950616892:web:a0b67981faa5e9dd27be39",
+  "DEV_FIREBASE_MESSAGING_SENDER_ID": "483950616892",
+  "DEV_FIREBASE_PROJECT_ID": "busmate-dev",
+  "DEV_FIREBASE_STORAGE_BUCKET": "busmate-dev.firebasestorage.app",
+  "DEV_FIREBASE_AUTH_DOMAIN": "busmate-dev.firebaseapp.com",
+  "DEV_FIREBASE_DATABASE_URL": "https://busmate-dev-default-rtdb.asia-southeast1.firebasedatabase.app"
+}

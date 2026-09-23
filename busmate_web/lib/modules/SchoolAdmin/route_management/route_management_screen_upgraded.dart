@@ -102,6 +102,7 @@ class _RouteManagementScreenUpgradedState extends State<RouteManagementScreenUpg
   }
 
   PreferredSizeWidget _buildAppBar() {
+    final isCompact = MediaQuery.of(context).size.width < 700;
     return AppBar(
       elevation: 0,
       backgroundColor: Colors.white,
@@ -117,45 +118,56 @@ class _RouteManagementScreenUpgradedState extends State<RouteManagementScreenUpg
             child: const Icon(Icons.route, color: Colors.blue),
           ),
           const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                widget.routeName,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
+          Flexible(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  widget.routeName,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
-              ),
-              Text(
-                'Route Management',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey[600],
-                  fontWeight: FontWeight.normal,
+                Text(
+                  'Route Management',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                    fontWeight: FontWeight.normal,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ],
       ),
       actions: [
         // Bus Assignment Button
-        _buildBusAssignmentButton(),
+        _buildBusAssignmentButton(isCompact: isCompact),
         
-        const SizedBox(width: 8),
-        const VerticalDivider(),
-        const SizedBox(width: 8),
+        if (!isCompact) const SizedBox(width: 8),
+        if (!isCompact) Container(height: 24, width: 1, color: Colors.grey[300]),
+        if (!isCompact) const SizedBox(width: 8),
         
         // Waypoint Mode Toggle Button
-        _buildWaypointModeButton(),
+        _buildWaypointModeButton(isCompact: isCompact),
         
-        const SizedBox(width: 8),
-        const VerticalDivider(),
-        const SizedBox(width: 8),
+        if (!isCompact) const SizedBox(width: 8),
+        if (!isCompact) Container(height: 24, width: 1, color: Colors.grey[300]),
+        if (!isCompact) const SizedBox(width: 8),
         
         // Save Button
         Obx(() {
+          if (isCompact) {
+            return IconButton(
+              icon: const Icon(Icons.save),
+              onPressed: routeController.stops.isEmpty ? null : _saveRoute,
+              tooltip: 'Save Route',
+            );
+          }
           return ElevatedButton.icon(
             icon: const Icon(Icons.save, size: 18),
             label: const Text('Save Route'),
@@ -167,7 +179,7 @@ class _RouteManagementScreenUpgradedState extends State<RouteManagementScreenUpg
           );
         }),
         
-        const SizedBox(width: 16),
+        const SizedBox(width: 8),
       ],
     );
   }
@@ -276,7 +288,35 @@ class _RouteManagementScreenUpgradedState extends State<RouteManagementScreenUpg
     );
   }
   
-  Widget _buildWaypointModeButton() {
+  Widget _buildWaypointModeButton({bool isCompact = false}) {
+    void toggle() {
+      setState(() {
+        _isWaypointMode = !_isWaypointMode;
+        if (_isWaypointMode) {
+          _repositioningStopIndex = null;
+          Get.snackbar(
+            '📍 Waypoint Mode Active',
+            'Click on the map to add waypoints between stops',
+            snackPosition: SnackPosition.BOTTOM,
+            duration: const Duration(seconds: 3),
+            backgroundColor: Colors.purple,
+            colorText: Colors.white,
+          );
+        }
+      });
+    }
+
+    if (isCompact) {
+      return IconButton(
+        icon: Icon(
+          _isWaypointMode ? Icons.location_on : Icons.add_location_alt,
+          color: _isWaypointMode ? Colors.purple : null,
+        ),
+        onPressed: toggle,
+        tooltip: _isWaypointMode ? 'Waypoint Mode ON' : 'Add Waypoints',
+      );
+    }
+
     return ElevatedButton.icon(
       icon: Icon(
         _isWaypointMode ? Icons.location_on : Icons.add_location_alt,
@@ -284,23 +324,7 @@ class _RouteManagementScreenUpgradedState extends State<RouteManagementScreenUpg
         color: _isWaypointMode ? Colors.white : null,
       ),
       label: Text(_isWaypointMode ? 'Waypoint Mode ON' : 'Add Waypoints'),
-      onPressed: () {
-        setState(() {
-          _isWaypointMode = !_isWaypointMode;
-          if (_isWaypointMode) {
-            // Cancel repositioning if active
-            _repositioningStopIndex = null;
-            Get.snackbar(
-              '📍 Waypoint Mode Active',
-              'Click on the map to add waypoints between stops',
-              snackPosition: SnackPosition.BOTTOM,
-              duration: const Duration(seconds: 3),
-              backgroundColor: Colors.purple,
-              colorText: Colors.white,
-            );
-          }
-        });
-      },
+      onPressed: toggle,
       style: ElevatedButton.styleFrom(
         elevation: 0,
         backgroundColor: _isWaypointMode ? Colors.purple : null,
@@ -310,7 +334,7 @@ class _RouteManagementScreenUpgradedState extends State<RouteManagementScreenUpg
     );
   }
 
-  Widget _buildBusAssignmentButton() {
+  Widget _buildBusAssignmentButton({bool isCompact = false}) {
     return StreamBuilder<DocumentSnapshot>(
       stream: FirebaseFirestore.instance
           .collection('schooldetails')
@@ -338,6 +362,26 @@ class _RouteManagementScreenUpgradedState extends State<RouteManagementScreenUpg
             builder: (context, busSnapshot) {
               if (busSnapshot.hasData && busSnapshot.data!.exists) {
                 final busData = busSnapshot.data!.data() as Map<String, dynamic>;
+                if (isCompact) {
+                  return PopupMenuButton<String>(
+                    icon: const Icon(Icons.directions_bus, color: Colors.green),
+                    tooltip: 'Bus ${busData['busNo']}',
+                    onSelected: (value) {
+                      if (value == 'change') _showBusAssignmentDialog();
+                      else if (value == 'remove') _removeBusAssignment();
+                    },
+                    itemBuilder: (context) => [
+                      const PopupMenuItem(
+                        value: 'change',
+                        child: Row(children: [Icon(Icons.swap_horiz, size: 18), SizedBox(width: 8), Text('Change Bus')]),
+                      ),
+                      const PopupMenuItem(
+                        value: 'remove',
+                        child: Row(children: [Icon(Icons.remove_circle, size: 18, color: Colors.red), SizedBox(width: 8), Text('Remove Bus', style: TextStyle(color: Colors.red))]),
+                      ),
+                    ],
+                  );
+                }
                 return PopupMenuButton<String>(
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -399,6 +443,13 @@ class _RouteManagementScreenUpgradedState extends State<RouteManagementScreenUpg
           );
         } else {
           // No bus assigned
+          if (isCompact) {
+            return IconButton(
+              icon: const Icon(Icons.add_circle, color: Colors.blue),
+              onPressed: _showBusAssignmentDialog,
+              tooltip: 'Assign Bus',
+            );
+          }
           return TextButton.icon(
             icon: const Icon(Icons.add_circle, size: 16),
             label: const Text('Assign Bus'),

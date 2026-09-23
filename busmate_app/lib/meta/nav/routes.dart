@@ -11,6 +11,7 @@ abstract class Routes {
   static const stopNotify = _Paths.stopNotify;
   static const dashBoard = _Paths.dashBoard;
   static const driverScreen = _Paths.driverScreen;
+  static const appAdoption = _Paths.appAdoption;
 }
 
 abstract class _Paths {
@@ -24,4 +25,5 @@ abstract class _Paths {
   static const stopNotify = '/stopNotify';
   static const dashBoard = '/dashBoard';
   static const driverScreen = '/driverScreen';
+  static const appAdoption = '/appAdoption';
 }

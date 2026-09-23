@@ -331,6 +331,7 @@ class _AddDriverScreenUpgradedState extends State<AddDriverScreenUpgraded> {
 
                         return DropdownButtonFormField<String>(
                           value: selectedBusId.value.isEmpty ? null : selectedBusId.value,
+                          isExpanded: true,
                           decoration: InputDecoration(
                             labelText: 'Assign Bus (Optional)',
                             prefixIcon: const Icon(Icons.directions_bus),
@@ -343,11 +344,17 @@ class _AddDriverScreenUpgradedState extends State<AddDriverScreenUpgraded> {
                           items: [
                             const DropdownMenuItem<String>(
                               value: null,
-                              child: Text('No Bus Assigned'),
+                              child: Text(
+                                'No Bus Assigned',
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
                             ...availableBuses.map((bus) => DropdownMenuItem<String>(
                                   value: bus.id,
-                                  child: Text('${bus.busNo} - ${bus.busVehicleNo}'),
+                                  child: Text(
+                                    '${bus.busNo} - ${bus.busVehicleNo}',
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
                                 )),
                           ],
                           onChanged: (value) => selectedBusId.value = value ?? '',
@@ -392,9 +399,12 @@ class _AddDriverScreenUpgradedState extends State<AddDriverScreenUpgraded> {
             ),
           ),
           const SizedBox(width: 12),
-          Text(
-            isEdit ? 'Edit Driver' : 'Add New Driver',
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          Flexible(
+            child: Text(
+              isEdit ? 'Edit Driver' : 'Add New Driver',
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
         ],
       ),
@@ -417,14 +427,15 @@ class _AddDriverScreenUpgradedState extends State<AddDriverScreenUpgraded> {
                     children: [
                       const Text('Driver Type', style: TextStyle(fontWeight: FontWeight.bold)),
                       const SizedBox(height: 6),
-                      Row(
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
                         children: [
                           ChoiceChip(
                             label: const Text('Software (App)'),
                             selected: driverType.value == 'software',
                             onSelected: (s) => driverType.value = 'software',
                           ),
-                          const SizedBox(width: 8),
                           ChoiceChip(
                             label: const Text('Hardware (Device)'),
                             selected: driverType.value == 'hardware',
@@ -473,12 +484,15 @@ class _AddDriverScreenUpgradedState extends State<AddDriverScreenUpgraded> {
                   child: Icon(icon, color: color, size: 20),
                 ),
                 const SizedBox(width: 12),
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: color,
+                Flexible(
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: color,
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],

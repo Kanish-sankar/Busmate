@@ -1,4 +1,5 @@
 import 'package:busmate_web/modules/SchoolAdmin/student_management/add_student_screen_upgraded.dart';
+import 'package:busmate_web/modules/SchoolAdmin/student_management/bulk_upload_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'student_controller.dart';
@@ -93,13 +94,35 @@ class _StudentManagementScreenUpgradedState extends State<StudentManagementScree
             child: Icon(Icons.school, color: Colors.green[700], size: 24),
           ),
           const SizedBox(width: 12),
-          const Text(
-            'Student Management',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          const Flexible(
+            child: Text(
+              'Student Management',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
         ],
       ),
       actions: [
+        // Bulk Upload Button
+        if (widget.fromSuperAdmin)
+          TextButton.icon(
+            icon: const Icon(Icons.upload_file),
+            label: const Text('Bulk Upload'),
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (context) => BulkUploadDialog(
+                  schoolId: controller.schoolId,
+                  schoolName: controller.schoolId, // Will fetch from Firestore if needed
+                  studentController: controller,
+                ),
+              );
+            },
+            style: TextButton.styleFrom(
+              foregroundColor: const Color(0xFF2196F3),
+            ),
+          ),
         IconButton(
           icon: const Icon(Icons.refresh_rounded),
           onPressed: () => controller.fetchStudents(),

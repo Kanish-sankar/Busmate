@@ -768,10 +768,13 @@ class DriverController extends GetxController {
       }
 
       // Create a map of initialization data
+      final storage = GetStorage();
+      final appEnv = (storage.read('app_env') ?? 'prod').toString();
       final Map<String, dynamic> initData = {
         'schoolId': schoolId,
         'busId': busId,
         'busRouteType': routeType, // <-- pass route type
+        'appEnv': appEnv,
         'timestamp': DateTime.now().millisecondsSinceEpoch
       };
       // Register location update with better settings

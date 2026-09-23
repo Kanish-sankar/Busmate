@@ -6,8 +6,28 @@ class LoginScreen extends StatelessWidget {
   final TextEditingController emailController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
   final AuthController authController = Get.find<AuthController>();
+  final FocusNode _passwordFocusNode = FocusNode();
 
   LoginScreen({super.key});
+
+  void _login() async {
+    if (emailController.text.isEmpty || passwordController.text.isEmpty) {
+      Get.snackbar(
+        'Error',
+        'Please enter email and password',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: Colors.red[50],
+        colorText: Colors.red[900],
+        margin: const EdgeInsets.all(16),
+        borderRadius: 12,
+      );
+      return;
+    }
+    await authController.login(
+      emailController.text.trim(),
+      passwordController.text,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -429,6 +449,8 @@ class LoginScreen extends StatelessWidget {
                   hintText: 'Enter your email',
                   icon: Icons.email_outlined,
                   keyboardType: TextInputType.emailAddress,
+                  textInputAction: TextInputAction.next,
+                  onSubmitted: (_) => _passwordFocusNode.requestFocus(),
                 ),
               ],
             ),
@@ -466,6 +488,9 @@ class LoginScreen extends StatelessWidget {
                   hintText: 'Enter your password',
                   icon: Icons.lock_outline,
                   isPassword: true,
+                  focusNode: _passwordFocusNode,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => _login(),
                 ),
               ],
             ),
@@ -492,25 +517,7 @@ class LoginScreen extends StatelessWidget {
               child: ElevatedButton(
                 onPressed: authController.isLoading.value
                     ? null
-                    : () async {
-                        if (emailController.text.isEmpty ||
-                            passwordController.text.isEmpty) {
-                          Get.snackbar(
-                            'Error',
-                            'Please enter email and password',
-                            snackPosition: SnackPosition.BOTTOM,
-                            backgroundColor: Colors.red[50],
-                            colorText: Colors.red[900],
-                            margin: const EdgeInsets.all(16),
-                            borderRadius: 12,
-                          );
-                          return;
-                        }
-                        await authController.login(
-                          emailController.text.trim(),
-                          passwordController.text,
-                        );
-                      },
+                    : _login,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF1565C0),
                   foregroundColor: Colors.white,
@@ -602,6 +609,9 @@ class LoginScreen extends StatelessWidget {
     required IconData icon,
     TextInputType? keyboardType,
     bool isPassword = false,
+    FocusNode? focusNode,
+    TextInputAction? textInputAction,
+    ValueChanged<String>? onSubmitted,
   }) {
     return Container(
       decoration: BoxDecoration(
@@ -611,8 +621,11 @@ class LoginScreen extends StatelessWidget {
       ),
       child: TextField(
         controller: controller,
+        focusNode: focusNode,
         obscureText: isPassword,
         keyboardType: keyboardType,
+        textInputAction: textInputAction,
+        onSubmitted: onSubmitted,
         style: const TextStyle(
           fontSize: 16,
           fontWeight: FontWeight.w500,

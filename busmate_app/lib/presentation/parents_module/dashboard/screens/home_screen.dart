@@ -14,6 +14,19 @@ class HomeScreen extends GetView<DashboardController> {
 
   @override
   Widget build(BuildContext context) {
+    final userRole = (GetStorage().read('userRole') ?? '').toString().toLowerCase().trim();
+    const adminRoles = {
+      'admin',
+      'super_admin',
+      'superadmin',
+      'regional_admin',
+      'regionaladmin',
+      'school_admin',
+      'schooladmin',
+      'owner',
+    };
+    final isAdminRole = adminRoles.contains(userRole);
+
     return GetBuilder<DashboardController>(
       builder: (controller) {
         return SafeArea(
@@ -36,17 +49,32 @@ class HomeScreen extends GetView<DashboardController> {
                         Text("home".tr,
                             style: TextStyle(
                                 fontSize: 20.sp, fontWeight: FontWeight.bold)),
-                        IconButton(
-                          icon: Icon(
-                            Icons.logout_rounded,
-                            size: 20.sp,
-                          ),
-                          onPressed: () async {
-                            // Direct logout without using Get.find
-                            await FirebaseAuth.instance.signOut();
-                            GetStorage().erase();
-                            Get.offAllNamed(Routes.sigIn);
-                          },
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (isAdminRole)
+                              IconButton(
+                                icon: Icon(
+                                  Icons.analytics_outlined,
+                                  size: 20.sp,
+                                ),
+                                onPressed: () {
+                                  Get.toNamed(Routes.appAdoption);
+                                },
+                              ),
+                            IconButton(
+                              icon: Icon(
+                                Icons.logout_rounded,
+                                size: 20.sp,
+                              ),
+                              onPressed: () async {
+                                // Direct logout without using Get.find
+                                await FirebaseAuth.instance.signOut();
+                                GetStorage().erase();
+                                Get.offAllNamed(Routes.sigIn);
+                              },
+                            ),
+                          ],
                         ),
                       ],
                     ),

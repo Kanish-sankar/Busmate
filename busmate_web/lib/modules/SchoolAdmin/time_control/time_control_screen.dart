@@ -469,7 +469,8 @@ class _RouteScheduleFormDialogState extends State<_RouteScheduleFormDialog> {
       direction = widget.schedule!.direction;
       selectedRouteId = widget.schedule!.routeRefId;
       selectedRouteName = widget.schedule!.routeRefName;
-      selectedDays = widget.schedule!.daysOfWeek;
+      // Use a copy — never mutate the original schedule's list in place
+      selectedDays = List<int>.from(widget.schedule!.daysOfWeek);
 
       // Parse time
       final startParts = widget.schedule!.startTime.split(':');

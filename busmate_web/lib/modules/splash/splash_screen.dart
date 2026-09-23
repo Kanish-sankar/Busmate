@@ -22,7 +22,11 @@ class _SplashScreenState extends State<SplashScreen> {
     // Logged-in users are routed by AuthController role logic.
     if (_authController.user.value == null && !_authController.isLoading.value) {
       _navigated = true;
-      Get.offAllNamed(Routes.LOGIN);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          Get.offAllNamed(Routes.LOGIN);
+        }
+      });
     }
   }
 
@@ -33,7 +37,7 @@ class _SplashScreenState extends State<SplashScreen> {
 
     // React when Firebase auth state changes.
     _userWorker = ever(_authController.user, (_) => _routeIfNeeded());
-    _routeIfNeeded();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _routeIfNeeded());
 
     // Fallback to avoid staying forever on splash if no auth event arrives.
     Future.delayed(const Duration(seconds: 6), _routeIfNeeded);
